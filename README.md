@@ -136,7 +136,7 @@ print(user.name) # plaintext (untouched)
 You can disable auto-encryption/decryption by setting the `encryption` parameter to `EncryptionMode.DISABLE_AUTO`. You will then need to call `encrypt_data()` and `decrypt_data()` manually.
 
 ```py
-from pydantic_encryption import EncryptableObject, EncryptedField, BaseModel
+from pydantic_encryption import EncryptableObject, EncryptedField, BaseModel, EncryptionMode
 
 # Set encryption to EncryptionMode.DISABLE_AUTO to disable auto-encryption/decryption
 class UserResponse(BaseModel, EncryptableObject, encryption=EncryptionMode.DISABLE_AUTO):
@@ -155,7 +155,7 @@ print(user.password) # encrypted
 
 ## BaseModel Inheritance
 
-The encryption mode follows its children, so each child will automatically encrypt/decrypt the fields unless the encryption mode is set to EncryptionMode.DISABLE_AUTO.
+The encryption mode follows its children, so each child will automatically encrypt/decrypt the fields unless the encryption mode is set to `EncryptionMode.DISABLE_AUTO`.
 
 ```py
 from sqlmodel import SQLModel
