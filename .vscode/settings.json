@@ -1,0 +1,13 @@
+{
+    "[python]": {
+      "editor.defaultFormatter": "ms-python.black-formatter",
+      "editor.formatOnSave": true,
+      "editor.wordWrap": "off",
+      "editor.rulers": [120],
+      "editor.tabSize": 4,
+      "files.trimTrailingWhitespace": true
+    },
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "ms-python.black-formatter",
+    "python.languageServer": "None"
+  }
