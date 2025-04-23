@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = [".env.local", ".env"]
         case_sensitive = True
+        extra = "ignore"
 
     @override
     def model_post_init(self, context: Any, /) -> None:
