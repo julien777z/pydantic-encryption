@@ -22,6 +22,20 @@ poetry add pydantic_encryption
 - Support for BaseModel inheritance
 - Support for generics
 
+## Example
+
+```py
+from pydantic_encryption import BaseModel, EncryptedModel, EncryptedField
+
+class User(BaseModel, EncryptedModel):
+    name: str
+    password: EncryptedField[str] # Encrypt this field
+
+user = User(name="John Doe", password="123456")
+print(user.password) # encrypted
+```
+
+
 
 ## Choose an Encryption Method
 
@@ -63,13 +77,16 @@ class MyModel(BaseModel, EncryptedModel, MyEncryptableObject):
 
 ## Encryption
 
+You can encrypt any field by annotating with `EncryptedField` and inheriting from `EncryptedModel`.
+
+Alternatively, you can use `EncryptableObject` and set the `encryption` parameter to `EncryptionMode.ENCRYPT`.
+
 ```py
 from pydantic_encryption import EncryptedModel, EncryptableObject, EncryptedField, BaseModel
 
-# Encrypt any field by annotating with EncryptedField and inheriting from EncryptedModel
 class User(BaseModel, EncryptedModel):
     name: str
-    password: EncryptedField[str]
+    password: EncryptedField[str] # Encrypt this field
 
 user = User(name="John Doe", password="123456")
 print(user.password) # encrypted
@@ -88,13 +105,16 @@ print(user.name) # plaintext (untouched)
 
 ## Decryption
 
+Similar to encryption, you can decrypt any field by annotating with `EncryptedField` and inheriting from `DecryptedModel`.
+
+Alternatively, you can use `EncryptableObject` and set the `encryption` parameter to `EncryptionMode.DECRYPT`.
+
 ```py
 from pydantic_encryption import DecryptedModel, EncryptableObject, EncryptedField, BaseModel
 
-# Decrypt any field by annotating with EncryptedField and inheriting from DecryptedModel
 class UserResponse(BaseModel, DecryptedModel):
     name: str
-    password: EncryptedField[str]
+    password: EncryptedField[str] # Decrypt this field
 
 user = UserResponse(**dict(user))
 print(user.password) # decrypted
@@ -103,7 +123,7 @@ print(user.name) # plaintext (untouched)
 # Or use EncryptableObject directly:
 class UserResponse(BaseModel, EncryptableObject, encryption=EncryptionMode.DECRYPT):
     name: str
-    password: EncryptedField[str]
+    password: EncryptedField[str] # Decrypt this field
 
 user = UserResponse(**dict(user))
 print(user.password) # decrypted
@@ -113,6 +133,8 @@ print(user.name) # plaintext (untouched)
 
 ## Disable Auto-Encryption/Decryption
 
+You can disable auto-encryption/decryption by setting the `encryption` parameter to `EncryptionMode.DISABLE_AUTO`. You will then need to call `encrypt_data()` and `decrypt_data()` manually.
+
 ```py
 from pydantic_encryption import EncryptableObject, EncryptedField, BaseModel
 
@@ -121,7 +143,7 @@ class UserResponse(BaseModel, EncryptableObject, encryption=EncryptionMode.DISAB
     name: str
     password: EncryptedField[str]
 
-# To encrypt/decrypt, call `encrypt_data` and `decrypt_data`:
+# To encrypt/decrypt, call `encrypt_data()` or `decrypt_data()`:
 user = UserResponse(name="John Doe", password="ENCRYPTED_PASSWORD")
 
 user.decrypt_data()
@@ -133,16 +155,16 @@ print(user.password) # encrypted
 
 ## BaseModel Inheritance
 
-```py
-# Imagine you have multiple nested BaseModels:
+The encryption mode follows its children, so each child will automatically encrypt/decrypt the fields unless the encryption mode is set to EncryptionMode.DISABLE_AUTO.
 
+```py
 from sqlmodel import SQLModel
 
 class UserBase(SQLModel, DecryptedModel, table=False): # SQLModel is a subclass of BaseModel
     name: str
     password: EncryptedField[str]
 
-class User(UserBase, table=True):
+class User(UserBase, table=True): # Even though we did not specify the encryption mode, it is inherited from UserBase
     pass
 
 user = User(name="John Doe", password="ENCRYPTED_PASSWORD")
@@ -150,6 +172,8 @@ print(user.password) # decrypted
 ```
 
 ## Generics
+
+Each BaseModel has an additional helpful method that will tell you its generic type.
 
 To use generics, you must install this package with the `generics` extra: `poetry add pydantic_encryption --with generics`.
 
