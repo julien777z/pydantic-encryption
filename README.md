@@ -29,7 +29,7 @@ from pydantic_encryption import BaseModel, EncryptedModel, EncryptedField
 
 class User(BaseModel, EncryptedModel):
     name: str
-    password: EncryptedField[str] # Encrypt this field
+    password: EncryptedField # Encrypt this field
 
 user = User(name="John Doe", password="123456")
 print(user.password) # encrypted
@@ -86,7 +86,7 @@ from pydantic_encryption import EncryptedModel, EncryptableObject, EncryptedFiel
 
 class User(BaseModel, EncryptedModel):
     name: str
-    password: EncryptedField[str] # Encrypt this field
+    password: EncryptedField # Encrypt this field
 
 user = User(name="John Doe", password="123456")
 print(user.password) # encrypted
@@ -95,7 +95,7 @@ print(user.name) # plaintext (untouched)
 # Or use EncryptableObject directly:
 class User(BaseModel, EncryptableObject, encryption=EncryptionMode.ENCRYPT):
     name: str
-    password: EncryptedField[str]
+    password: EncryptedField
 
 user = User(name="John Doe", password="123456")
 print(user.password) # encrypted
@@ -114,7 +114,7 @@ from pydantic_encryption import DecryptedModel, EncryptableObject, EncryptedFiel
 
 class UserResponse(BaseModel, DecryptedModel):
     name: str
-    password: EncryptedField[str] # Decrypt this field
+    password: EncryptedField # Decrypt this field
 
 user = UserResponse(**dict(user))
 print(user.password) # decrypted
@@ -123,7 +123,7 @@ print(user.name) # plaintext (untouched)
 # Or use EncryptableObject directly:
 class UserResponse(BaseModel, EncryptableObject, encryption=EncryptionMode.DECRYPT):
     name: str
-    password: EncryptedField[str] # Decrypt this field
+    password: EncryptedField # Decrypt this field
 
 user = UserResponse(**dict(user))
 print(user.password) # decrypted
@@ -141,7 +141,7 @@ from pydantic_encryption import EncryptableObject, EncryptedField, BaseModel
 # Set encryption to EncryptionMode.DISABLE_AUTO to disable auto-encryption/decryption
 class UserResponse(BaseModel, EncryptableObject, encryption=EncryptionMode.DISABLE_AUTO):
     name: str
-    password: EncryptedField[str]
+    password: EncryptedField
 
 # To encrypt/decrypt, call `encrypt_data()` or `decrypt_data()`:
 user = UserResponse(name="John Doe", password="ENCRYPTED_PASSWORD")
@@ -162,7 +162,7 @@ from sqlmodel import SQLModel
 
 class UserBase(SQLModel, DecryptedModel, table=False): # SQLModel is a subclass of BaseModel
     name: str
-    password: EncryptedField[str]
+    password: EncryptedField
 
 class User(UserBase, table=True): # Even though we did not specify the encryption mode, it is inherited from UserBase
     pass
