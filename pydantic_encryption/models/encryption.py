@@ -16,11 +16,12 @@ except ImportError:
 else:
     evervault_client = evervault.Client(app_uuid=settings.EVERVAULT_APP_ID, api_key=settings.EVERVAULT_API_KEY)
 
-__all__ = ["EncryptionMode", "EncryptedField", "EncryptedModel", "DecryptedModel", "EncryptableObject"]
+__all__ = ["EncryptionMode", "EncryptedField", "EncryptedModel", "DecryptedModel", "EncryptableObject", "EncryptedField"]
 
 class EncryptionMode(Enum):
     """Controls whether to encrypt or decrypt the fields."""
 
+    DISABLE_AUTO = auto()
     ENCRYPT = auto()
     DECRYPT = auto()
 
@@ -46,7 +47,7 @@ class EncryptableObject:
     def encrypt_data(self) -> None:
         """Encrypt data using Evervault."""
 
-        if self._encryption != EncryptionMode.ENCRYPT:
+        if self._encryption not in (EncryptionMode.ENCRYPT, EncryptionMode.DISABLE_AUTO):
             raise ValueError("Encryption is not enabled for this model.")
 
         if not evervault_client:
@@ -61,7 +62,7 @@ class EncryptableObject:
     def decrypt_data(self) -> None:
         """Decrypt data using Evervault. After this call, all decrypted fields are type str."""
 
-        if self._encryption != EncryptionMode.DECRYPT:
+        if self._encryption not in (EncryptionMode.DECRYPT, EncryptionMode.DISABLE_AUTO):
             raise ValueError("Decryption is not enabled for this model.")
 
         if not evervault_client:

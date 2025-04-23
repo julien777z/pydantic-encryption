@@ -27,7 +27,7 @@ poetry add pydantic_encryption
 
 ### Evervault
 
-If you install this package with the `evervault` extra, you can use Evervault to encrypt and decrypt fields.
+If you install this package with the `evervault` extra, you can use [Evervault](https://evervault.com/) to encrypt and decrypt fields.
 
 You need to set the following environment variables or add them to your `.env` file:
 
@@ -111,7 +111,27 @@ print(user.name) # plaintext (untouched)
 
 ```
 
-## BaseModel inheritance
+## Disable Auto-Encryption/Decryption
+
+```py
+from pydantic_encryption import EncryptableObject, EncryptedField, BaseModel
+
+# Set encryption to EncryptionMode.DISABLE_AUTO to disable auto-encryption/decryption
+class UserResponse(BaseModel, EncryptableObject, encryption=EncryptionMode.DISABLE_AUTO):
+    name: str
+    password: EncryptedField[str]
+
+# To encrypt/decrypt, call `encrypt_data` and `decrypt_data`:
+user = UserResponse(name="John Doe", password="ENCRYPTED_PASSWORD")
+
+user.decrypt_data()
+print(user.password) # decrypted
+
+user.encrypt_data()
+print(user.password) # encrypted
+```
+
+## BaseModel Inheritance
 
 ```py
 # Imagine you have multiple nested BaseModels:
