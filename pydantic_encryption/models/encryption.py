@@ -51,7 +51,16 @@ class EncryptableObject:
     def __init_subclass__(cls, encryption: EncryptionMode | None = None, **kwargs):
         super().__init_subclass__(**kwargs)
 
-        parent_encryption = getattr(cls.__mro__[1], "_encryption", None)
+        # Check all parent classes for an encryption mode
+        parent_encryption: EncryptionMode | None = None
+
+        for parent in cls.__mro__[1:]:  # Skip the class itself
+            if (
+                hasattr(parent, "_encryption")
+                and getattr(parent, "_encryption") is not None
+            ):
+                parent_encryption = getattr(parent, "_encryption")
+                break
 
         cls._encryption = encryption or parent_encryption
 
