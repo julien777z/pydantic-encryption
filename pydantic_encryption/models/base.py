@@ -9,6 +9,7 @@ except ImportError:
 
 __all__ = ["BaseModel"]
 
+
 class BaseModel(PydanticBaseModel, EncryptableObject):
     """Base model for encryptable models."""
 
@@ -30,7 +31,9 @@ class BaseModel(PydanticBaseModel, EncryptableObject):
         """Get the type of the model."""
 
         if not get_filled_type:
-            raise NotImplementedError("Generics are not available. Please install this package with the `generics` extra.")
+            raise NotImplementedError(
+                "Generics are not available. Please install this package with the `generics` extra."
+            )
 
         if self._generic_type_value:
             return self._generic_type_value

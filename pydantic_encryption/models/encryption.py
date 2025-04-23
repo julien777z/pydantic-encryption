@@ -14,9 +14,19 @@ try:
 except ImportError:
     evervault_client = None
 else:
-    evervault_client = evervault.Client(app_uuid=settings.EVERVAULT_APP_ID, api_key=settings.EVERVAULT_API_KEY)
+    evervault_client = evervault.Client(
+        app_uuid=settings.EVERVAULT_APP_ID, api_key=settings.EVERVAULT_API_KEY
+    )
 
-__all__ = ["EncryptionMode", "EncryptedField", "EncryptedModel", "DecryptedModel", "EncryptableObject", "EncryptedField"]
+__all__ = [
+    "EncryptionMode",
+    "EncryptedField",
+    "EncryptedModel",
+    "DecryptedModel",
+    "EncryptableObject",
+    "EncryptedField",
+]
+
 
 class EncryptionMode(Enum):
     """Controls whether to encrypt or decrypt the fields."""
@@ -24,6 +34,7 @@ class EncryptionMode(Enum):
     DISABLE_AUTO = auto()
     ENCRYPT = auto()
     DECRYPT = auto()
+
 
 class _EncryptedFieldValue:
     pass
@@ -47,14 +58,21 @@ class EncryptableObject:
     def encrypt_data(self) -> None:
         """Encrypt data using Evervault."""
 
-        if self._encryption not in (EncryptionMode.ENCRYPT, EncryptionMode.DISABLE_AUTO):
+        if self._encryption not in (
+            EncryptionMode.ENCRYPT,
+            EncryptionMode.DISABLE_AUTO,
+        ):
             raise ValueError("Encryption is not enabled for this model.")
 
         if not evervault_client:
-            raise ValueError("Evervault is not available. Please install this package with the `evervault` extra.")
+            raise ValueError(
+                "Evervault is not available. Please install this package with the `evervault` extra."
+            )
 
         encrypted_fields = self.get_encrypted_fields()
-        encrypted_data_dict = evervault_client.encrypt(encrypted_fields, role=settings.EVERVAULT_ENCRYPTION_ROLE)
+        encrypted_data_dict = evervault_client.encrypt(
+            encrypted_fields, role=settings.EVERVAULT_ENCRYPTION_ROLE
+        )
 
         for field_name, value in encrypted_data_dict.items():
             setattr(self, field_name, value)
@@ -62,11 +80,16 @@ class EncryptableObject:
     def decrypt_data(self) -> None:
         """Decrypt data using Evervault. After this call, all decrypted fields are type str."""
 
-        if self._encryption not in (EncryptionMode.DECRYPT, EncryptionMode.DISABLE_AUTO):
+        if self._encryption not in (
+            EncryptionMode.DECRYPT,
+            EncryptionMode.DISABLE_AUTO,
+        ):
             raise ValueError("Decryption is not enabled for this model.")
 
         if not evervault_client:
-            raise ValueError("Evervault is not available. Please install this package with the `evervault` extra.")
+            raise ValueError(
+                "Evervault is not available. Please install this package with the `evervault` extra."
+            )
 
         encrypted_fields = self.get_encrypted_fields()
         decrypted_data: dict[str, str] = evervault_client.decrypt(encrypted_fields)
@@ -93,7 +116,9 @@ class EncryptableObject:
             """Check if a type has any of the target annotations."""
 
             # Direct match
-            if any(target_type is ann or target_type == ann for ann in target_annotations):
+            if any(
+                target_type is ann or target_type == ann for ann in target_annotations
+            ):
                 return True
 
             # Annotated type
