@@ -4,10 +4,7 @@ This package provides Pydantic field types that encrypt and decrypt the field va
 
 ## Installation
 
-Install with Pypi: `pip install pydantic_encryption`
-
-Install with extras:
-
+Install with Pip:
 ```bash
 pip install pydantic_encryption[evervault,generics]
 ```
