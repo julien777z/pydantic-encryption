@@ -1,31 +1,23 @@
-[tool.poetry]
+[project]
 name = "pydantic_encryption"
 version = "0.0.2a0"
 description = "Encryption models for Pydantic"
-authors = ["Julien Kmec <me@julien.dev>"]
+authors = [
+    { name = "Julien Kmec", email = "me@julien.dev" },
+]
 readme = "README.md"
 packages = [{include = "pydantic_encryption"}]
+requires-python = ">=3.11,<4.0.0"
+dependencies = [
+    "pydantic>=2.10.6",
+    "pydantic-settings>=2.9.1",
+]
 
-[tool.poetry.dependencies]
-python = "<3.13, >=3.12"
-pydantic = "^2.10.6"
-pydantic-settings = "^2.9.1"
-
-[tool.poetry.group.evervault]
-optional = true
-
-[tool.poetry.group.evervault.dependencies]
-evervault = "^4.4.1"
-
-[tool.poetry.group.generics]
-optional = true
-
-[tool.poetry.group.generics.dependencies]
-python-generics = "^0.2.3"
-
-[tool.poetry.group.test.dependencies]
-pytest = "^8.3.5"
-coverage = "^7.8.0"
+[project.optional-dependencies]
+evervault = ["evervault>=4.4.1"]
+generics = ["python-generics>=0.2.3"]
+test = ["pytest>=8.3.5", "coverage>=7.8.0"]
+all = ["evervault>=4.4.1", "python-generics>=0.2.3", "pytest>=8.3.5", "coverage>=7.8.0"]
 
 [build-system]
 requires = ["poetry-core", "setuptools"]
