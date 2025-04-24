@@ -1,4 +1,9 @@
-from tests.mocks.mock_users import User, UserDecrypt, mock_basic_user
+from tests.mocks.mock_users import (
+    User,
+    UserDecrypt,
+    mock_basic_user,
+    mock_user_disabled_encryption,
+)
 
 
 class TestBasicUsage:
@@ -19,3 +24,8 @@ class TestBasicUsage:
 
         assert decrypted_user.username == "user1"
         assert decrypted_user.password == "pass123"  # Decrypted
+
+    def test_disable_encryption(self, mock_user_disabled_encryption: User):
+        """Test disabling encryption."""
+
+        assert mock_user_disabled_encryption.password == "pass123"  # Not encrypted

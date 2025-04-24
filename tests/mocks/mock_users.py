@@ -41,6 +41,15 @@ class UserWithUnionTypes(MockBaseModel):
     token: str | EncryptField | None = None
 
 
+# Disabled Encryption Models
+class UserDisabledEncryption(MockBaseModel, disable=True):
+    """User model with union type encrypted fields."""
+
+    username: str
+    password: EncryptField
+    token: str | EncryptField | None = None
+
+
 @pytest.fixture()
 def mock_basic_user():
     return User(username="user1", password="pass123")
@@ -59,3 +68,10 @@ def mock_user_with_union_types():
 @pytest.fixture()
 def mock_user_with_union_types_no_password():
     return UserWithUnionTypes(username="user1", password=None, token="token123")
+
+
+@pytest.fixture()
+def mock_user_disabled_encryption():
+    return UserDisabledEncryption(
+        username="user1", password="pass123", token="token123"
+    )
