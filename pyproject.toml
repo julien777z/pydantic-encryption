@@ -1,0 +1,30 @@
+[tool.poetry]
+name = "pydantic_encryption"
+version = "0.0.2a0"
+description = "Encryption models for Pydantic"
+authors = ["Julien Kmec <me@julien.dev>"]
+readme = "README.md"
+packages = [{include = "pydantic_encryption"}]
+
+[tool.poetry.dependencies]
+python = "<3.13, >=3.12"
+pydantic = "^2.10.6"
+pydantic-settings = "^2.9.1"
+pytest = "^8.3.5"
+coverage = "^7.8.0"
+
+[tool.poetry.group.evervault]
+optional = true
+
+[tool.poetry.group.evervault.dependencies]
+evervault = "^4.4.1"
+
+[tool.poetry.group.generics]
+optional = true
+
+[tool.poetry.group.generics.dependencies]
+python-generics = "^0.2.3"
+
+[build-system]
+requires = ["poetry-core", "setuptools"]
+build-backend = "poetry.core.masonry.api"
