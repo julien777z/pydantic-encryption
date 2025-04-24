@@ -180,5 +180,6 @@ print(model.get_type()) # <class 'str'>
 ## Run Tests
 
 ```bash
+poetry install --with test
 poetry run coverage run -m pytest -v -s
 ```
