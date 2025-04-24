@@ -1,4 +1,3 @@
-from enum import Enum, auto
 from typing import (
     Any,
     Annotated,
@@ -19,68 +18,54 @@ else:
     )
 
 __all__ = [
-    "EncryptionMode",
-    "EncryptedField",
-    "EncryptedModel",
-    "DecryptedModel",
+    "EncryptField",
+    "DecryptField",
     "EncryptableObject",
-    "EncryptedField",
 ]
-
-
-class EncryptionMode(Enum):
-    """Controls whether to encrypt or decrypt the fields."""
-
-    DISABLE_AUTO = auto()
-    ENCRYPT = auto()
-    DECRYPT = auto()
 
 
 class _EncryptedFieldValue:
     pass
 
 
-EncryptedField = Annotated[str, _EncryptedFieldValue]
+class _DecryptedFieldValue:
+    pass
+
+
+EncryptField = Annotated[
+    str, _EncryptedFieldValue
+]  # Fields with this annotation will be encrypted
+DecryptField = Annotated[
+    str, _DecryptedFieldValue
+]  # Fields with this annotation will be decrypted
 
 
 class EncryptableObject:
     """Base class for encryptable models."""
 
-    _encryption: EncryptionMode | None = None
+    _disable: bool | None = None
 
-    def __init_subclass__(cls, encryption: EncryptionMode | None = None, **kwargs):
+    def __init_subclass__(cls, disable: bool | None = None, **kwargs):
         super().__init_subclass__(**kwargs)
 
-        # Check all parent classes for an encryption mode
-        parent_encryption: EncryptionMode | None = None
-
-        for parent in cls.__mro__[1:]:  # Skip the class itself
-            if (
-                hasattr(parent, "_encryption")
-                and getattr(parent, "_encryption") is not None
-            ):
-                parent_encryption = getattr(parent, "_encryption")
-                break
-
-        cls._encryption = encryption or parent_encryption
+        cls._disable = disable
 
     def encrypt_data(self) -> None:
         """Encrypt data using Evervault."""
 
-        if self._encryption not in (
-            EncryptionMode.ENCRYPT,
-            EncryptionMode.DISABLE_AUTO,
-        ):
-            raise ValueError("Encryption is not enabled for this model.")
+        if self._disable:
+            return
 
         if not evervault_client:
             raise ValueError(
                 "Evervault is not available. Please install this package with the `evervault` extra."
             )
 
-        encrypted_fields = self.get_encrypted_fields()
+        if not self.pending_encryption_fields:
+            return
+
         encrypted_data_dict = evervault_client.encrypt(
-            encrypted_fields, role=settings.EVERVAULT_ENCRYPTION_ROLE
+            self.pending_encryption_fields, role=settings.EVERVAULT_ENCRYPTION_ROLE
         )
 
         for field_name, value in encrypted_data_dict.items():
@@ -89,19 +74,20 @@ class EncryptableObject:
     def decrypt_data(self) -> None:
         """Decrypt data using Evervault. After this call, all decrypted fields are type str."""
 
-        if self._encryption not in (
-            EncryptionMode.DECRYPT,
-            EncryptionMode.DISABLE_AUTO,
-        ):
-            raise ValueError("Decryption is not enabled for this model.")
+        if self._disable:
+            return
 
         if not evervault_client:
             raise ValueError(
                 "Evervault is not available. Please install this package with the `evervault` extra."
             )
 
-        encrypted_fields = self.get_encrypted_fields()
-        decrypted_data: dict[str, str] = evervault_client.decrypt(encrypted_fields)
+        if not self.pending_decryption_fields:
+            return
+
+        decrypted_data: dict[str, str] = evervault_client.decrypt(
+            self.pending_decryption_fields
+        )
 
         for field_name, value in decrypted_data.items():
             setattr(self, field_name, value)
@@ -173,15 +159,14 @@ class EncryptableObject:
 
         return annotated_fields
 
-    def get_encrypted_fields(self) -> dict[str, str]:
+    @property
+    def pending_encryption_fields(self) -> dict[str, str]:
         """Get all encrypted fields from the model."""
 
         return self.get_annotated_fields(self, None, _EncryptedFieldValue)
 
+    @property
+    def pending_decryption_fields(self) -> dict[str, str]:
+        """Get all decrypted fields from the model."""
 
-class EncryptedModel(EncryptableObject, encryption=EncryptionMode.ENCRYPT):
-    """Base model for encrypted models."""
-
-
-class DecryptedModel(EncryptableObject, encryption=EncryptionMode.DECRYPT):
-    """Base model for decrypted models."""
+        return self.get_annotated_fields(self, None, _DecryptedFieldValue)

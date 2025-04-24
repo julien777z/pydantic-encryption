@@ -1,6 +1,6 @@
 from typing import Any, override
 from pydantic import BaseModel as PydanticBaseModel
-from .encryption import EncryptableObject, EncryptionMode
+from .encryption import EncryptableObject
 
 try:
     from generics import get_filled_type
@@ -17,13 +17,12 @@ class BaseModel(PydanticBaseModel, EncryptableObject):
 
     @override
     def model_post_init(self, context: Any, /) -> None:
-        match self._encryption:
-            case EncryptionMode.ENCRYPT:
-                self.encrypt_data()
-            case EncryptionMode.DECRYPT:
+        if not self._disable:
+            if self.pending_decryption_fields:
                 self.decrypt_data()
-            case _:
-                pass
+
+            if self.pending_encryption_fields:
+                self.encrypt_data()
 
         super().model_post_init(context)
 

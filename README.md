@@ -1,6 +1,6 @@
 # Encryption models for Pydantic
 
-This package provides Pydantic models that encrypt and decrypt fields.
+This package provides Pydantic field types that encrypt and decrypt the field values.
 
 ## Installation
 
@@ -25,11 +25,11 @@ poetry add pydantic_encryption
 ## Example
 
 ```py
-from pydantic_encryption import BaseModel, EncryptedModel, EncryptedField
+from pydantic_encryption import BaseModel, EncryptField
 
-class User(BaseModel, EncryptedModel):
+class User(BaseModel):
     name: str
-    password: EncryptedField # Encrypt this field
+    password: EncryptField # This field will be encrypted
 
 user = User(name="John Doe", password="123456")
 print(user.password) # encrypted
@@ -53,12 +53,21 @@ EVERVAULT_ENCRYPTION_ROLE=your_encryption_role
 
 ### Custom Encryption
 
-You can define your own encryption and decryption functions by subclassing `EncryptableObject`.
+You can define your own encryption and decryption methods by subclassing `EncryptableObject`.
+
+`EncryptableObject` provides you with the utilities to handle encryption and decryption.
+
+`self.pending_encryption_fields` and `self.pending_decryption_fields` are dictionaries of field names to field values that need to be encrypted or decrypted, i.e., fields annotated with `EncryptField` or `DecryptField`.
+
+You can override the `encrypt_data` and `decrypt_data` methods to implement your own encryption and decryption logic.
+
+You then need to override `model_post_init` to call `self.encrypt_data()` and/or `self.decrypt_data()`.
+
+First, define a custom encryptable object:
 
 ```py
 from typing import override
-from pydantic_encryption import EncryptableObject, EncryptedModel, EncryptionMode
-from pydantic import BaseModel # We are making our own BaseModel
+from pydantic_encryption import EncryptableObject
 
 class MyEncryptableObject(EncryptableObject):
     @override
@@ -71,77 +80,76 @@ class MyEncryptableObject(EncryptableObject):
         # Your decryption logic here
         pass
 
-class MyModel(BaseModel, EncryptedModel, MyEncryptableObject):
-    pass
+    @override
+    def model_post_init(self, context: Any, /) -> None:
+        if not self._disable:
+            if self.pending_decryption_fields:
+                self.decrypt_data()
+
+            if self.pending_encryption_fields:
+                self.encrypt_data()
+
+        super().model_post_init(context)
+```
+
+Then use it:
+
+```py
+from pydantic import BaseModel # Here, we don't use the BaseModel provided by the library, but the native one from Pydantic
+from pydantic_encryption import EncryptField
+
+class MyModel(BaseModel, MyEncryptableObject):
+    username: str
+    password: EncryptField
+
+model = MyModel(username="john_doe", password="123456")
+print(model.password) # encrypted
 ```
 
 ## Encryption
 
-You can encrypt any field by annotating with `EncryptedField` and inheriting from `EncryptedModel`.
-
-Alternatively, you can use `EncryptableObject` and set the `encryption` parameter to `EncryptionMode.ENCRYPT`.
+You can encrypt any field by annotating with `EncryptField` and inheriting from `EncryptableObject`.
 
 ```py
-from pydantic_encryption import EncryptedModel, EncryptableObject, EncryptedField, BaseModel
+from pydantic_encryption import EncryptableObject, EncryptField, BaseModel
 
-class User(BaseModel, EncryptedModel):
+class User(BaseModel):
     name: str
-    password: EncryptedField # Encrypt this field
+    password: EncryptField # This field will be encrypted
 
 user = User(name="John Doe", password="123456")
 print(user.password) # encrypted
 print(user.name) # plaintext (untouched)
-
-# Or use EncryptableObject directly:
-class User(BaseModel, EncryptableObject, encryption=EncryptionMode.ENCRYPT):
-    name: str
-    password: EncryptedField
-
-user = User(name="John Doe", password="123456")
-print(user.password) # encrypted
-print(user.name) # plaintext (untouched)
-
 ```
 
 ## Decryption
 
-Similar to encryption, you can decrypt any field by annotating with `EncryptedField` and inheriting from `DecryptedModel`.
-
-Alternatively, you can use `EncryptableObject` and set the `encryption` parameter to `EncryptionMode.DECRYPT`.
+Similar to encryption, you can decrypt any field by annotating with `DecryptField` and inheriting from `EncryptableObject`.
 
 ```py
-from pydantic_encryption import DecryptedModel, EncryptableObject, EncryptedField, BaseModel
+from pydantic_encryption import EncryptableObject, DecryptField, BaseModel
 
-class UserResponse(BaseModel, DecryptedModel):
+class User(BaseModel, EncryptableObject):
     name: str
-    password: EncryptedField # Decrypt this field
+    password: DecryptField # This field will be decrypted
 
-user = UserResponse(**dict(user))
-print(user.password) # decrypted
-print(user.name) # plaintext (untouched)
-
-# Or use EncryptableObject directly:
-class UserResponse(BaseModel, EncryptableObject, encryption=EncryptionMode.DECRYPT):
-    name: str
-    password: EncryptedField # Decrypt this field
-
-user = UserResponse(**dict(user))
-print(user.password) # decrypted
+user = User(name="John Doe", password="123456")
+print(user.password) # encrypted
 print(user.name) # plaintext (untouched)
 
 ```
 
+
 ## Disable Auto-Encryption/Decryption
 
-You can disable auto-encryption/decryption by setting the `encryption` parameter to `EncryptionMode.DISABLE_AUTO`. You will then need to call `encrypt_data()` and `decrypt_data()` manually.
+You can disable auto-encryption/decryption by setting `disable` to `True` in the class definition.
 
 ```py
-from pydantic_encryption import EncryptableObject, EncryptedField, BaseModel, EncryptionMode
+from pydantic_encryption import EncryptableObject, EncryptField, BaseModel
 
-# Set encryption to EncryptionMode.DISABLE_AUTO to disable auto-encryption/decryption
-class UserResponse(BaseModel, EncryptableObject, encryption=EncryptionMode.DISABLE_AUTO):
+class UserResponse(BaseModel, EncryptableObject, disable=True):
     name: str
-    password: EncryptedField
+    password: EncryptField
 
 # To encrypt/decrypt, call `encrypt_data()` or `decrypt_data()`:
 user = UserResponse(name="John Doe", password="ENCRYPTED_PASSWORD")
@@ -151,24 +159,6 @@ print(user.password) # decrypted
 
 user.encrypt_data()
 print(user.password) # encrypted
-```
-
-## BaseModel Inheritance
-
-The encryption mode follows its children, so each child will automatically encrypt/decrypt the fields unless the encryption mode is set to `EncryptionMode.DISABLE_AUTO`.
-
-```py
-from sqlmodel import SQLModel
-
-class UserBase(SQLModel, DecryptedModel, table=False): # SQLModel is a subclass of BaseModel
-    name: str
-    password: EncryptedField
-
-class User(UserBase, table=True): # Even though we did not specify the encryption mode, it is inherited from UserBase
-    pass
-
-user = User(name="John Doe", password="ENCRYPTED_PASSWORD")
-print(user.password) # decrypted
 ```
 
 ## Generics
