@@ -21,10 +21,10 @@ from pydantic_encryption import BaseModel, EncryptField
 
 class User(BaseModel):
     name: str
-    password: EncryptField # This field will be encrypted
+    address: EncryptField # This field will be encrypted
 
-user = User(name="John Doe", password="123456")
-print(user.password) # encrypted
+user = User(name="John Doe", address="123456")
+print(user.address) # encrypted
 ```
 
 ## Choose an Encryption Method
@@ -87,10 +87,10 @@ from pydantic_encryption import EncryptField
 
 class MyModel(BaseModel, MyEncryptableObject):
     username: str
-    password: EncryptField
+    address: EncryptField
 
-model = MyModel(username="john_doe", password="123456")
-print(model.password) # encrypted
+model = MyModel(username="john_doe", address="123456")
+print(model.address) # encrypted
 ```
 
 ## Encryption
@@ -102,10 +102,10 @@ from pydantic_encryption import EncryptField, BaseModel
 
 class User(BaseModel):
     name: str
-    password: EncryptField # This field will be encrypted
+    address: EncryptField # This field will be encrypted
 
-user = User(name="John Doe", password="123456")
-print(user.password) # encrypted
+user = User(name="John Doe", address="123456")
+print(user.address) # encrypted
 print(user.name) # plaintext (untouched)
 ```
 
@@ -120,10 +120,10 @@ from pydantic_encryption import DecryptField, BaseModel
 
 class User(BaseModel):
     name: str
-    password: DecryptField # This field will be decrypted
+    address: DecryptField # This field will be decrypted
 
-user = User(name="John Doe", password="123456")
-print(user.password) # decrypted
+user = User(name="John Doe", address="123456")
+print(user.address) # decrypted
 print(user.name) # plaintext (untouched)
 
 ```
@@ -138,16 +138,16 @@ from pydantic_encryption import EncryptField, BaseModel
 
 class UserResponse(BaseModel, disable=True):
     name: str
-    password: EncryptField
+    address: EncryptField
 
 # To encrypt/decrypt, call `encrypt_data()` or `decrypt_data()`:
-user = UserResponse(name="John Doe", password="ENCRYPTED_PASSWORD")
+user = UserResponse(name="John Doe", address="ENCRYPTED_VALUE")
 
 user.decrypt_data()
-print(user.password) # decrypted
+print(user.address) # decrypted
 
 user.encrypt_data()
-print(user.password) # encrypted
+print(user.address) # encrypted
 ```
 
 ## Generics

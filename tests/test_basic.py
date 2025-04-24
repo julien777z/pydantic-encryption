@@ -13,7 +13,7 @@ class TestBasicUsage:
         """Test encrypting fields with EncryptField annotation."""
 
         assert mock_basic_user.username == "user1"  # Not encrypted
-        assert mock_basic_user.password == "enc:pass123"  # Encrypted
+        assert mock_basic_user.address == "enc:pass123"  # Encrypted
 
     def test_decrypt_field(self, mock_basic_user: User):
         """Test decrypting fields with DecryptField annotation."""
@@ -23,9 +23,9 @@ class TestBasicUsage:
         decrypted_user = UserDecrypt(**encrypted_data)
 
         assert decrypted_user.username == "user1"
-        assert decrypted_user.password == "pass123"  # Decrypted
+        assert decrypted_user.address == "pass123"  # Decrypted
 
     def test_disable_encryption(self, mock_user_disabled_encryption: User):
         """Test disabling encryption."""
 
-        assert mock_user_disabled_encryption.password == "pass123"  # Not encrypted
+        assert mock_user_disabled_encryption.address == "pass123"  # Not encrypted
