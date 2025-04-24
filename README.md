@@ -176,3 +176,9 @@ class MyModel[T](BaseModel):
 model = MyModel[str](value="Hello")
 print(model.get_type()) # <class 'str'>
 ```
+
+## Run Tests
+
+```bash
+poetry run coverage run -m pytest -v -s
+```
