@@ -4,16 +4,12 @@ This package provides Pydantic field types that encrypt and decrypt the field va
 
 ## Installation
 
-Install [Poetry](https://python-poetry.org/) if you haven't already.
+Install with Pypi: `pip install pydantic_encryption`
 
-Install this package with the `evervault` and `generics` extras:
-```bash
-poetry add pydantic_encryption --with evervault,generics
-```
+Install with extras:
 
-Install this package without extras:
 ```bash
-poetry add pydantic_encryption
+pip install pydantic_encryption[evervault,generics]
 ```
 
 ## Features
@@ -34,8 +30,6 @@ class User(BaseModel):
 user = User(name="John Doe", password="123456")
 print(user.password) # encrypted
 ```
-
-
 
 ## Choose an Encryption Method
 
@@ -108,10 +102,10 @@ print(model.password) # encrypted
 
 ## Encryption
 
-You can encrypt any field by annotating with `EncryptField` and inheriting from `EncryptableObject`.
+You can encrypt any field by annotating with `EncryptField` and inheriting from `BaseModel`.
 
 ```py
-from pydantic_encryption import EncryptableObject, EncryptField, BaseModel
+from pydantic_encryption import EncryptField, BaseModel
 
 class User(BaseModel):
     name: str
@@ -124,12 +118,12 @@ print(user.name) # plaintext (untouched)
 
 ## Decryption
 
-Similar to encryption, you can decrypt any field by annotating with `DecryptField` and inheriting from `EncryptableObject`.
+Similar to encryption, you can decrypt any field by annotating with `DecryptField` and inheriting from `BaseModel`.
 
 ```py
-from pydantic_encryption import EncryptableObject, DecryptField, BaseModel
+from pydantic_encryption import DecryptField, BaseModel
 
-class User(BaseModel, EncryptableObject):
+class User(BaseModel):
     name: str
     password: DecryptField # This field will be decrypted
 
@@ -145,9 +139,9 @@ print(user.name) # plaintext (untouched)
 You can disable auto-encryption/decryption by setting `disable` to `True` in the class definition.
 
 ```py
-from pydantic_encryption import EncryptableObject, EncryptField, BaseModel
+from pydantic_encryption import EncryptField, BaseModel
 
-class UserResponse(BaseModel, EncryptableObject, disable=True):
+class UserResponse(BaseModel, disable=True):
     name: str
     password: EncryptField
 
