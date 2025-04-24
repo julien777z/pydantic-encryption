@@ -47,15 +47,12 @@ EVERVAULT_ENCRYPTION_ROLE=your_encryption_role
 
 ### Custom Encryption
 
-You can define your own encryption and decryption methods by subclassing `EncryptableObject`.
-
-`EncryptableObject` provides you with the utilities to handle encryption and decryption.
+You can define your own encryption and decryption methods by subclassing `EncryptableObject`. `EncryptableObject` provides you with the utilities to handle encryption and decryption.
 
 `self.pending_encryption_fields` and `self.pending_decryption_fields` are dictionaries of field names to field values that need to be encrypted or decrypted, i.e., fields annotated with `EncryptField` or `DecryptField`.
 
-You can override the `encrypt_data` and `decrypt_data` methods to implement your own encryption and decryption logic.
+You can override the `encrypt_data` and `decrypt_data` methods to implement your own encryption and decryption logic. You then need to override `model_post_init` to call `self.encrypt_data()` and/or `self.decrypt_data()`.
 
-You then need to override `model_post_init` to call `self.encrypt_data()` and/or `self.decrypt_data()`.
 
 First, define a custom encryptable object:
 
