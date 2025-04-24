@@ -11,8 +11,7 @@ pip install pydantic_encryption[evervault,generics]
 
 ## Features
 
-- Encrypt and decrypt fields
-- Support for BaseModel inheritance
+- Encrypt and decrypt specific fields
 - Support for generics
 
 ## Example
@@ -110,6 +109,8 @@ print(user.password) # encrypted
 print(user.name) # plaintext (untouched)
 ```
 
+Internally, `EncryptField` is an alias of `str`, so the model can be serialized by Pydantic.
+
 ## Decryption
 
 Similar to encryption, you can decrypt any field by annotating with `DecryptField` and inheriting from `BaseModel`.
@@ -122,7 +123,7 @@ class User(BaseModel):
     password: DecryptField # This field will be decrypted
 
 user = User(name="John Doe", password="123456")
-print(user.password) # encrypted
+print(user.password) # decrypted
 print(user.name) # plaintext (untouched)
 
 ```
@@ -153,7 +154,7 @@ print(user.password) # encrypted
 
 Each BaseModel has an additional helpful method that will tell you its generic type.
 
-To use generics, you must install this package with the `generics` extra: `poetry add pydantic_encryption --with generics`.
+To use generics, you must install this package with the `generics` extra: `pip install pydantic_encryption[generics]`.
 
 ```py
 from pydantic_encryption import BaseModel
@@ -167,7 +168,20 @@ print(model.get_type()) # <class 'str'>
 
 ## Run Tests
 
+Install [Poetry](https://python-poetry.org/docs/) and run:
+
 ```bash
 poetry install --with test
 poetry run coverage run -m pytest -v -s
 ```
+
+## Roadmap
+
+This is an early development version. I am considering the following features:
+
+- [ ] Add optional support for other types of encryption
+- [ ] Add support for other types of fields, i.e., bool, int, float, etc.
+
+## Feature Requests
+
+If you have any feature requests, please open an issue.
