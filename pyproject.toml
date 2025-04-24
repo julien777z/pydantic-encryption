@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "pydantic_encryption"
-version = "0.0.1"
+version = "0.0.2a0"
 description = "Encryption models for Pydantic"
 authors = ["Julien Kmec <me@julien.dev>"]
 readme = "README.md"
@@ -26,5 +26,5 @@ optional = true
 python-generics = "^0.2.3"
 
 [build-system]
-requires = ["poetry-core"]
+requires = ["poetry-core", "setuptools"]
 build-backend = "poetry.core.masonry.api"
