@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Optional
 from pydantic_settings import BaseSettings
 
 
@@ -6,9 +6,9 @@ class Settings(BaseSettings):
     """Settings for the package."""
 
     # Evervault settings
-    EVERVAULT_API_KEY: str | None = None
-    EVERVAULT_APP_ID: str | None = None
-    EVERVAULT_ENCRYPTION_ROLE: str | None = None
+    EVERVAULT_API_KEY: Optional[str] = None
+    EVERVAULT_APP_ID: Optional[str] = None
+    EVERVAULT_ENCRYPTION_ROLE: Optional[str] = None
 
     class Config:
         env_file = [".env.local", ".env"]
