@@ -1,16 +1,17 @@
 [project]
 name = "pydantic_encryption"
-version = "0.0.2a0"
-description = "Encryption models for Pydantic"
+version = "0.0.2a1"
+description = "Encryption and hashing models for Pydantic"
 authors = [
     { name = "Julien Kmec", email = "me@julien.dev" },
 ]
 readme = "README.md"
 packages = [{include = "pydantic_encryption"}]
-requires-python = ">=3.11,<4.0.0"
+requires-python = ">=3.9,<4.0.0"
 dependencies = [
     "pydantic>=2.10.6",
     "pydantic-settings>=2.9.1",
+    "bcrypt (>=4.3.0,<5.0.0)",
 ]
 
 [project.optional-dependencies]

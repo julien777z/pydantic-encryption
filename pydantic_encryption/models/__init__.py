@@ -1,2 +1,2 @@
-from .encryption import *
+from .secure_model import *
 from .base import *

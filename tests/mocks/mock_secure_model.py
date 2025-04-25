@@ -1,8 +1,6 @@
-from typing import Any, override
+from typing import Any
 from pydantic import BaseModel as PydanticBaseModel
-from pydantic_encryption.models.encryption import (
-    EncryptableObject,
-)
+from pydantic_encryption.models import SecureModel
 
 
 def mock_encrypt(value: str) -> str:
@@ -23,10 +21,18 @@ def mock_decrypt(value: str) -> str:
     return value
 
 
-class MockEncryptableObject(EncryptableObject):
-    """Mock implementation of EncryptableObject."""
+def mock_hash(value: str) -> str:
+    """Simple mock hashing that prefixes 'hash:' to the value."""
 
-    @override
+    if isinstance(value, str) and not value.startswith("hash:"):
+        return f"hash:{value}"
+
+    return value
+
+
+class MockSecureObject(SecureModel):
+    """Mock implementation of SecureModel."""
+
     def encrypt_data(self) -> None:
         if self._disable:
             return
@@ -42,7 +48,6 @@ class MockEncryptableObject(EncryptableObject):
         for field_name, value in encrypted_data_dict.items():
             setattr(self, field_name, value)
 
-    @override
     def decrypt_data(self) -> None:
         if self._disable:
             return
@@ -58,13 +63,24 @@ class MockEncryptableObject(EncryptableObject):
         for field_name, value in decrypted_data.items():
             setattr(self, field_name, value)
 
+    def hash_data(self) -> None:
+        if self._disable:
+            return
 
-class MockBaseModel(PydanticBaseModel, MockEncryptableObject):
+        if not self.pending_hash_fields:
+            return
+
+        for field_name, value in self.pending_hash_fields.items():
+            hashed = mock_hash(value)
+
+            setattr(self, field_name, hashed)
+
+
+class MockBaseModel(PydanticBaseModel, MockSecureObject):
     """Mock base model."""
 
     _generic_type_value: Any = None
 
-    @override
     def model_post_init(self, context: Any, /) -> None:
         if not self._disable:
             if self.pending_decryption_fields:
@@ -72,5 +88,8 @@ class MockBaseModel(PydanticBaseModel, MockEncryptableObject):
 
             if self.pending_encryption_fields:
                 self.encrypt_data()
+
+            if self.pending_hash_fields:
+                self.hash_data()
 
         super().model_post_init(context)
