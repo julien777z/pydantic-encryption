@@ -7,7 +7,7 @@ authors = [
 ]
 readme = "README.md"
 packages = [{include = "pydantic_encryption"}]
-requires-python = ">=3.9,<4.0.0"
+requires-python = ">=3.10,<4.0.0"
 dependencies = [
     "pydantic>=2.10.6",
     "pydantic-settings>=2.9.1",
