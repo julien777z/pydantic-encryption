@@ -37,7 +37,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          poetry install --sync -E all
+          poetry install --sync -E test
 
       - name: Test with pytest
         run: |
