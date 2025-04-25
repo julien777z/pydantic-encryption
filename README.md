@@ -34,9 +34,40 @@ print(user.password) # hashed
 
 ## Choose an Encryption Method
 
+You can choose which encryption method to use by setting the `use_encryption_method` parameter in the class definition.
+
+Example:
+
+```py
+from typing import Annotated
+from pydantic_encryption import EncryptionMethod, BaseModel, Encrypt
+
+class User(BaseModel, use_encryption_method=EncryptionMethod.EVERVAULT):
+    name: str
+    address: Annotated[str, Encrypt] # This field will be encrypted by Evervault
+```
+
+### Default Encryption (Fernet Symmetric Encryption)
+
+By default, Fernet will be used for encryption and decryption.
+
+First you need to generate an encryption key. You can use the following command:
+
+```bash
+openssl rand -base64 32
+```
+
+Then set the following environment variable or add it to your `.env` file:
+
+```bash
+ENCRYPTION_KEY=your_encryption_key
+```
+
 ### Evervault
 
 If you install this package with the `evervault` extra, you can use [Evervault](https://evervault.com/) to encrypt and decrypt fields.
+
+Set the `use_encryption_method` parameter to `EncryptionMethod.EVERVAULT`.
 
 You need to set the following environment variables or add them to your `.env` file:
 

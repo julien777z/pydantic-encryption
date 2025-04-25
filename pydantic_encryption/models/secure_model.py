@@ -1,4 +1,6 @@
 from typing import Any, Annotated, get_type_hints, Union, get_args, get_origin, Optional
+from enum import Enum
+from cryptography.fernet import Fernet
 import bcrypt
 from pydantic_encryption.config import settings
 from pydantic import BaseModel
@@ -12,11 +14,18 @@ else:
         app_uuid=settings.EVERVAULT_APP_ID, api_key=settings.EVERVAULT_API_KEY
     )
 
+if settings.ENCRYPTION_KEY:
+    fernet = Fernet(settings.ENCRYPTION_KEY)
+else:
+    fernet = None
+
+
 __all__ = [
     "Encrypt",
     "Decrypt",
     "Hash",
     "SecureModel",
+    "EncryptionMethod",
 ]
 
 
@@ -32,57 +41,113 @@ class Hash:
     """Annotation to mark fields for hashing."""
 
 
+class EncryptionMethod(Enum):
+    """Enum for encryption methods."""
+
+    FERNET = "fernet"
+    EVERVAULT = "evervault"
+
+
 class SecureModel:
     """Base class for encryptable and hashable models."""
 
     _disable: Optional[bool] = None
+    _use_encryption_method: Optional[EncryptionMethod] = EncryptionMethod.FERNET
 
-    def __init_subclass__(cls, disable: Optional[bool] = None, **kwargs) -> None:
+    def __init_subclass__(
+        cls,
+        disable: Optional[bool] = None,
+        use_encryption_method: Optional[EncryptionMethod] = EncryptionMethod.FERNET,
+        **kwargs,
+    ) -> None:
         super().__init_subclass__(**kwargs)
 
         cls._disable = disable
+        cls._use_encryption_method = use_encryption_method
 
     def encrypt_data(self) -> None:
-        """Encrypt data using Evervault."""
+        """Encrypt data using the specified encryption method."""
 
         if self._disable:
             return
-
-        if not evervault_client:
-            raise ValueError(
-                "Evervault is not available. Please install this package with the `evervault` extra."
-            )
 
         if not self.pending_encryption_fields:
             return
 
-        encrypted_data_dict = evervault_client.encrypt(
-            self.pending_encryption_fields, role=settings.EVERVAULT_ENCRYPTION_ROLE
-        )
+        match self._use_encryption_method:
+            case EncryptionMethod.EVERVAULT:
+                if not evervault_client:
+                    raise ValueError(
+                        "Evervault is not available. Please install this package with the `evervault` extra."
+                    )
 
-        for field_name, value in encrypted_data_dict.items():
-            setattr(self, field_name, value)
+                encrypted_data_dict = evervault_client.encrypt(
+                    self.pending_encryption_fields,
+                    role=settings.EVERVAULT_ENCRYPTION_ROLE,
+                )
+
+                for field_name, value in encrypted_data_dict.items():
+                    setattr(self, field_name, value)
+
+            case EncryptionMethod.FERNET:
+                if not fernet:
+                    raise ValueError(
+                        "Fernet is not available. Please set the ENCRYPTION_KEY environment variable."
+                    )
+
+                encrypted_data_dict = {
+                    field_name: fernet.encrypt(value.encode("utf-8")).decode("utf-8")
+                    for field_name, value in self.pending_encryption_fields.items()
+                }
+
+                for field_name, value in encrypted_data_dict.items():
+                    setattr(self, field_name, value)
+            case _:
+                raise ValueError(
+                    f"Unknown encryption method: {self._use_encryption_method}"
+                )
 
     def decrypt_data(self) -> None:
-        """Decrypt data using Evervault. After this call, all decrypted fields are type str."""
+        """Decrypt data using the specified encryption method. After this call, all decrypted fields are type str."""
 
         if self._disable:
             return
 
-        if not evervault_client:
-            raise ValueError(
-                "Evervault is not available. Please install this package with the `evervault` extra."
-            )
-
         if not self.pending_decryption_fields:
             return
 
-        decrypted_data: dict[str, str] = evervault_client.decrypt(
-            self.pending_decryption_fields
-        )
+        match self._use_encryption_method:
+            case EncryptionMethod.EVERVAULT:
+                if not evervault_client:
+                    raise ValueError(
+                        "Evervault is not available. Please install this package with the `evervault` extra."
+                    )
 
-        for field_name, value in decrypted_data.items():
-            setattr(self, field_name, value)
+                decrypted_data: dict[str, str] = evervault_client.decrypt(
+                    self.pending_decryption_fields,
+                )
+
+                for field_name, value in decrypted_data.items():
+                    setattr(self, field_name, value)
+
+            case EncryptionMethod.FERNET:
+                if not fernet:
+                    raise ValueError(
+                        "Fernet is not available. Please set the ENCRYPTION_KEY environment variable."
+                    )
+
+                decrypted_data: dict[str, str] = {
+                    field_name: fernet.decrypt(value.encode("utf-8")).decode("utf-8")
+                    for field_name, value in self.pending_decryption_fields.items()
+                }
+
+                for field_name, value in decrypted_data.items():
+                    setattr(self, field_name, value)
+
+            case _:
+                raise ValueError(
+                    f"Unknown encryption method: {self._use_encryption_method}"
+                )
 
     def hash_data(self) -> None:
         """Hash fields marked with `Hash` annotation."""
@@ -95,7 +160,7 @@ class SecureModel:
 
         for field_name, value in self.pending_hash_fields.items():
             salt = bcrypt.gensalt()
-            hashed = bcrypt.hashpw(value.encode("utf-8"), salt)
+            hashed = bcrypt.hashpw(value.encode("utf-8"), salt).decode("utf-8")
 
             setattr(self, field_name, hashed)
 
