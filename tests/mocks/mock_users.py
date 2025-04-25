@@ -1,4 +1,4 @@
-from typing import Annotated, Optional
+from typing import Annotated
 import pytest
 from pydantic_encryption import Encrypt, Decrypt, Hash
 from tests.mocks.mock_secure_model import (
@@ -23,15 +23,6 @@ class UserDecrypt(MockBaseModel):
     password: Annotated[str, Hash] = None
 
 
-# Optional Fields Models
-class UserWithOptionalFields(MockBaseModel):
-    """User model with optional encrypted fields."""
-
-    username: str
-    address: Optional[Annotated[str, Encrypt]] = None
-    password: Optional[Annotated[str, Hash]] = None
-
-
 # Disabled Encryption Models
 class UserDisabledEncryption(MockBaseModel, disable=True):
     """User model with disabled encryption and hashing."""
@@ -44,11 +35,6 @@ class UserDisabledEncryption(MockBaseModel, disable=True):
 @pytest.fixture()
 def mock_basic_user():
     return User(username="user1", address="pass123", password="pass123")
-
-
-@pytest.fixture()
-def mock_user_with_optional_fields():
-    return UserWithOptionalFields(username="user1", address="pass123")
 
 
 @pytest.fixture()
