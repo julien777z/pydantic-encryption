@@ -1,11 +1,4 @@
-from typing import (
-    Any,
-    Annotated,
-    get_type_hints,
-    Union,
-    get_args,
-    get_origin,
-)
+from typing import Any, Annotated, get_type_hints, Union, get_args, get_origin, Optional
 import bcrypt
 from pydantic_encryption.config import settings
 from pydantic import BaseModel
@@ -42,9 +35,9 @@ class Hash:
 class SecureModel:
     """Base class for encryptable and hashable models."""
 
-    _disable: bool | None = None
+    _disable: Optional[bool] = None
 
-    def __init_subclass__(cls, disable: bool | None = None, **kwargs):
+    def __init_subclass__(cls, disable: Optional[bool] = None, **kwargs) -> None:
         super().__init_subclass__(**kwargs)
 
         cls._disable = disable
