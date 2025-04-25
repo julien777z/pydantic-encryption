@@ -101,7 +101,7 @@ class SecureModel:
 
     @staticmethod
     def get_annotated_fields(
-        instance: "BaseModel", obj: dict[str, Any] | None = None, *annotations: type
+        instance: "BaseModel", obj: Optional[dict[str, Any]] = None, *annotations: type
     ) -> dict[str, str]:
         """Get fields that have the specified annotations, handling union types.
 
