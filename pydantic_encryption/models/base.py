@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Optional
 from pydantic import BaseModel as PydanticBaseModel
 from . import SecureModel
 
@@ -28,7 +28,7 @@ class BaseModel(PydanticBaseModel, SecureModel):
 
         super().model_post_init(context)
 
-    def get_type(self) -> type | None:
+    def get_type(self) -> Optional[type]:
         """Get the type of the model."""
 
         if not get_filled_type:
