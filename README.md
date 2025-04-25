@@ -6,12 +6,17 @@ This package provides Pydantic field annotations that encrypt, decrypt, and hash
 
 Install with Pip:
 ```bash
-pip install pydantic_encryption[evervault,generics]
+pip install pydantic_encryption
 ```
+
+### Optional extras
+
+- `generics`: Support for generics
 
 ## Features
 
 - Encrypt and decrypt specific fields
+- Support for Fernet symmetric encryption and Evervault
 - Hash specific fields
 - Support for generics
 
@@ -36,9 +41,9 @@ print(user.password) # hashed
 
 You can choose which encryption method to use by setting the `use_encryption_method` parameter in the class definition.
 
-Example:
+### Example:
 
-```py
+```python
 from typing import Annotated
 from pydantic_encryption import EncryptionMethod, BaseModel, Encrypt
 
@@ -65,7 +70,7 @@ ENCRYPTION_KEY=your_encryption_key
 
 ### Evervault
 
-If you install this package with the `evervault` extra, you can use [Evervault](https://evervault.com/) to encrypt and decrypt fields.
+You can optionally use [Evervault](https://evervault.com/) to encrypt and decrypt fields.
 
 Set the `use_encryption_method` parameter to `EncryptionMethod.EVERVAULT`.
 
@@ -77,9 +82,9 @@ EVERVAULT_API_KEY=your_api_key
 EVERVAULT_ENCRYPTION_ROLE=your_encryption_role
 ```
 
-### Custom Encryption
+### Custom Encryption or Hashing
 
-You can define your own encryption and decryption methods by subclassing `SecureModel`. `SecureModel` provides you with the utilities to handle encryption, decryption, and hashing.
+You can define your own encryption or hashing methods by subclassing `SecureModel`. `SecureModel` provides you with the utilities to handle encryption, decryption, and hashing.
 
 `self.pending_encryption_fields`, `self.pending_decryption_fields`, and `self.pending_hash_fields` are dictionaries of field names to field values that need to be encrypted, decrypted, or hashed, i.e., fields annotated with `Encrypt`, `Decrypt`, or `Hash`.
 
