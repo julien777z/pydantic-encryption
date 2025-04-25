@@ -1,6 +1,6 @@
 from typing import Any, override
 from pydantic import BaseModel as PydanticBaseModel
-from .encryption import EncryptableObject
+from . import SecureModel
 
 try:
     from generics import get_filled_type
@@ -10,7 +10,7 @@ except ImportError:
 __all__ = ["BaseModel"]
 
 
-class BaseModel(PydanticBaseModel, EncryptableObject):
+class BaseModel(PydanticBaseModel, SecureModel):
     """Base model for encryptable models."""
 
     _generic_type_value: Any = None
@@ -23,6 +23,9 @@ class BaseModel(PydanticBaseModel, EncryptableObject):
 
             if self.pending_encryption_fields:
                 self.encrypt_data()
+
+            if self.pending_hash_fields:
+                self.hash_data()
 
         super().model_post_init(context)
 

@@ -1,27 +1,26 @@
-"""
-Mock user models for pydantic-encryption tests.
-"""
-
+from typing import Annotated
 import pytest
-from pydantic_encryption import EncryptField, DecryptField
-from tests.mocks.mock_encryption import (
+from pydantic_encryption import Encrypt, Decrypt, Hash
+from tests.mocks.mock_secure_model import (
     MockBaseModel,
 )
 
 
 # Basic User Models
 class User(MockBaseModel):
-    """Basic user model with encrypted address."""
+    """Basic user model with encrypted address and hashed password."""
 
     username: str
-    address: EncryptField
+    address: Annotated[str, Encrypt]
+    password: Annotated[str, Hash] = None
 
 
 class UserDecrypt(MockBaseModel):
     """Basic user model with decrypted address."""
 
     username: str
-    address: DecryptField
+    address: Annotated[str, Decrypt]
+    password: Annotated[str, Hash] = None
 
 
 # Optional Fields Models
@@ -29,7 +28,8 @@ class UserWithOptionalFields(MockBaseModel):
     """User model with optional encrypted fields."""
 
     username: str
-    address: EncryptField | None = None
+    address: Annotated[str, Encrypt] | None = None
+    password: Annotated[str, Hash] | None = None
 
 
 # Union Type Models
@@ -37,22 +37,22 @@ class UserWithUnionTypes(MockBaseModel):
     """User model with union type encrypted fields."""
 
     username: str
-    address: EncryptField | None
-    token: str | EncryptField | None = None
+    address: Annotated[str, Encrypt] | None
+    password: Annotated[str, Hash] | None = None
 
 
 # Disabled Encryption Models
 class UserDisabledEncryption(MockBaseModel, disable=True):
-    """User model with union type encrypted fields."""
+    """User model with disabled encryption and hashing."""
 
     username: str
-    address: EncryptField
-    token: str | EncryptField | None = None
+    address: Annotated[str, Encrypt]
+    password: Annotated[str, Hash] = None
 
 
 @pytest.fixture()
 def mock_basic_user():
-    return User(username="user1", address="pass123")
+    return User(username="user1", address="pass123", password="pass123")
 
 
 @pytest.fixture()
@@ -62,14 +62,16 @@ def mock_user_with_optional_fields():
 
 @pytest.fixture()
 def mock_user_with_union_types():
-    return UserWithUnionTypes(username="user1", address="pass123", token="token123")
+    return UserWithUnionTypes(username="user1", address="pass123", password="pass123")
 
 
 @pytest.fixture()
 def mock_user_with_union_types_no_address():
-    return UserWithUnionTypes(username="user1", address=None, token="token123")
+    return UserWithUnionTypes(username="user1", address=None, password="pass123")
 
 
 @pytest.fixture()
 def mock_user_disabled_encryption():
-    return UserDisabledEncryption(username="user1", address="pass123", token="token123")
+    return UserDisabledEncryption(
+        username="user1", address="pass123", password="pass123"
+    )

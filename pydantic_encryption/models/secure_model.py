@@ -6,7 +6,9 @@ from typing import (
     get_args,
     get_origin,
 )
+import bcrypt
 from pydantic_encryption.config import settings
+from pydantic import BaseModel
 
 try:
     import evervault
@@ -18,30 +20,27 @@ else:
     )
 
 __all__ = [
-    "EncryptField",
-    "DecryptField",
-    "EncryptableObject",
+    "Encrypt",
+    "Decrypt",
+    "Hash",
+    "SecureModel",
 ]
 
 
-class _EncryptedFieldValue:
-    pass
+class Encrypt:
+    """Annotation to mark fields for encryption."""
 
 
-class _DecryptedFieldValue:
-    pass
+class Decrypt:
+    """Annotation to mark fields for decryption."""
 
 
-EncryptField = Annotated[
-    str, _EncryptedFieldValue
-]  # Fields with this annotation will be encrypted
-DecryptField = Annotated[
-    str, _DecryptedFieldValue
-]  # Fields with this annotation will be decrypted
+class Hash:
+    """Annotation to mark fields for hashing."""
 
 
-class EncryptableObject:
-    """Base class for encryptable models."""
+class SecureModel:
+    """Base class for encryptable and hashable models."""
 
     _disable: bool | None = None
 
@@ -91,6 +90,21 @@ class EncryptableObject:
 
         for field_name, value in decrypted_data.items():
             setattr(self, field_name, value)
+
+    def hash_data(self) -> None:
+        """Hash fields marked with `Hash` annotation."""
+
+        if self._disable:
+            return
+
+        if not self.pending_hash_fields:
+            return
+
+        for field_name, value in self.pending_hash_fields.items():
+            salt = bcrypt.gensalt()
+            hashed = bcrypt.hashpw(value.encode("utf-8"), salt)
+
+            setattr(self, field_name, hashed)
 
     @staticmethod
     def get_annotated_fields(
@@ -163,10 +177,16 @@ class EncryptableObject:
     def pending_encryption_fields(self) -> dict[str, str]:
         """Get all encrypted fields from the model."""
 
-        return self.get_annotated_fields(self, None, _EncryptedFieldValue)
+        return self.get_annotated_fields(self, None, Encrypt)
 
     @property
     def pending_decryption_fields(self) -> dict[str, str]:
         """Get all decrypted fields from the model."""
 
-        return self.get_annotated_fields(self, None, _DecryptedFieldValue)
+        return self.get_annotated_fields(self, None, Decrypt)
+
+    @property
+    def pending_hash_fields(self) -> dict[str, str]:
+        """Get all hashable fields from the model."""
+
+        return self.get_annotated_fields(self, None, Hash)

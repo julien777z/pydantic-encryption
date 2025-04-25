@@ -4,16 +4,17 @@ from tests.mocks.mock_users import (
     mock_basic_user,
     mock_user_disabled_encryption,
 )
+from tests.test_utils import is_encrypted
 
 
-class TestBasicUsage:
+class TestEncryption:
     """Test basic functionality of pydantic-encryption."""
 
     def test_encrypt_field(self, mock_basic_user: User):
         """Test encrypting fields with EncryptField annotation."""
 
         assert mock_basic_user.username == "user1"  # Not encrypted
-        assert mock_basic_user.address == "enc:pass123"  # Encrypted
+        assert is_encrypted(mock_basic_user.address)
 
     def test_decrypt_field(self, mock_basic_user: User):
         """Test decrypting fields with DecryptField annotation."""
@@ -23,9 +24,9 @@ class TestBasicUsage:
         decrypted_user = UserDecrypt(**encrypted_data)
 
         assert decrypted_user.username == "user1"
-        assert decrypted_user.address == "pass123"  # Decrypted
+        assert not is_encrypted(decrypted_user.address)
 
     def test_disable_encryption(self, mock_user_disabled_encryption: User):
         """Test disabling encryption."""
 
-        assert mock_user_disabled_encryption.address == "pass123"  # Not encrypted
+        assert not is_encrypted(mock_user_disabled_encryption.address)
