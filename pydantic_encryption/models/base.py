@@ -1,4 +1,4 @@
-from typing import Any, override
+from typing import Any
 from pydantic import BaseModel as PydanticBaseModel
 from . import SecureModel
 
@@ -15,7 +15,6 @@ class BaseModel(PydanticBaseModel, SecureModel):
 
     _generic_type_value: Any = None
 
-    @override
     def model_post_init(self, context: Any, /) -> None:
         if not self._disable:
             if self.pending_decryption_fields:

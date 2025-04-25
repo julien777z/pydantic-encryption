@@ -1,4 +1,4 @@
-from typing import Any, override
+from typing import Any
 from pydantic import BaseModel as PydanticBaseModel
 from pydantic_encryption.models import SecureModel
 
@@ -33,7 +33,6 @@ def mock_hash(value: str) -> str:
 class MockSecureObject(SecureModel):
     """Mock implementation of SecureModel."""
 
-    @override
     def encrypt_data(self) -> None:
         if self._disable:
             return
@@ -49,7 +48,6 @@ class MockSecureObject(SecureModel):
         for field_name, value in encrypted_data_dict.items():
             setattr(self, field_name, value)
 
-    @override
     def decrypt_data(self) -> None:
         if self._disable:
             return
@@ -65,7 +63,6 @@ class MockSecureObject(SecureModel):
         for field_name, value in decrypted_data.items():
             setattr(self, field_name, value)
 
-    @override
     def hash_data(self) -> None:
         if self._disable:
             return
@@ -84,7 +81,6 @@ class MockBaseModel(PydanticBaseModel, MockSecureObject):
 
     _generic_type_value: Any = None
 
-    @override
     def model_post_init(self, context: Any, /) -> None:
         if not self._disable:
             if self.pending_decryption_fields:

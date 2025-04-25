@@ -1,4 +1,4 @@
-from typing import override, Any
+from typing import Any
 from pydantic_settings import BaseSettings
 
 
@@ -15,7 +15,6 @@ class Settings(BaseSettings):
         case_sensitive = True
         extra = "ignore"
 
-    @override
     def model_post_init(self, context: Any, /) -> None:
         try:
             import evervault  # pylint: disable=unused-import
