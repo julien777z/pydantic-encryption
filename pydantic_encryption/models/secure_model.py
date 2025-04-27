@@ -9,9 +9,7 @@ from typing import (
 )
 
 from pydantic import BaseModel
-
-from pydantic_encryption.lib.adapters.encryption import evervault, fernet
-from pydantic_encryption.lib.adapters.hashing import bcrypt
+from pydantic_encryption.lib import bcrypt, fernet, evervault
 from pydantic_encryption.annotations import (
     Encrypt,
     Decrypt,
