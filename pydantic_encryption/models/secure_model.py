@@ -1,6 +1,5 @@
 from typing import (
     Annotated,
-    Any,
     Optional,
     Union,
     get_args,
@@ -8,7 +7,6 @@ from typing import (
     get_type_hints,
 )
 
-from pydantic import BaseModel
 from pydantic_encryption.lib import bcrypt, fernet, evervault
 from pydantic_encryption.annotations import (
     Encrypt,
@@ -29,6 +27,7 @@ class SecureModel:
 
     def __init_subclass__(
         cls,
+        *,
         disable: bool = False,
         use_encryption_method: Optional[EncryptionMethod] = None,
         **kwargs,
@@ -38,14 +37,11 @@ class SecureModel:
         cls._disable = disable
 
         if use_encryption_method is None:
-            # Check parent classes for existing _use_encryption_method setting
-            for base in filter(
-                lambda x: hasattr(x, "_use_encryption_method")
-                and getattr(x, "_use_encryption_method") is not None,
-                cls.__bases__,
-            ):
-                use_encryption_method = base._use_encryption_method
-                break
+            for base in cls.__mro__[1:]:
+                ue = getattr(base, "_use_encryption_method", None)
+                if ue is not None:
+                    use_encryption_method = ue
+                    break
 
         cls._use_encryption_method = use_encryption_method or EncryptionMethod.FERNET
 
@@ -141,15 +137,10 @@ class SecureModel:
             if self.pending_hash_fields:
                 self.hash_data()
 
-    @staticmethod
-    def get_annotated_fields(
-        instance: "BaseModel", obj: Optional[dict[str, Any]] = None, *annotations: type
-    ) -> dict[str, str]:
+    def get_annotated_fields(self, *annotations: type) -> dict[str, str]:
         """Get fields that have the specified annotations, handling union types.
 
         Args:
-            instance: The instance to get annotated fields from
-            obj: The object to get annotated fields from
             annotations: The annotations to look for
 
         Returns:
@@ -173,8 +164,7 @@ class SecureModel:
 
             return False
 
-        obj = obj or {}
-        type_hints = get_type_hints(instance, include_extras=True)
+        type_hints = get_type_hints(type(self), include_extras=True)
         annotated_fields: dict[str, str] = {}
 
         for field_name, field_annotation in type_hints.items():
@@ -195,16 +185,7 @@ class SecureModel:
 
             # If annotation found, add field value to result
             if found_annotation:
-                field_value = None
-
-                if field_name in obj:
-                    field_value = obj[field_name]
-
-                elif hasattr(instance, field_name):
-                    field_value = getattr(instance, field_name)
-
-                if field_value is not None:
-                    annotated_fields[field_name] = field_value
+                annotated_fields[field_name] = getattr(self, field_name)
 
         return annotated_fields
 
@@ -212,16 +193,16 @@ class SecureModel:
     def pending_encryption_fields(self) -> dict[str, str]:
         """Get all encrypted fields from the model."""
 
-        return self.get_annotated_fields(self, None, Encrypt)
+        return self.get_annotated_fields(Encrypt)
 
     @property
     def pending_decryption_fields(self) -> dict[str, str]:
         """Get all decrypted fields from the model."""
 
-        return self.get_annotated_fields(self, None, Decrypt)
+        return self.get_annotated_fields(Decrypt)
 
     @property
     def pending_hash_fields(self) -> dict[str, str]:
         """Get all hashable fields from the model."""
 
-        return self.get_annotated_fields(self, None, Hash)
+        return self.get_annotated_fields(Hash)
