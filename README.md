@@ -252,6 +252,8 @@ poetry run coverage run -m pytest -v -s
 This is an early development version. I am considering the following features:
 
 - [ ] Add optional support for other encryption providers beyond Evervault
+- [ ] Add support for AWS KMS and other key management services
+- [ ] Native encryption via PostgreSQL and other databases
 
 ## Feature Requests
 
