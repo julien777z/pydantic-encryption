@@ -128,6 +128,19 @@ class SecureModel:
 
             setattr(self, field_name, hashed)
 
+    def default_post_init(self) -> None:
+        """Post initialization hook. If you make your own BaseModel, you must call this in model_post_init()."""
+
+        if not self._disable:
+            if self.pending_decryption_fields:
+                self.decrypt_data()
+
+            if self.pending_encryption_fields:
+                self.encrypt_data()
+
+            if self.pending_hash_fields:
+                self.hash_data()
+
     @staticmethod
     def get_annotated_fields(
         instance: "BaseModel", obj: Optional[dict[str, Any]] = None, *annotations: type

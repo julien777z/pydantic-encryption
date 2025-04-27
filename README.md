@@ -88,7 +88,7 @@ You can define your own encryption or hashing methods by subclassing `SecureMode
 
 `self.pending_encryption_fields`, `self.pending_decryption_fields`, and `self.pending_hash_fields` are dictionaries of field names to field values that need to be encrypted, decrypted, or hashed, i.e., fields annotated with `Encrypt`, `Decrypt`, or `Hash`.
 
-You can override the `encrypt_data`, `decrypt_data`, and `hash_data` methods to implement your own encryption, decryption, and hashing logic. You then need to override `model_post_init` to call these methods.
+You can override the `encrypt_data`, `decrypt_data`, and `hash_data` methods to implement your own encryption, decryption, and hashing logic. You then need to override `model_post_init` to call these methods or use the default implementation accessible via `self.default_post_init()`.
 
 First, define a custom secure model:
 
@@ -115,15 +115,20 @@ class MySecureModel(PydanticBaseModel, SecureModel):
 
     @override
     def model_post_init(self, context: Any, /) -> None:
-        if not self._disable:
-            if self.pending_decryption_fields:
-                self.decrypt_data()
+        # Either define your own logic, for example:
 
-            if self.pending_encryption_fields:
-                self.encrypt_data()
+        # if not self._disable:
+        #     if self.pending_decryption_fields:
+        #         self.decrypt_data()
 
-            if self.pending_hash_fields:
-                self.hash_data()
+        #     if self.pending_encryption_fields:
+        #         self.encrypt_data()
+
+        #     if self.pending_hash_fields:
+        #         self.hash_data()
+
+        # Or use the default logic:
+        self.default_post_init()
 
         super().model_post_init(context)
 ```
