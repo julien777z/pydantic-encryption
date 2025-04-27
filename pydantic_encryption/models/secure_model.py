@@ -40,14 +40,12 @@ class SecureModel:
         if use_encryption_method is None:
             # Check parent classes for existing _use_encryption_method setting
             for base in filter(
-                lambda x: hasattr(x, "_use_encryption_method"), cls.__bases__
+                lambda x: hasattr(x, "_use_encryption_method")
+                and getattr(x, "_use_encryption_method") is not None,
+                cls.__bases__,
             ):
-                if (
-                    hasattr(base, "_use_encryption_method")
-                    and base._use_encryption_method is not None
-                ):
-                    use_encryption_method = base._use_encryption_method
-                    break
+                use_encryption_method = base._use_encryption_method
+                break
 
         cls._use_encryption_method = use_encryption_method or EncryptionMethod.FERNET
 
