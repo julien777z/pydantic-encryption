@@ -183,9 +183,11 @@ class SecureModel:
 
                         break
 
-            # If annotation found, add field value to result
             if found_annotation:
-                annotated_fields[field_name] = getattr(self, field_name)
+                field_value = getattr(self, field_name, None)
+
+                if field_value is not None:
+                    annotated_fields[field_name] = field_value
 
         return annotated_fields
 
