@@ -25,18 +25,31 @@ class SecureModel:
     """Base class for encryptable and hashable models."""
 
     _disable: Optional[bool] = None
-    _use_encryption_method: Optional[EncryptionMethod] = EncryptionMethod.FERNET
+    _use_encryption_method: Optional[EncryptionMethod] = None
 
     def __init_subclass__(
         cls,
-        disable: Optional[bool] = None,
-        use_encryption_method: Optional[EncryptionMethod] = EncryptionMethod.FERNET,
+        disable: bool = False,
+        use_encryption_method: Optional[EncryptionMethod] = None,
         **kwargs,
     ) -> None:
         super().__init_subclass__(**kwargs)
 
         cls._disable = disable
-        cls._use_encryption_method = use_encryption_method
+
+        if use_encryption_method is None:
+            # Check parent classes for existing _use_encryption_method setting
+            for base in filter(
+                lambda x: hasattr(x, "_use_encryption_method"), cls.__bases__
+            ):
+                if (
+                    hasattr(base, "_use_encryption_method")
+                    and base._use_encryption_method is not None
+                ):
+                    use_encryption_method = base._use_encryption_method
+                    break
+
+        cls._use_encryption_method = use_encryption_method or EncryptionMethod.FERNET
 
     def encrypt_data(self) -> None:
         """Encrypt data using the specified encryption method."""
