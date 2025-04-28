@@ -22,6 +22,9 @@ generics = ["python-generics>=0.2.3"]
 test = ["pytest>=8.3.5", "coverage>=7.8.0", "pytest-env (>=1.1.5,<2.0.0)"]
 all = ["python-generics>=0.2.3", "pytest>=8.3.5", "coverage>=7.8.0", "pytest-env (>=1.1.5,<2.0.0)"]
 
+[tool.pytest_env]
+ENCRYPTION_KEY = "FF9OqqsxdRoge7b0orbJ7EZAn96bLFDgoa8icBF3GNM="
+
 [build-system]
 requires = ["poetry-core", "setuptools"]
 build-backend = "poetry.core.masonry.api"
