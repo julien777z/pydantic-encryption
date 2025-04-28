@@ -11,8 +11,10 @@ requires-python = ">=3.10,<4.0.0"
 dependencies = [
     "pydantic>=2.10.6",
     "pydantic-settings>=2.9.1",
-    "bcrypt (>=4.3.0,<5.0.0)",
-    "evervault>=4.4.1"
+    "evervault>=4.4.1",
+    "sqlalchemy (>=2.0.40,<3.0.0)",
+    "boto3 (>=1.38.3,<2.0.0)",
+    "argon2-cffi (>=23.1.0,<24.0.0)"
 ]
 
 [project.optional-dependencies]

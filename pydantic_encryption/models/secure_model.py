@@ -5,14 +5,16 @@ from typing import (
     get_args,
     get_origin,
     get_type_hints,
+    Any,
 )
 
-from pydantic_encryption.lib import bcrypt, fernet, evervault
+from pydantic_encryption.lib import argon2, fernet, evervault
 from pydantic_encryption.annotations import (
     Encrypt,
     Decrypt,
     Hash,
     EncryptionMethod,
+    DatabaseColumnProvider,
 )
 
 
@@ -24,12 +26,14 @@ class SecureModel:
 
     _disable: Optional[bool] = None
     _use_encryption_method: Optional[EncryptionMethod] = None
+    _use_database_column_provider: Optional[DatabaseColumnProvider] = None
 
     def __init_subclass__(
         cls,
         *,
         disable: bool = False,
         use_encryption_method: Optional[EncryptionMethod] = None,
+        use_database_column_provider: Optional[DatabaseColumnProvider] = None,
         **kwargs,
     ) -> None:
         super().__init_subclass__(**kwargs)
@@ -37,13 +41,18 @@ class SecureModel:
         cls._disable = disable
 
         if use_encryption_method is None:
-            for base in cls.__mro__[1:]:
-                ue = getattr(base, "_use_encryption_method", None)
-                if ue is not None:
-                    use_encryption_method = ue
-                    break
+            use_encryption_method = cls.get_class_parameter("_use_encryption_method")
 
         cls._use_encryption_method = use_encryption_method or EncryptionMethod.FERNET
+
+        if use_database_column_provider is None:
+            use_database_column_provider = cls.get_class_parameter(
+                "_use_database_column_provider"
+            )
+
+        cls._use_database_column_provider = (
+            use_database_column_provider or DatabaseColumnProvider.SQLALCHEMY
+        )
 
     def encrypt_data(self) -> None:
         """Encrypt data using the specified encryption method."""
@@ -64,9 +73,7 @@ class SecureModel:
 
             case EncryptionMethod.FERNET:
                 encrypted_data = {
-                    field_name: fernet.fernet_encrypt(value.encode("utf-8")).decode(
-                        "utf-8"
-                    )
+                    field_name: fernet.fernet_encrypt(value)
                     for field_name, value in self.pending_encryption_fields.items()
                 }
             case _:
@@ -96,9 +103,7 @@ class SecureModel:
 
             case EncryptionMethod.FERNET:
                 decrypted_data = {
-                    field_name: fernet.fernet_decrypt(value.encode("utf-8")).decode(
-                        "utf-8"
-                    )
+                    field_name: fernet.fernet_decrypt(value)
                     for field_name, value in self.pending_decryption_fields.items()
                 }
 
@@ -120,7 +125,7 @@ class SecureModel:
             return
 
         for field_name, value in self.pending_hash_fields.items():
-            hashed = bcrypt.bcrypt_hash_data(value)
+            hashed = argon2.argon2_hash_data(value)
 
             setattr(self, field_name, hashed)
 
@@ -190,6 +195,16 @@ class SecureModel:
                     annotated_fields[field_name] = field_value
 
         return annotated_fields
+
+    @classmethod
+    def get_class_parameter(cls, parameter_name: str) -> Any:
+        """Get a class parameter from the class or its parent classes."""
+
+        for base in cls.__mro__[1:]:
+            if hasattr(base, parameter_name):
+                return getattr(base, parameter_name)
+
+        return None
 
     @property
     def pending_encryption_fields(self) -> dict[str, str]:

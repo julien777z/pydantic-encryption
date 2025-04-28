@@ -1,13 +1,10 @@
 from typing import Annotated
 import pytest
-from pydantic_encryption import Encrypt, Decrypt, Hash
-from tests.mocks.mock_secure_model import (
-    MockBaseModel,
-)
+from pydantic_encryption import Encrypt, Decrypt, Hash, BaseModel
 
 
 # Basic User Models
-class User(MockBaseModel):
+class User(BaseModel):
     """Basic user model with encrypted address and hashed password."""
 
     username: str
@@ -15,7 +12,7 @@ class User(MockBaseModel):
     password: Annotated[str, Hash] = None
 
 
-class UserDecrypt(MockBaseModel):
+class UserDecrypt(BaseModel):
     """Basic user model with decrypted address."""
 
     username: str
@@ -24,8 +21,17 @@ class UserDecrypt(MockBaseModel):
 
 
 # Disabled Encryption Models
-class UserDisabledEncryption(MockBaseModel, disable=True):
+class UserDisabledEncryption(BaseModel, disable=True):
     """User model with disabled encryption and hashing."""
+
+    username: str
+    address: Annotated[str, Encrypt]
+    password: Annotated[str, Hash] = None
+
+
+# Default Models
+class UserDefaultModel(BaseModel):
+    """Basic user model using the default model."""
 
     username: str
     address: Annotated[str, Encrypt]
