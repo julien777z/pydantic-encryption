@@ -22,34 +22,6 @@ def load_fernet_client() -> Fernet:
     return FERNET_CLIENT
 
 
-def is_fernet_encrypted(value: str) -> bool:
-    if not isinstance(value, str):
-        return False
-
-    try:
-        decoded = base64.urlsafe_b64decode(value.encode("utf-8"))
-    except (Error, ValueError):
-        return False
-
-    if len(decoded) < 57 or decoded[0] != 0x80:
-        return False
-
-    try:
-        timestamp = struct.unpack(">Q", decoded[1:9])[0]
-    except struct.error:
-        return False
-
-    now = int(time.time())
-
-    # Accept timestamps within ±10 years (arbitrary but reasonable)
-    ten_years = 10 * 365 * 24 * 60 * 60
-
-    if not (now - ten_years <= timestamp <= now + ten_years):
-        return False
-
-    return True
-
-
 def fernet_encrypt(plaintext: bytes | str | EncryptableString) -> EncryptableString:
     """Encrypt data using Fernet."""
 
