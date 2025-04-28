@@ -20,7 +20,7 @@ class EncryptionMethod(Enum):
     EVERVAULT = auto()
 
 
-class DatabaseColumnProvider(Enum):
+class TableProvider(Enum):
     """Enum for database column providers."""
 
     SQLALCHEMY = auto()

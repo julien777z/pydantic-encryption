@@ -14,7 +14,11 @@ from pydantic_encryption.annotations import (
     Decrypt,
     Hash,
     EncryptionMethod,
-    DatabaseColumnProvider,
+    TableProvider,
+)
+from pydantic_encryption.models.adapters.sqlalchemy import (
+    SQLAlchemyEncryptedString,
+    SQLAlchemyHashedString,
 )
 
 
@@ -26,14 +30,14 @@ class SecureModel:
 
     _disable: Optional[bool] = None
     _use_encryption_method: Optional[EncryptionMethod] = None
-    _use_database_column_provider: Optional[DatabaseColumnProvider] = None
+    _use_table_provider: Optional[TableProvider] = None
 
     def __init_subclass__(
         cls,
         *,
         disable: bool = False,
         use_encryption_method: Optional[EncryptionMethod] = None,
-        use_database_column_provider: Optional[DatabaseColumnProvider] = None,
+        use_table_provider: Optional[TableProvider] = None,
         **kwargs,
     ) -> None:
         super().__init_subclass__(**kwargs)
@@ -45,14 +49,10 @@ class SecureModel:
 
         cls._use_encryption_method = use_encryption_method or EncryptionMethod.FERNET
 
-        if use_database_column_provider is None:
-            use_database_column_provider = cls.get_class_parameter(
-                "_use_database_column_provider"
-            )
+        if use_table_provider is None:
+            use_table_provider = cls.get_class_parameter("_use_table_provider")
 
-        cls._use_database_column_provider = (
-            use_database_column_provider or DatabaseColumnProvider.SQLALCHEMY
-        )
+        cls._use_table_provider = use_table_provider
 
     def encrypt_data(self) -> None:
         """Encrypt data using the specified encryption method."""
@@ -133,14 +133,39 @@ class SecureModel:
         """Post initialization hook. If you make your own BaseModel, you must call this in model_post_init()."""
 
         if not self._disable:
-            if self.pending_decryption_fields:
-                self.decrypt_data()
-
             if self.pending_encryption_fields:
-                self.encrypt_data()
+                if self._use_table_provider == TableProvider.SQLALCHEMY:
+                    # convert encrypted values to SQLAlchemyEncryptedString
+                    for field_name, value in self.pending_encryption_fields.items():
+                        setattr(
+                            self,
+                            field_name,
+                            SQLAlchemyEncryptedString(
+                                value, encryption_method=self._use_encryption_method
+                            ),
+                        )
+                else:
+                    self.encrypt_data()
 
             if self.pending_hash_fields:
-                self.hash_data()
+                if self._use_table_provider == TableProvider.SQLALCHEMY:
+                    # convert hashed values to SQLAlchemyHashedString
+                    for field_name, value in self.pending_hash_fields.items():
+                        setattr(
+                            self,
+                            field_name,
+                            SQLAlchemyHashedString(value),
+                        )
+                else:
+                    self.hash_data()
+
+            if self.pending_decryption_fields:
+                if self._use_table_provider == TableProvider.SQLALCHEMY:
+                    raise ValueError(
+                        "You must use Encrypt type for SQLAlchemy integration since it handles the encryption and decryption of the fields."
+                    )
+
+                self.decrypt_data()
 
     def get_annotated_fields(self, *annotations: type) -> dict[str, str]:
         """Get fields that have the specified annotations, handling union types.
