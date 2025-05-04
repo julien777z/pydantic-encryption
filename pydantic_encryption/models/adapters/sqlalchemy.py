@@ -62,7 +62,7 @@ class SQLAlchemyEncryptedString(TypeDecorator):
 
 
 class SQLAlchemyHashedString(TypeDecorator):
-    """Encrypts and decrypts strings using Argon2."""
+    """Type adapter for SQLAlchemy to hash strings using Argon2."""
 
     impl = String
     cache_ok = True
@@ -76,7 +76,7 @@ class SQLAlchemyHashedString(TypeDecorator):
         super().__init__(*args, **kwargs)
 
     def process_bind_param(self, value: str | bytes | None, dialect):
-        """Encrypts a string before binding it to the database."""
+        """Hashes a string before binding it to the database."""
 
         if value is None:
             return None
