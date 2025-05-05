@@ -88,7 +88,7 @@ print(user.email) # decrypted
 print(user.password) # hashed
 ```
 
-You can also use the `@sqlalchemy_table` decorator to automatically convert `Encrypt` and `Hash` annotations to `SQLAlchemyEncryptedString` and `SQLAlchemyHashedString` types.
+You can also use the `@sqlalchemy_table(...)` decorator to automatically convert `Encrypt` and `Hash` annotations to `SQLAlchemyEncryptedString` and `SQLAlchemyHashedString` types.
 Make sure to inherit from `pydantic_encryption.BaseModel` or if inherting from `pydantic_encryption.SecureModel`, make sure to follow [Custom Encryption or Hashing](https://github.com/julien777z/pydantic-encryption?tab=readme-ov-file#custom-encryption-or-hashing).
 
 ### Example:
