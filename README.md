@@ -88,6 +88,40 @@ print(user.email) # decrypted
 print(user.password) # hashed
 ```
 
+You can also use the `@sqlalchemy_table` decorator to automatically convert `Encrypt` and `Hash` annotations to `SQLAlchemyEncryptedString` and `SQLAlchemyHashedString` types.
+Make sure to inherit from `pydantic_encryption.BaseModel` or if inherting from `pydantic_encryption.SecureModel`, make sure to follow [Custom Encryption or Hashing](https://github.com/julien777z/pydantic-encryption?tab=readme-ov-file#custom-encryption-or-hashing).
+
+### Example:
+
+```python
+from typing import Annotated
+from pydantic_encryption import EncryptionMethod, BaseModel, Encrypt, Hash, sqlalchemy_table
+from sqlmodel import SQLModel, Field
+import uuid
+
+class Base(SQLModel, table=False):
+    """Base model."""
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+
+@sqlalchemy_table(use_encryption_method=EncryptionMethod.FERNET)
+class User(
+    Base,
+    BaseModel,
+    table=True,
+):
+    """
+    Managed User model. The `Encrypt` and `Hash` annotations are automatically converted to
+    `SQLAlchemyEncryptedString` and `SQLAlchemyHashedString` types.
+    """
+
+    __tablename__ = "users"
+
+    username: str = Field(default=None)
+    email: Annotated[str, Encrypt]
+    password: Annotated[str, Hash]
+```
+
 ## Choose an Encryption Method
 
 You can choose which encryption method to use by setting the `use_encryption_method` parameter in the class definition.

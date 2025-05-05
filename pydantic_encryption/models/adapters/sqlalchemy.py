@@ -1,12 +1,15 @@
+from typing import Callable
+
 try:
     from sqlalchemy.types import TypeDecorator, String
+    from sqlalchemy.ext.declarative import DeclarativeMeta
 except ImportError:
     sqlalchemy_available = False
 else:
     sqlalchemy_available = True
 
 from pydantic_encryption.lib.adapters import encryption, hashing
-from pydantic_encryption.annotations import EncryptionMethod
+from pydantic_encryption.annotations import EncryptionMethod, TableProvider
 from pydantic_encryption.models.string import HashableString, EncryptableString
 
 
@@ -140,3 +143,24 @@ class SQLAlchemyHashedString(TypeDecorator):
     def python_type(self):
         """Return the Python type this is bound to (str)."""
         return self.impl.python_type
+
+
+def sqlalchemy_table(
+    use_encryption_method: EncryptionMethod | None = EncryptionMethod.FERNET,
+) -> Callable[[type[DeclarativeMeta]], type[DeclarativeMeta]]:
+    """
+    Decorator to mark a model as a SQLAlchemy table.
+
+    This will let you use the `Encrypt` and `Hash` annotations to encrypt and hash fields.
+    """
+
+    def wrapper(table: DeclarativeMeta) -> DeclarativeMeta:
+        if not isinstance(table, DeclarativeMeta):
+            raise ValueError("table must be a SQLAlchemy declarative class")
+
+        table._use_table_provider = TableProvider.SQLALCHEMY
+        table._use_encryption_method = use_encryption_method
+
+        return table
+
+    return wrapper

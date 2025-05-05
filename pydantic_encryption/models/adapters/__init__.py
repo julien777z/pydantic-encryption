@@ -1,1 +1,5 @@
-from .sqlalchemy import SQLAlchemyEncryptedString, SQLAlchemyHashedString
+from .sqlalchemy import (
+    SQLAlchemyEncryptedString,
+    SQLAlchemyHashedString,
+    sqlalchemy_table,
+)

@@ -37,7 +37,6 @@ class SecureModel:
         *,
         disable: bool = False,
         use_encryption_method: Optional[EncryptionMethod] = None,
-        use_table_provider: Optional[TableProvider] = None,
         **kwargs,
     ) -> None:
         super().__init_subclass__(**kwargs)
@@ -48,11 +47,6 @@ class SecureModel:
             use_encryption_method = cls.get_class_parameter("_use_encryption_method")
 
         cls._use_encryption_method = use_encryption_method or EncryptionMethod.FERNET
-
-        if use_table_provider is None:
-            use_table_provider = cls.get_class_parameter("_use_table_provider")
-
-        cls._use_table_provider = use_table_provider
 
     def encrypt_data(self) -> None:
         """Encrypt data using the specified encryption method."""
@@ -129,34 +123,52 @@ class SecureModel:
 
             setattr(self, field_name, hashed)
 
+    def _handle_sqlalchemy(self) -> None:
+        """Handle SQLAlchemy integration."""
+
+        table = self.__class__.__table__  # pylint: disable=no-member
+
+        def _override_type(column_name: str, new_type: type) -> None:
+            if column_name in table.columns:
+                table.columns[column_name].type = new_type
+
+        for field_name in self.pending_encryption_fields:
+            _override_type(
+                field_name,
+                SQLAlchemyEncryptedString(
+                    encryption_method=self._use_encryption_method
+                ),
+            )
+
+        for field_name in self.pending_hash_fields:
+            _override_type(field_name, SQLAlchemyHashedString())
+
     def default_post_init(self) -> None:
         """Post initialization hook. If you make your own BaseModel, you must call this in model_post_init()."""
 
         if not self._disable:
-            if self.pending_encryption_fields:
-                if self._use_table_provider == TableProvider.SQLALCHEMY:
-                    # convert encrypted values to SQLAlchemyEncryptedString
-                    for field_name, value in self.pending_encryption_fields.items():
-                        setattr(
-                            self,
-                            field_name,
-                            SQLAlchemyEncryptedString(
-                                value, encryption_method=self._use_encryption_method
-                            ),
-                        )
-                else:
+            if (
+                self._use_table_provider == TableProvider.SQLALCHEMY
+                and not hasattr(self.__class__, "__table__")
+            ) or (
+                self._use_table_provider != TableProvider.SQLALCHEMY
+                and hasattr(self.__class__, "__table__")
+            ):
+                raise ValueError(
+                    "You must use the @sqlalchemy_table decorator on the SQLAlchemy table model."
+                )
+
+            if (
+                hasattr(self.__class__, "__table__")
+                and self._use_table_provider == TableProvider.SQLALCHEMY
+            ):
+                self._handle_sqlalchemy()
+            else:
+                # Regular models
+                if self.pending_encryption_fields:
                     self.encrypt_data()
 
-            if self.pending_hash_fields:
-                if self._use_table_provider == TableProvider.SQLALCHEMY:
-                    # convert hashed values to SQLAlchemyHashedString
-                    for field_name, value in self.pending_hash_fields.items():
-                        setattr(
-                            self,
-                            field_name,
-                            SQLAlchemyHashedString(value),
-                        )
-                else:
+                if self.pending_hash_fields:
                     self.hash_data()
 
             if self.pending_decryption_fields:
