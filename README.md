@@ -57,6 +57,7 @@ When you create a new instance of the model, the fields will be encrypted and wh
 ### Example:
 
 ```python
+import uuid
 from pydantic_encryption import SQLAlchemyEncryptedString, SQLAlchemyHashedString, EncryptionMethod
 from sqlmodel import SQLModel, Field
 from sqlalchemy import create_engine
@@ -66,13 +67,13 @@ from sqlalchemy.orm import sessionmaker
 class User(SQLModel, table=True):
     __tablename__ = "users"
 
-    id = Field(default_factory=uuid.uuid4, primary_key=True)
-    username = Field(default=None)
-    email = Field(
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    username: str
+    email: str = Field(
         default=None,
         sa_type=SQLAlchemyEncryptedString(encryption_method=EncryptionMethod.FERNET),
     ) # This field will be encrypted in the database
-    password = Field(
+    password: str = Field(
         sa_type=SQLAlchemyHashedString(),
         nullable=False,
     ) # This field will be hashed in the database
