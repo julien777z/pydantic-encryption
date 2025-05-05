@@ -4,12 +4,12 @@ This package provides Pydantic field annotations that encrypt, decrypt, and hash
 
 ## Installation
 
-Install with Pip:
+Install with [Pip](https://pip.pypa.io/en/stable/):
 ```bash
 pip install pydantic_encryption
 ```
 
-Install with Poetry:
+Install with [Poetry](https://python-poetry.org/docs/):
 ```bash
 poetry add pydantic_encryption -E all
 ```
@@ -54,7 +54,7 @@ SQLAlchemy will automatically handle the encryption/decryption of fields with th
 
 When you create a new instance of the model, the fields will be encrypted and when you query the database, the fields will be decrypted.
 
-### Example
+### Example:
 
 ```python
 from pydantic_encryption import SQLAlchemyEncryptedString, SQLAlchemyHashedString, EncryptionMethod
