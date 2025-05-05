@@ -1,4 +1,4 @@
-# Encryption and hashing models for Pydantic
+# Encryption and Hashing Models for Pydantic
 
 This package provides Pydantic field annotations that encrypt, decrypt, and hash field values.
 
