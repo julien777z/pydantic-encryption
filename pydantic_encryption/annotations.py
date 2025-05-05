@@ -1,4 +1,4 @@
-from enum import Enum
+from enum import Enum, auto
 
 
 class Encrypt:
@@ -16,5 +16,11 @@ class Hash:
 class EncryptionMethod(Enum):
     """Enum for encryption methods."""
 
-    FERNET = "fernet"
-    EVERVAULT = "evervault"
+    FERNET = auto()
+    EVERVAULT = auto()
+
+
+class TableProvider(Enum):
+    """Enum for database column providers."""
+
+    SQLALCHEMY = auto()

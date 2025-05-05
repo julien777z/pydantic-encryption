@@ -41,8 +41,10 @@ jobs:
 
       - name: Test with pytest
         run: |
-          poetry run coverage run -m pytest  -v -s
+          poetry run pytest --cov --cov-branch --cov-report=xml
 
-      - name: Generate Coverage Report
-        run: |
-          poetry run coverage report -m
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          slug: julien777z/pydantic-encryption

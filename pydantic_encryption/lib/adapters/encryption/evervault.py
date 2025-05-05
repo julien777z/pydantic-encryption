@@ -7,6 +7,8 @@ except ImportError:
 
 EVERVAULT_CLIENT = None
 
+EvervaultData = dict[str, (bytes | list | dict | set | str)]
+
 
 def load_evervault_client():
     """Load the Evervault encryption client."""
@@ -34,17 +36,21 @@ def load_evervault_client():
     return EVERVAULT_CLIENT
 
 
-def evervault_encrypt(plaintext: bytes) -> bytes:
+def evervault_encrypt(
+    fields: dict[str, str],
+) -> EvervaultData:
     """Encrypt data using Evervault."""
 
     evervault_client = load_evervault_client()
 
-    return evervault_client.encrypt(plaintext, role=settings.EVERVAULT_ENCRYPTION_ROLE)
+    return evervault_client.encrypt(fields, role=settings.EVERVAULT_ENCRYPTION_ROLE)
 
 
-def evervault_decrypt(ciphertext: bytes) -> bytes:
+def evervault_decrypt(
+    fields: EvervaultData,
+) -> EvervaultData:
     """Decrypt data using Evervault."""
 
     evervault_client = load_evervault_client()
 
-    return evervault_client.decrypt(ciphertext)
+    return evervault_client.decrypt(fields)

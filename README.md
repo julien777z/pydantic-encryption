@@ -6,18 +6,22 @@ This package provides Pydantic field annotations that encrypt, decrypt, and hash
 
 Install with Pip:
 ```bash
-pip install pydantic_encryption
+pip install pydantic_encryption[all]
 ```
 
 ### Optional extras
 
 - `generics`: Support for generics
+- `sqlalchemy`: Built-in SQLAlchemy integration
+- `test`: Test dependencies
+- `all`: All optional extras
 
 ## Features
 
 - Encrypt and decrypt specific fields
-- Support for Fernet symmetric encryption and Evervault
 - Hash specific fields
+- Built-in SQLAlchemy integration
+- Support for Fernet symmetric encryption and Evervault
 - Support for generics
 
 ## Example
@@ -35,6 +39,87 @@ user = User(name="John Doe", address="123456", password="secret123")
 print(user.name) # plaintext (untouched)
 print(user.address) # encrypted
 print(user.password) # hashed
+```
+
+## SQLAlchemy Integration
+
+If you install this package with the `sqlalchemy` extra, you can use the built-in SQLAlchemy integration for the columns.
+
+SQLAlchemy will automatically handle the encryption/decryption of fields with the `SQLAlchemyEncryptedString` type and the hashing of fields with the `SQLAlchemyHashedString` type.
+
+When you create a new instance of the model, the fields will be encrypted and when you query the database, the fields will be decrypted.
+
+### Example
+
+```python
+from pydantic_encryption import SQLAlchemyEncryptedString, SQLAlchemyHashedString, EncryptionMethod
+from sqlalchemy import Column, String, Integer
+from sqlalchemy.orm import declarative_base
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+Base = declarative_base()
+
+# Define our schema
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True)
+    username = Column(String)
+    email = Column(SQLAlchemyEncryptedString(encryption_method=EncryptionMethod.FERNET)) # This field will be encrypted in the database
+    password = Column(SQLAlchemyHashedString()) # This field will be hashed in the database
+
+# Create the database
+engine = create_engine("sqlite:///:memory:")
+Base.metadata.create_all(engine)
+Session = sessionmaker(bind=engine)
+session = Session()
+
+# Create a user
+user = User(username="john_doe", email="john@example.com", password="secret123") # The email and password will be encrypted/hashed automatically
+
+session.add(user)
+session.commit()
+
+# Query the user
+user = session.query(User).filter_by(username="john_doe").first()
+
+print(user.email) # decrypted
+print(user.password) # hashed
+```
+
+You can also use the `@sqlalchemy_table(...)` decorator to automatically convert `Encrypt` and `Hash` annotations to `SQLAlchemyEncryptedString` and `SQLAlchemyHashedString` types.
+Make sure to inherit from `pydantic_encryption.BaseModel` or if inherting from `pydantic_encryption.SecureModel`, make sure to follow [Custom Encryption or Hashing](https://github.com/julien777z/pydantic-encryption?tab=readme-ov-file#custom-encryption-or-hashing).
+
+### Example:
+
+```python
+from typing import Annotated
+from pydantic_encryption import EncryptionMethod, BaseModel, Encrypt, Hash, sqlalchemy_table
+from sqlmodel import SQLModel, Field
+import uuid
+
+class Base(SQLModel, table=False):
+    """Base model."""
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+
+@sqlalchemy_table(use_encryption_method=EncryptionMethod.FERNET)
+class User(
+    Base,
+    BaseModel,
+    table=True,
+):
+    """
+    Managed User model. The `Encrypt` and `Hash` annotations are automatically converted to
+    `SQLAlchemyEncryptedString` and `SQLAlchemyHashedString` types.
+    """
+
+    __tablename__ = "users"
+
+    username: str = Field(default=None)
+    email: Annotated[str, Encrypt]
+    password: Annotated[str, Hash]
 ```
 
 ## Choose an Encryption Method
