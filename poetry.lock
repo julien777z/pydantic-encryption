@@ -413,6 +413,9 @@ files = [
     {file = "coverage-7.8.0.tar.gz", hash = "sha256:7a3d62b3b03b4b6fd41a085f3574874cf946cb4604d2b4d3e8dca8cd570ca501"},
 ]
 
+[package.dependencies]
+tomli = {version = "*", optional = true, markers = "python_full_version <= \"3.11.0a6\" and extra == \"toml\""}
+
 [package.extras]
 toml = ["tomli ; python_full_version <= \"3.11.0a6\""]
 
@@ -1049,6 +1052,26 @@ docs = ["sphinx (>=5.3)", "sphinx-rtd-theme (>=1)"]
 testing = ["coverage (>=6.2)", "hypothesis (>=5.7.1)"]
 
 [[package]]
+name = "pytest-cov"
+version = "6.1.1"
+description = "Pytest plugin for measuring coverage."
+optional = true
+python-versions = ">=3.9"
+groups = ["main"]
+markers = "extra == \"test\" or extra == \"all\""
+files = [
+    {file = "pytest_cov-6.1.1-py3-none-any.whl", hash = "sha256:bddf29ed2d0ab6f4df17b4c55b0a657287db8684af9c42ea546b21b1041b3dde"},
+    {file = "pytest_cov-6.1.1.tar.gz", hash = "sha256:46935f7aaefba760e716c2ebfbe1c216240b9592966e7da99ea8292d4d3e2a0a"},
+]
+
+[package.dependencies]
+coverage = {version = ">=7.5", extras = ["toml"]}
+pytest = ">=4.6"
+
+[package.extras]
+testing = ["fields", "hunter", "process-tests", "pytest-xdist", "virtualenv"]
+
+[[package]]
 name = "pytest-docker"
 version = "3.2.1"
 description = "Simple pytest fixtures for Docker and Docker Compose based tests"
@@ -1362,7 +1385,7 @@ description = "A lil' TOML parser"
 optional = true
 python-versions = ">=3.8"
 groups = ["main"]
-markers = "(extra == \"test\" or extra == \"all\") and python_version == \"3.10\""
+markers = "(extra == \"test\" or extra == \"all\") and python_full_version <= \"3.11.0a6\""
 files = [
     {file = "tomli-2.2.1-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:678e4fa69e4575eb77d103de3df8a895e1591b48e740211bd1067378c69e8249"},
     {file = "tomli-2.2.1-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:023aa114dd824ade0100497eb2318602af309e5a55595f76b626d6d9f3b7b0a6"},
@@ -1444,11 +1467,11 @@ socks = ["pysocks (>=1.5.6,!=1.5.7,<2.0)"]
 zstd = ["zstandard (>=0.18.0)"]
 
 [extras]
-all = ["coverage", "psycopg2-binary", "pytest", "pytest-asyncio", "pytest-docker", "pytest-env", "pytest-sqlalchemy", "python-generics", "sqlalchemy-utils", "sqlmodel"]
+all = ["coverage", "psycopg2-binary", "pytest", "pytest-asyncio", "pytest-cov", "pytest-docker", "pytest-env", "pytest-sqlalchemy", "python-generics", "sqlalchemy-utils", "sqlmodel"]
 generics = ["python-generics"]
-test = ["coverage", "psycopg2-binary", "pytest", "pytest-asyncio", "pytest-docker", "pytest-env", "pytest-sqlalchemy", "sqlalchemy-utils", "sqlmodel"]
+test = ["coverage", "psycopg2-binary", "pytest", "pytest-asyncio", "pytest-cov", "pytest-docker", "pytest-env", "pytest-sqlalchemy", "sqlalchemy-utils", "sqlmodel"]
 
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<4.0.0"
-content-hash = "afb2b54efcc68f0139aecf9533ee4c53e38a84000b62c49a9a475a30b0e92e95"
+content-hash = "3ba540109344cccf11f0775319b38a4eafa1df4e6b31d17d385b62fa63c281f1"
