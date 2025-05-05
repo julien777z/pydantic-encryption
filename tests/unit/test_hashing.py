@@ -1,8 +1,8 @@
-from tests.mocks.mock_users import User, mock_basic_user, mock_user_disabled_encryption
+from tests.models import User
 from pydantic_encryption.lib.adapters.hashing.argon2 import argon2_hash_data
 
 
-class TestHashing:
+class TestUnitHashing:
     """Test basic functionality of pydantic-encryption."""
 
     def test_hash_field(self, mock_basic_user: User):
@@ -10,7 +10,7 @@ class TestHashing:
 
         assert mock_basic_user.username == "user1"  # Not encrypted
 
-        assert getattr(mock_basic_user.password, "is_hashed", False)
+        assert getattr(mock_basic_user.password, "hashed", False)
 
     def test_double_hash_fails(self, mock_basic_user: User):
         """Test double hashing fails."""
@@ -24,4 +24,4 @@ class TestHashing:
     def test_disable_hashing(self, mock_user_disabled_encryption: User):
         """Test disabling hashing."""
 
-        assert not getattr(mock_user_disabled_encryption.password, "is_hashed", False)
+        assert not getattr(mock_user_disabled_encryption.password, "hashed", False)

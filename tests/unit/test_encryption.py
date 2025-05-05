@@ -1,13 +1,8 @@
-from tests.mocks.mock_users import (
-    User,
-    UserDecrypt,
-    mock_basic_user,
-    mock_user_disabled_encryption,
-)
+from tests.models import User, UserDecrypt
 from pydantic_encryption.lib.adapters.encryption.fernet import fernet_encrypt
 
 
-class TestEncryptionModel:
+class TestUnitEncryptionModel:
     """Test basic functionality of pydantic-encryption with mocked models."""
 
     def test_encrypt_field(self, mock_basic_user: User):
@@ -15,7 +10,7 @@ class TestEncryptionModel:
 
         assert mock_basic_user.username == "user1"  # Not encrypted
 
-        assert getattr(mock_basic_user.address, "is_encrypted", False)
+        assert getattr(mock_basic_user.address, "encrypted", False)
 
     def test_double_encrypt_fails(self, mock_basic_user: User):
         """Test double encrypting fails."""
@@ -34,9 +29,9 @@ class TestEncryptionModel:
         decrypted_user = UserDecrypt(**encrypted_data)
 
         assert decrypted_user.username == "user1"
-        assert not getattr(decrypted_user.address, "is_encrypted", False)
+        assert not getattr(decrypted_user.address, "encrypted", False)
 
     def test_disable_encryption(self, mock_user_disabled_encryption: User):
         """Test disabling encryption."""
 
-        assert not getattr(mock_user_disabled_encryption.address, "is_encrypted", False)
+        assert not getattr(mock_user_disabled_encryption.address, "encrypted", False)

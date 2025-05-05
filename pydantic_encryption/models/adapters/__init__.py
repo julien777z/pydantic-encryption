@@ -1,1 +1,1 @@
-from .sqlalchemy import SQLAlchemyEncryptedString
+from .sqlalchemy import SQLAlchemyEncryptedString, SQLAlchemyHashedString

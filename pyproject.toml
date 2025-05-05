@@ -1,6 +1,6 @@
 [project]
 name = "pydantic_encryption"
-version = "0.0.2a8"
+version = "0.0.2a9"
 description = "Encryption and hashing models for Pydantic"
 authors = [
     { name = "Julien Kmec", email = "me@julien.dev" },
@@ -19,8 +19,8 @@ dependencies = [
 
 [project.optional-dependencies]
 generics = ["python-generics>=0.2.3"]
-test = ["pytest>=8.3.5", "coverage>=7.8.0", "pytest-env (>=1.1.5,<2.0.0)"]
-all = ["python-generics>=0.2.3", "pytest>=8.3.5", "coverage>=7.8.0", "pytest-env (>=1.1.5,<2.0.0)"]
+test = ["pytest>=8.3.5", "coverage>=7.8.0", "pytest-env (>=1.1.5,<2.0.0)", "pytest-docker (>=3.2.1,<4.0.0)", "pytest-asyncio (>=0.26.0,<0.27.0)", "pytest-sqlalchemy (>=0.3.0,<0.4.0)", "sqlalchemy-utils (>=0.41.2,<0.42.0)", "psycopg2-binary (>=2.9.10,<3.0.0)", "sqlmodel (>=0.0.24,<0.0.25)"]
+all = ["python-generics>=0.2.3", "pytest>=8.3.5", "coverage>=7.8.0", "pytest-env (>=1.1.5,<2.0.0)", "pytest-docker (>=3.2.1,<4.0.0)", "pytest-asyncio (>=0.26.0,<0.27.0)", "pytest-sqlalchemy (>=0.3.0,<0.4.0)", "sqlalchemy-utils (>=0.41.2,<0.42.0)", "psycopg2-binary (>=2.9.10,<3.0.0)", "sqlmodel (>=0.0.24,<0.0.25)"]
 
 [tool.pytest_env]
 ENCRYPTION_KEY = "FF9OqqsxdRoge7b0orbJ7EZAn96bLFDgoa8icBF3GNM="

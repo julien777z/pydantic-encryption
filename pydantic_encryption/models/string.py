@@ -1,46 +1,33 @@
-class EncryptableString(str):
+class NormalizedString(str):
+    """A string that normalizes all input."""
+
+    def __new__(cls, value, **kwargs):
+        match value:
+            case bytes():
+                try:
+                    value = value.decode("utf-8")
+                except UnicodeDecodeError:
+                    value = str(value)
+            case str():
+                pass
+            case _:
+                raise ValueError(f"Unsupported type: {type(value)}")
+
+        obj = super().__new__(cls, value)
+
+        for key, val in kwargs.items():
+            setattr(obj, key, val)
+
+        return obj
+
+
+class EncryptableString(NormalizedString):
     """A string that can be encrypted."""
 
-    _is_encrypted: bool = False
-
-    def __new__(cls, value, **kwargs):
-        obj = super().__new__(cls, value)
-
-        for key, val in kwargs.items():
-            setattr(obj, key, val)
-
-        return obj
-
-    @property
-    def is_encrypted(self) -> bool:
-        """Return True if the string is encrypted, False otherwise."""
-
-        return self._is_encrypted
-
-    @is_encrypted.setter
-    def is_encrypted(self, value: bool) -> None:
-        self._is_encrypted = value
+    encrypted: bool = False
 
 
-class HashableString(str):
+class HashableString(NormalizedString):
     """A string that can be hashed."""
 
-    _is_hashed: bool = False
-
-    def __new__(cls, value, **kwargs):
-        obj = super().__new__(cls, value)
-
-        for key, val in kwargs.items():
-            setattr(obj, key, val)
-
-        return obj
-
-    @property
-    def is_hashed(self) -> bool:
-        """Return True if the string is hashed, False otherwise."""
-
-        return self._is_hashed
-
-    @is_hashed.setter
-    def is_hashed(self, value: bool) -> None:
-        self._is_hashed = value
+    hashed: bool = False
