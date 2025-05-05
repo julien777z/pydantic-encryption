@@ -18,6 +18,7 @@ class EncryptionMethod(Enum):
 
     FERNET = auto()
     EVERVAULT = auto()
+    AWS = auto()
 
 
 class TableProvider(Enum):

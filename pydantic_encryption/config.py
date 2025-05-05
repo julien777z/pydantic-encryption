@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Optional
 from pydantic_settings import BaseSettings
 
 
@@ -7,6 +7,10 @@ class Settings(BaseSettings):
 
     # Cryptography settings
     ENCRYPTION_KEY: Optional[str] = None
+    AWS_KMS_KEY_ARN: Optional[str] = None
+    AWS_KMS_REGION: Optional[str] = None
+    AWS_ACCESS_KEY_ID: Optional[str] = None
+    AWS_SECRET_ACCESS_KEY: Optional[str] = None
 
     # Evervault settings
     EVERVAULT_API_KEY: Optional[str] = None

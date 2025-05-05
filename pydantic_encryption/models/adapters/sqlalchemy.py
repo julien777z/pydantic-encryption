@@ -46,6 +46,8 @@ class SQLAlchemyEncryptedString(TypeDecorator):
                 return encryption.fernet_encrypt(value)
             case EncryptionMethod.EVERVAULT:
                 return encryption.evervault_encrypt(value)
+            case EncryptionMethod.AWS:
+                return encryption.aws_encrypt(value)
             case _:
                 raise ValueError(f"Unknown encryption method: {self.encryption_method}")
 
@@ -58,6 +60,8 @@ class SQLAlchemyEncryptedString(TypeDecorator):
                 return encryption.fernet_decrypt(value)
             case EncryptionMethod.EVERVAULT:
                 return encryption.evervault_decrypt(value)
+            case EncryptionMethod.AWS:
+                return encryption.aws_decrypt(value)
             case _:
                 raise ValueError(f"Unknown encryption method: {self.encryption_method}")
 

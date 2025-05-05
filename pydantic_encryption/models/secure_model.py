@@ -8,7 +8,7 @@ from typing import (
     Any,
 )
 
-from pydantic_encryption.lib import argon2, fernet, evervault
+from pydantic_encryption.lib import argon2, fernet, evervault, aws
 from pydantic_encryption.annotations import (
     Encrypt,
     Decrypt,
@@ -70,6 +70,11 @@ class SecureModel:
                     field_name: fernet.fernet_encrypt(value)
                     for field_name, value in self.pending_encryption_fields.items()
                 }
+            case EncryptionMethod.AWS:
+                encrypted_data = {
+                    field_name: aws.aws_encrypt(value)
+                    for field_name, value in self.pending_encryption_fields.items()
+                }
             case _:
                 raise ValueError(
                     f"Unknown encryption method: {self._use_encryption_method}"
@@ -100,7 +105,11 @@ class SecureModel:
                     field_name: fernet.fernet_decrypt(value)
                     for field_name, value in self.pending_decryption_fields.items()
                 }
-
+            case EncryptionMethod.AWS:
+                decrypted_data = {
+                    field_name: aws.aws_decrypt(value)
+                    for field_name, value in self.pending_decryption_fields.items()
+                }
             case _:
                 raise ValueError(
                     f"Unknown encryption method: {self._use_encryption_method}"

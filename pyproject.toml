@@ -7,13 +7,14 @@ authors = [
 ]
 readme = "README.md"
 packages = [{include = "pydantic_encryption"}]
-requires-python = ">=3.10,<4.0.0"
+requires-python = ">=3.11.0,<4.0.0"
 dependencies = [
     "pydantic>=2.10.6",
     "pydantic-settings>=2.9.1",
     "evervault>=4.4.1",
     "boto3 (>=1.38.3,<2.0.0)",
     "argon2-cffi (>=23.1.0,<24.0.0)",
+    "aws-encryption-sdk[mpl] (>=4.0.1,<5.0.0)",
 ]
 
 [project.optional-dependencies]
