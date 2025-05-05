@@ -1,6 +1,6 @@
 [project]
 name = "pydantic_encryption"
-version = "0.0.2a9"
+version = "0.0.2a10"
 description = "Encryption and Hashing Models for Pydantic"
 authors = [
     { name = "Julien Kmec", email = "me@julien.dev" },
@@ -12,13 +12,13 @@ dependencies = [
     "pydantic>=2.10.6",
     "pydantic-settings>=2.9.1",
     "evervault>=4.4.1",
-    "sqlalchemy (>=2.0.40,<3.0.0)",
     "boto3 (>=1.38.3,<2.0.0)",
     "argon2-cffi (>=23.1.0,<24.0.0)",
 ]
 
 [project.optional-dependencies]
 generics = ["python-generics>=0.2.3"]
+sqlalchemy = ["sqlalchemy (>=2.0.40,<3.0.0)", "sqlmodel (>=0.0.24,<0.0.25)"]
 test = ["pytest>=8.3.5", "coverage>=7.8.0", "pytest-env (>=1.1.5,<2.0.0)", "pytest-docker (>=3.2.1,<4.0.0)", "pytest-asyncio (>=0.26.0,<0.27.0)", "pytest-sqlalchemy (>=0.3.0,<0.4.0)", "sqlalchemy-utils (>=0.41.2,<0.42.0)", "psycopg2-binary (>=2.9.10,<3.0.0)", "sqlmodel (>=0.0.24,<0.0.25)", "pytest-cov (>=6.1.1,<7.0.0)"]
 all = ["python-generics>=0.2.3", "pytest>=8.3.5", "coverage>=7.8.0", "pytest-env (>=1.1.5,<2.0.0)", "pytest-docker (>=3.2.1,<4.0.0)", "pytest-asyncio (>=0.26.0,<0.27.0)", "pytest-sqlalchemy (>=0.3.0,<0.4.0)", "sqlalchemy-utils (>=0.41.2,<0.42.0)", "psycopg2-binary (>=2.9.10,<3.0.0)", "sqlmodel (>=0.0.24,<0.0.25)", "pytest-cov (>=6.1.1,<7.0.0)"]
 

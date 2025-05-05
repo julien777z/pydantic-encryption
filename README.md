@@ -58,25 +58,28 @@ When you create a new instance of the model, the fields will be encrypted and wh
 
 ```python
 from pydantic_encryption import SQLAlchemyEncryptedString, SQLAlchemyHashedString, EncryptionMethod
-from sqlalchemy import Column, String, Integer
-from sqlalchemy.orm import declarative_base
+from sqlmodel import SQLModel, Field
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-Base = declarative_base()
-
 # Define our schema
-class User(Base):
+class User(SQLModel, table=True):
     __tablename__ = "users"
 
-    id = Column(Integer, primary_key=True)
-    username = Column(String)
-    email = Column(SQLAlchemyEncryptedString(encryption_method=EncryptionMethod.FERNET)) # This field will be encrypted in the database
-    password = Column(SQLAlchemyHashedString()) # This field will be hashed in the database
+    id = Field(default_factory=uuid.uuid4, primary_key=True)
+    username = Field(default=None)
+    email = Field(
+        default=None,
+        sa_type=SQLAlchemyEncryptedString(encryption_method=EncryptionMethod.FERNET),
+    ) # This field will be encrypted in the database
+    password = Field(
+        sa_type=SQLAlchemyHashedString(),
+        nullable=False,
+    ) # This field will be hashed in the database
 
 # Create the database
 engine = create_engine("sqlite:///:memory:")
-Base.metadata.create_all(engine)
+SQLModel.metadata.create_all(engine)
 Session = sessionmaker(bind=engine)
 session = Session()
 
