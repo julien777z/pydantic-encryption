@@ -9,17 +9,8 @@ from typing import (
 )
 
 from pydantic_encryption.lib import argon2, fernet, evervault, aws
-from pydantic_encryption.annotations import (
-    Encrypt,
-    Decrypt,
-    Hash,
-    EncryptionMethod,
-    TableProvider,
-)
-from pydantic_encryption.models.adapters.sqlalchemy import (
-    SQLAlchemyEncryptedString,
-    SQLAlchemyHashedString,
-)
+from pydantic_encryption.annotations import Encrypt, Decrypt, Hash, EncryptionMethod
+from pydantic_encryption.config import settings
 
 
 __all__ = ["SecureModel"]
@@ -29,24 +20,15 @@ class SecureModel:
     """Base class for encryptable and hashable models."""
 
     _disable: Optional[bool] = None
-    _use_encryption_method: Optional[EncryptionMethod] = None
-    _use_table_provider: Optional[TableProvider] = None
 
     def __init_subclass__(
         cls,
         *,
         disable: bool = False,
-        use_encryption_method: Optional[EncryptionMethod] = None,
         **kwargs,
     ) -> None:
-        super().__init_subclass__(**kwargs)
-
         cls._disable = disable
-
-        if use_encryption_method is None:
-            use_encryption_method = cls.get_class_parameter("_use_encryption_method")
-
-        cls._use_encryption_method = use_encryption_method or EncryptionMethod.FERNET
+        super().__init_subclass__(**kwargs)
 
     def encrypt_data(self) -> None:
         """Encrypt data using the specified encryption method."""
@@ -59,7 +41,7 @@ class SecureModel:
 
         encrypted_data: dict[str, str] = {}
 
-        match self._use_encryption_method:
+        match settings.ENCRYPTION_METHOD:
             case EncryptionMethod.EVERVAULT:
                 encrypted_data = evervault.evervault_encrypt(
                     self.pending_encryption_fields
@@ -75,10 +57,6 @@ class SecureModel:
                     field_name: aws.aws_encrypt(value)
                     for field_name, value in self.pending_encryption_fields.items()
                 }
-            case _:
-                raise ValueError(
-                    f"Unknown encryption method: {self._use_encryption_method}"
-                )
 
         for field_name, value in encrypted_data.items():
             setattr(self, field_name, value)
@@ -94,7 +72,7 @@ class SecureModel:
 
         decrypted_data: dict[str, str] = {}
 
-        match self._use_encryption_method:
+        match settings.ENCRYPTION_METHOD:
             case EncryptionMethod.EVERVAULT:
                 decrypted_data = evervault.evervault_decrypt(
                     self.pending_decryption_fields
@@ -110,10 +88,6 @@ class SecureModel:
                     field_name: aws.aws_decrypt(value)
                     for field_name, value in self.pending_decryption_fields.items()
                 }
-            case _:
-                raise ValueError(
-                    f"Unknown encryption method: {self._use_encryption_method}"
-                )
 
         for field_name, value in decrypted_data.items():
             setattr(self, field_name, value)
@@ -132,60 +106,17 @@ class SecureModel:
 
             setattr(self, field_name, hashed)
 
-    def _handle_sqlalchemy(self) -> None:
-        """Handle SQLAlchemy integration."""
-
-        table = self.__class__.__table__  # pylint: disable=no-member
-
-        def _override_type(column_name: str, new_type: type) -> None:
-            if column_name in table.columns:
-                table.columns[column_name].type = new_type
-
-        for field_name in self.pending_encryption_fields:
-            _override_type(
-                field_name,
-                SQLAlchemyEncryptedString(
-                    encryption_method=self._use_encryption_method
-                ),
-            )
-
-        for field_name in self.pending_hash_fields:
-            _override_type(field_name, SQLAlchemyHashedString())
-
     def default_post_init(self) -> None:
         """Post initialization hook. If you make your own BaseModel, you must call this in model_post_init()."""
 
         if not self._disable:
-            if (
-                self._use_table_provider == TableProvider.SQLALCHEMY
-                and not hasattr(self.__class__, "__table__")
-            ) or (
-                self._use_table_provider != TableProvider.SQLALCHEMY
-                and hasattr(self.__class__, "__table__")
-            ):
-                raise ValueError(
-                    "You must use the @sqlalchemy_table decorator on the SQLAlchemy table model."
-                )
+            if self.pending_encryption_fields:
+                self.encrypt_data()
 
-            if (
-                hasattr(self.__class__, "__table__")
-                and self._use_table_provider == TableProvider.SQLALCHEMY
-            ):
-                self._handle_sqlalchemy()
-            else:
-                # Regular models
-                if self.pending_encryption_fields:
-                    self.encrypt_data()
-
-                if self.pending_hash_fields:
-                    self.hash_data()
+            if self.pending_hash_fields:
+                self.hash_data()
 
             if self.pending_decryption_fields:
-                if self._use_table_provider == TableProvider.SQLALCHEMY:
-                    raise ValueError(
-                        "You must use Encrypt type for SQLAlchemy integration since it handles the encryption and decryption of the fields."
-                    )
-
                 self.decrypt_data()
 
     def get_annotated_fields(self, *annotations: type) -> dict[str, str]:
@@ -243,7 +174,7 @@ class SecureModel:
         return annotated_fields
 
     @classmethod
-    def get_class_parameter(cls, parameter_name: str) -> Any:
+    def _get_class_parameter(cls, parameter_name: str) -> Any:
         """Get a class parameter from the class or its parent classes."""
 
         for base in cls.__mro__[1:]:

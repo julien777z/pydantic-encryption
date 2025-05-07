@@ -1,17 +1,15 @@
-import base64
-import struct
-import time
-from binascii import Error
-from cryptography.fernet import Fernet
+try:
+    from cryptography.fernet import Fernet
+except ImportError:
+    pass
+else:
+    FERNET_CLIENT = None
+
 from pydantic_encryption.config import settings
-from pydantic_encryption.models.string import EncryptableString
+from pydantic_encryption.annotations import EncryptionMethod
+from pydantic_encryption.models.encryptable import EncryptedValue, DecryptedValue
 
-FERNET_CLIENT = None
-
-
-def load_fernet_client() -> Fernet:
-    global FERNET_CLIENT
-
+if settings.ENCRYPTION_METHOD == EncryptionMethod.FERNET:
     if not settings.ENCRYPTION_KEY:
         raise ValueError(
             "Fernet is not available. Please set the ENCRYPTION_KEY environment variable."
@@ -19,58 +17,40 @@ def load_fernet_client() -> Fernet:
 
     FERNET_CLIENT = FERNET_CLIENT or Fernet(settings.ENCRYPTION_KEY)
 
-    return FERNET_CLIENT
 
-
-def fernet_encrypt(plaintext: bytes | str | EncryptableString) -> EncryptableString:
+def fernet_encrypt(
+    plaintext: bytes | str | EncryptedValue,
+) -> EncryptedValue:
     """Encrypt data using Fernet."""
 
-    if getattr(plaintext, "encrypted", False):
+    if isinstance(plaintext, EncryptedValue):
         return plaintext
 
     if isinstance(plaintext, str):
         plaintext = plaintext.encode("utf-8")
 
-    fernet_client = load_fernet_client()
-
-    encrypted_value = EncryptableString(fernet_client.encrypt(plaintext))
-
-    encrypted_value.encrypted = True
+    encrypted_value = EncryptedValue(FERNET_CLIENT.encrypt(plaintext))
 
     return encrypted_value
 
 
-def fernet_decrypt(ciphertext: str | bytes | EncryptableString) -> EncryptableString:
+def fernet_decrypt(
+    ciphertext: str | bytes | EncryptedValue,
+) -> DecryptedValue:
     """Decrypt data using Fernet."""
 
-    fernet_client = load_fernet_client()
-
-    if isinstance(ciphertext, EncryptableString) and not ciphertext.encrypted:
+    if isinstance(ciphertext, DecryptedValue):
         return ciphertext
 
-    if isinstance(ciphertext, bytes):
+    if isinstance(ciphertext, str):
         try:
-            ciphertext_str = ciphertext.decode("utf-8")
+            ciphertext_bytes = ciphertext.encode("utf-8")
         except UnicodeDecodeError:
-            ciphertext_str = str(ciphertext)
+            ciphertext_bytes = str(ciphertext)
     else:
-        ciphertext_str = str(ciphertext)
+        ciphertext_bytes = ciphertext
 
-    decrypted_bytes = fernet_client.decrypt(
-        ciphertext_str.encode("utf-8")
-        if isinstance(ciphertext_str, str)
-        else ciphertext
-    )
+    decrypted_bytes = FERNET_CLIENT.decrypt(ciphertext_bytes)
+    decrypted_value = decrypted_bytes.decode("utf-8")
 
-    if isinstance(decrypted_bytes, bytes):
-        try:
-            decrypted_str = decrypted_bytes.decode("utf-8")
-        except UnicodeDecodeError:
-            decrypted_str = str(decrypted_bytes)
-    else:
-        decrypted_str = str(decrypted_bytes)
-
-    decrypted_value = EncryptableString(decrypted_str)
-    decrypted_value.encrypted = False
-
-    return decrypted_value
+    return DecryptedValue(decrypted_value)

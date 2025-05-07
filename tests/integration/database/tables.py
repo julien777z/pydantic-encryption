@@ -1,18 +1,13 @@
 import uuid
-from typing import Annotated
 from sqlmodel import SQLModel, Field
 from pydantic_encryption import (
-    SQLAlchemyEncryptedString,
-    SQLAlchemyHashedString,
+    SQLAlchemyEncrypted,
+    SQLAlchemyHashed,
     EncryptionMethod,
-    Encrypt,
-    Hash,
-    BaseModel,
-    sqlalchemy_table,
 )
 
 
-__all__ = ["Base", "User", "UserManaged"]
+__all__ = ["Base", "User"]
 
 
 class Base(SQLModel, table=False):
@@ -27,29 +22,11 @@ class User(Base, table=True):
     __tablename__ = "users"
 
     username: str = Field(default=None)
-    email: str = Field(
+    email: bytes = Field(
         default=None,
-        sa_type=SQLAlchemyEncryptedString(encryption_method=EncryptionMethod.FERNET),
+        sa_type=SQLAlchemyEncrypted(),
     )
-    password: str = Field(
-        sa_type=SQLAlchemyHashedString(),
+    password: bytes = Field(
+        sa_type=SQLAlchemyHashed(),
         nullable=False,
     )
-
-
-@sqlalchemy_table(use_encryption_method=EncryptionMethod.FERNET)
-class UserManaged(
-    Base,
-    BaseModel,
-    table=True,
-):
-    """
-    Managed User model. The `Encrypt` and `Hash` annotations are automatically converted to
-    `SQLAlchemyEncryptedString` and `SQLAlchemyHashedString` types.
-    """
-
-    __tablename__ = "users_managed"
-
-    username: str = Field(default=None)
-    email: Annotated[str, Encrypt]
-    password: Annotated[str, Hash]
