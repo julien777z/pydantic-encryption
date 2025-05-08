@@ -3,7 +3,6 @@ from sqlmodel import SQLModel, Field
 from pydantic_encryption import (
     SQLAlchemyEncrypted,
     SQLAlchemyHashed,
-    EncryptionMethod,
 )
 
 
@@ -17,7 +16,7 @@ class Base(SQLModel, table=False):
 
 
 class User(Base, table=True):
-    """User model. This model uses the `SQLAlchemyEncryptedString` and `SQLAlchemyHashedString` types."""
+    """User model. This model uses the `SQLAlchemyEncrypted` and `SQLAlchemyHashed` types."""
 
     __tablename__ = "users"
 

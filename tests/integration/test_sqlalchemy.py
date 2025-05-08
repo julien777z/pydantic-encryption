@@ -32,7 +32,7 @@ class TestIntegrationSQLAlchemy:
         return user
 
     def test_secure_fields(self, db_session: Session):
-        """Test encrypting and hashing fields with the SQLAlchemyEncryptedString and SQLAlchemyHashedString types."""
+        """Test encrypting and hashing fields with the SQLAlchemyEncrypted and SQLAlchemyHashed types."""
 
         self._create_user(User, db_session, password=TEST_PASSWORD)
 
