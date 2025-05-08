@@ -1,27 +1,28 @@
-from typing import Callable
-
 try:
-    from sqlalchemy.types import TypeDecorator, String
-    from sqlalchemy.ext.declarative import DeclarativeMeta
+    from sqlalchemy.types import TypeDecorator, LargeBinary
 except ImportError:
     sqlalchemy_available = False
 else:
     sqlalchemy_available = True
 
 from pydantic_encryption.lib.adapters import encryption, hashing
-from pydantic_encryption.annotations import EncryptionMethod, TableProvider
-from pydantic_encryption.models.string import HashableString, EncryptableString
+from pydantic_encryption.annotations import EncryptionMethod
+from pydantic_encryption.models.encryptable import (
+    EncryptedValue,
+    DecryptedValue,
+    HashedValue,
+)
+from pydantic_encryption.config import settings
 
 
-class SQLAlchemyEncryptedString(TypeDecorator):
+class SQLAlchemyEncrypted(TypeDecorator):
     """Type adapter for SQLAlchemy to encrypt and decrypt strings using the specified encryption method."""
 
-    impl = String
+    impl = LargeBinary
     cache_ok = True
 
     def __init__(
         self,
-        encryption_method: EncryptionMethod,
         *args,
         **kwargs,
     ):
@@ -30,36 +31,34 @@ class SQLAlchemyEncryptedString(TypeDecorator):
                 "SQLAlchemy is not available. Please install this package with the `sqlalchemy` extra."
             )
 
-        if not encryption_method:
-            raise ValueError("encryption_method is required")
-
-        self.encryption_method = encryption_method
-
         super().__init__(*args, **kwargs)
 
-    def _process_encrypt_value(self, value: str | bytes | None) -> str | bytes | None:
+    def _process_encrypt_value(
+        self, value: str | bytes | None
+    ) -> EncryptedValue | None:
         if value is None:
             return None
 
-        match self.encryption_method:
+        match settings.ENCRYPTION_METHOD:
             case EncryptionMethod.FERNET:
                 return encryption.fernet_encrypt(value)
             case EncryptionMethod.EVERVAULT:
                 return encryption.evervault_encrypt(value)
-            case _:
-                raise ValueError(f"Unknown encryption method: {self.encryption_method}")
+            case EncryptionMethod.AWS:
+                return encryption.aws_encrypt(value)
 
     def _process_decrypt_value(self, value: str | bytes | None) -> str | bytes | None:
         if value is None:
             return None
 
-        match self.encryption_method:
+        match settings.ENCRYPTION_METHOD:
             case EncryptionMethod.FERNET:
                 return encryption.fernet_decrypt(value)
             case EncryptionMethod.EVERVAULT:
                 return encryption.evervault_decrypt(value)
-            case _:
-                raise ValueError(f"Unknown encryption method: {self.encryption_method}")
+            case EncryptionMethod.AWS:
+                value = encryption.aws_decrypt(value)
+                return value
 
     def process_bind_param(
         self, value: str | bytes | None, dialect
@@ -77,7 +76,7 @@ class SQLAlchemyEncryptedString(TypeDecorator):
 
     def process_result_value(
         self, value: str | bytes | None, dialect
-    ) -> EncryptableString | None:
+    ) -> DecryptedValue | None:
         """Decrypts a string after retrieving it from the database."""
 
         if value is None:
@@ -85,18 +84,19 @@ class SQLAlchemyEncryptedString(TypeDecorator):
 
         decrypted_value = self._process_decrypt_value(value)
 
-        return EncryptableString(decrypted_value, encrypted=False)
+        return DecryptedValue(decrypted_value)
 
     @property
     def python_type(self):
         """Return the Python type this is bound to (str)."""
+
         return self.impl.python_type
 
 
-class SQLAlchemyHashedString(TypeDecorator):
+class SQLAlchemyHashed(TypeDecorator):
     """Type adapter for SQLAlchemy to hash strings using Argon2."""
 
-    impl = String
+    impl = LargeBinary
     cache_ok = True
 
     def __init__(self, *args, **kwargs):
@@ -107,9 +107,7 @@ class SQLAlchemyHashedString(TypeDecorator):
 
         super().__init__(*args, **kwargs)
 
-    def process_bind_param(
-        self, value: str | bytes | None, dialect
-    ) -> HashableString | None:
+    def process_bind_param(self, value: str | bytes | None, dialect) -> bytes | None:
         """Hashes a string before binding it to the database."""
 
         if value is None:
@@ -119,7 +117,7 @@ class SQLAlchemyHashedString(TypeDecorator):
 
     def process_literal_param(
         self, value: str | bytes | None, dialect
-    ) -> HashableString | None:
+    ) -> HashedValue | None:
         """Hashes a string for literal SQL expressions."""
 
         if value is None:
@@ -131,36 +129,15 @@ class SQLAlchemyHashedString(TypeDecorator):
 
     def process_result_value(
         self, value: str | bytes | None, dialect
-    ) -> HashableString | None:
-        """Returns the hash value as-is from the database, wrapped as a HashableString."""
+    ) -> HashedValue | None:
+        """Returns the hash value as-is from the database, wrapped as a HashableBinary."""
 
         if value is None:
             return None
 
-        return HashableString(value, hashed=True)
+        return HashedValue(value)
 
     @property
     def python_type(self):
         """Return the Python type this is bound to (str)."""
         return self.impl.python_type
-
-
-def sqlalchemy_table(
-    use_encryption_method: EncryptionMethod | None = EncryptionMethod.FERNET,
-) -> Callable[[type[DeclarativeMeta]], type[DeclarativeMeta]]:
-    """
-    Decorator to mark a model as a SQLAlchemy table.
-
-    This will let you use the `Encrypt` and `Hash` annotations to encrypt and hash fields.
-    """
-
-    def wrapper(table: DeclarativeMeta) -> DeclarativeMeta:
-        if not isinstance(table, DeclarativeMeta):
-            raise ValueError("table must be a SQLAlchemy declarative class")
-
-        table._use_table_provider = TableProvider.SQLALCHEMY
-        table._use_encryption_method = use_encryption_method
-
-        return table
-
-    return wrapper

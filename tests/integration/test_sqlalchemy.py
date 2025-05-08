@@ -1,6 +1,6 @@
 from typing import Final
 from sqlalchemy.orm import Session
-from tests.integration.database import User, UserManaged
+from tests.integration.database import User
 
 
 TEST_PASSWORD: Final[str] = "pass123"
@@ -13,10 +13,10 @@ class TestIntegrationSQLAlchemy:
 
     def _create_user(
         self,
-        model: type[User] | type[UserManaged],
+        model: type[User],
         db_session: Session,
         password: str,
-    ) -> User | UserManaged:
+    ) -> User:
         """Create a user."""
 
         user = db_session.add(
@@ -32,7 +32,7 @@ class TestIntegrationSQLAlchemy:
         return user
 
     def test_secure_fields(self, db_session: Session):
-        """Test encrypting and hashing fields with the SQLAlchemyEncryptedString and SQLAlchemyHashedString types."""
+        """Test encrypting and hashing fields with the SQLAlchemyEncrypted and SQLAlchemyHashed types."""
 
         self._create_user(User, db_session, password=TEST_PASSWORD)
 
@@ -40,16 +40,7 @@ class TestIntegrationSQLAlchemy:
 
         self._assert_correct_user(user)
 
-    def test_secure_fields_managed(self, db_session: Session):
-        """Test encrypting and hashing fields with the SecureModel and Encrypt/Hash annotations."""
-
-        self._create_user(UserManaged, db_session, password=TEST_PASSWORD)
-
-        user = db_session.query(UserManaged).first()
-
-        self._assert_correct_user(user)
-
-    def _assert_correct_user(self, user: User | UserManaged):
+    def _assert_correct_user(self, user: User):
         """Assert that the user is correct."""
 
         assert user.username == TEST_USERNAME

@@ -26,6 +26,7 @@ poetry add pydantic_encryption -E all
 - Encrypt and decrypt specific fields
 - Hash specific fields
 - Built-in SQLAlchemy integration
+- Support for AWS KMS (Key Management Service) single-region
 - Support for Fernet symmetric encryption and Evervault
 - Support for generics
 
@@ -50,7 +51,7 @@ print(user.password) # hashed
 
 If you install this package with the `sqlalchemy` extra, you can use the built-in SQLAlchemy integration for the columns.
 
-SQLAlchemy will automatically handle the encryption/decryption of fields with the `SQLAlchemyEncryptedString` type and the hashing of fields with the `SQLAlchemyHashedString` type.
+SQLAlchemy will automatically handle the encryption/decryption of fields with the `SQLAlchemyEncrypted` type and the hashing of fields with the `SQLAlchemyHashed` type.
 
 When you create a new instance of the model, the fields will be encrypted and when you query the database, the fields will be decrypted.
 
@@ -58,25 +59,24 @@ When you create a new instance of the model, the fields will be encrypted and wh
 
 ```python
 import uuid
-from pydantic_encryption import SQLAlchemyEncryptedString, SQLAlchemyHashedString, EncryptionMethod
+from pydantic_encryption import SQLAlchemyEncrypted, SQLAlchemyHashed
 from sqlmodel import SQLModel, Field
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 # Define our schema
-class User(SQLModel, table=True):
+class User(Base, table=True):
     __tablename__ = "users"
 
-    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    username: str
-    email: str = Field(
+    username: str = Field(default=None)
+    email: bytes = Field(
         default=None,
-        sa_type=SQLAlchemyEncryptedString(encryption_method=EncryptionMethod.FERNET),
-    ) # This field will be encrypted in the database
-    password: str = Field(
-        sa_type=SQLAlchemyHashedString(),
+        sa_type=SQLAlchemyEncrypted(),
+    )
+    password: bytes = Field(
+        sa_type=SQLAlchemyHashed(),
         nullable=False,
-    ) # This field will be hashed in the database
+    )
 
 # Create the database
 engine = create_engine("sqlite:///:memory:")
@@ -97,53 +97,35 @@ print(user.email) # decrypted
 print(user.password) # hashed
 ```
 
-You can also use the `@sqlalchemy_table(...)` decorator to automatically convert `Encrypt` and `Hash` annotations to `SQLAlchemyEncryptedString` and `SQLAlchemyHashedString` types.
-Make sure to inherit from `pydantic_encryption.BaseModel` or if inherting from `pydantic_encryption.SecureModel`, make sure to follow [Custom Encryption or Hashing](https://github.com/julien777z/pydantic-encryption?tab=readme-ov-file#custom-encryption-or-hashing).
-
-### Example:
-
-```python
-from typing import Annotated
-from pydantic_encryption import EncryptionMethod, BaseModel, Encrypt, Hash, sqlalchemy_table
-from sqlmodel import SQLModel, Field
-import uuid
-
-class Base(SQLModel, table=False):
-    """Base model."""
-
-    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-
-@sqlalchemy_table(use_encryption_method=EncryptionMethod.FERNET)
-class User(
-    Base,
-    BaseModel,
-    table=True,
-):
-    """
-    Managed User model. The `Encrypt` and `Hash` annotations are automatically converted to
-    `SQLAlchemyEncryptedString` and `SQLAlchemyHashedString` types.
-    """
-
-    __tablename__ = "users"
-
-    username: str = Field(default=None)
-    email: Annotated[str, Encrypt]
-    password: Annotated[str, Hash]
-```
-
 ## Choose an Encryption Method
 
-You can choose which encryption method to use by setting the `use_encryption_method` parameter in the class definition.
+You can choose which encryption algorithm to use by setting the `ENCRYPTION_METHOD` environment variable.
+
+Valid values are:
+- `fernet`: Fernet symmetric encryption
+- `aws`: AWS KMS
+- `evervault`: [Evervault](https://evervault.com/)
+
+See [config.py](https://github.com/julien777z/pydantic-encryption/blob/main/pydantic_encryption/config.py) for the possible environment variables.
 
 ### Example:
 
+`.env`
+```env
+ENCRYPTION_METHOD=aws
+AWS_KMS_KEY_ARN=123
+AWS_KMS_REGION=us-east-1
+AWS_ACCESS_KEY_ID=123
+AWS_SECRET_ACCESS_KEY=123
+```
+
 ```python
 from typing import Annotated
-from pydantic_encryption import EncryptionMethod, BaseModel, Encrypt
+from pydantic_encryption import BaseModel, Encrypt
 
-class User(BaseModel, use_encryption_method=EncryptionMethod.EVERVAULT):
+class User(BaseModel):
     name: str
-    address: Annotated[str, Encrypt] # This field will be encrypted by Evervault
+    address: Annotated[bytes, Encrypt] # This field will be encrypted by AWS KMS
 ```
 
 ### Default Encryption (Fernet Symmetric Encryption)
@@ -160,20 +142,6 @@ Then set the following environment variable or add it to your `.env` file:
 
 ```bash
 ENCRYPTION_KEY=your_encryption_key
-```
-
-### Evervault
-
-You can optionally use [Evervault](https://evervault.com/) to encrypt and decrypt fields.
-
-Set the `use_encryption_method` parameter to `EncryptionMethod.EVERVAULT`.
-
-You need to set the following environment variables or add them to your `.env` file:
-
-```bash
-EVERVAULT_APP_ID=your_app_id
-EVERVAULT_API_KEY=your_api_key
-EVERVAULT_ENCRYPTION_ROLE=your_encryption_role
 ```
 
 ### Custom Encryption or Hashing
@@ -236,7 +204,7 @@ from pydantic_encryption import Encrypt
 
 class MyModel(BaseModel, MySecureModel):
     username: str
-    address: Annotated[str, Encrypt]
+    address: Annotated[bytes, Encrypt]
 
 model = MyModel(username="john_doe", address="123456")
 print(model.address) # encrypted
@@ -252,7 +220,7 @@ from pydantic_encryption import Encrypt, BaseModel
 
 class User(BaseModel):
     name: str
-    address: Annotated[str, Encrypt] # This field will be encrypted
+    address: Annotated[bytes, Encrypt] # This field will be encrypted
 
 user = User(name="John Doe", address="123456")
 print(user.address) # encrypted
@@ -271,7 +239,7 @@ from pydantic_encryption import Decrypt, BaseModel
 
 class UserResponse(BaseModel):
     name: str
-    address: Annotated[str, Decrypt] # This field will be decrypted
+    address: Annotated[bytes, Decrypt] # This field will be decrypted
 
 user = UserResponse(**user_data) # encrypted value
 print(user.address) # decrypted
@@ -279,6 +247,8 @@ print(user.name) # plaintext (untouched)
 ```
 
 Fields marked with `Decrypt` are automatically decrypted during model initialization.
+
+Note: if you use `SQLAlchemyEncrypted`, then the value will be decrypted automatically when you query the database.
 
 
 ## Hashing
@@ -291,7 +261,7 @@ from pydantic_encryption import Hash, BaseModel
 
 class User(BaseModel):
     username: str
-    password: Annotated[str, Hash] # This field will be hashed
+    password: Annotated[bytes, Hash] # This field will be hashed
 
 user = User(username="john_doe", password="secret123")
 print(user.password) # hashed value
@@ -309,7 +279,7 @@ from pydantic_encryption import Encrypt, BaseModel
 
 class UserResponse(BaseModel, disable=True):
     name: str
-    address: Annotated[str, Encrypt]
+    address: Annotated[bytes, Encrypt]
 
 # To encrypt/decrypt/hash, call the respective methods manually:
 user = UserResponse(name="John Doe", address="123 Main St")
@@ -351,7 +321,7 @@ poetry run coverage run -m pytest -v -s
 This is an early development version. I am considering the following features:
 
 - [ ] Add optional support for other encryption providers beyond Evervault
-- [ ] Add support for AWS KMS and other key management services
+- [x] Add support for AWS KMS and other key management services
 - [ ] Native encryption via PostgreSQL and other databases
 - [ ] Specifying encryption key per table or row instead of globally
 

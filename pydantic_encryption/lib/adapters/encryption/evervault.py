@@ -1,18 +1,17 @@
 from pydantic_encryption.config import settings
+from pydantic_encryption.annotations import EncryptionMethod
 
 try:
     import evervault
 except ImportError:
     evervault = None
+else:
+    EVERVAULT_CLIENT = None
 
-EVERVAULT_CLIENT = None
-
-EvervaultData = dict[str, (bytes | list | dict | set | str)]
+    EvervaultData = dict[str, (bytes | list | dict | set | str)]
 
 
-def load_evervault_client():
-    """Load the Evervault encryption client."""
-
+if settings.ENCRYPTION_METHOD == EncryptionMethod.EVERVAULT:
     if not (
         settings.EVERVAULT_APP_ID
         and settings.EVERVAULT_API_KEY
@@ -27,13 +26,9 @@ def load_evervault_client():
             "Evervault is not available. Please install this package with the `evervault` extra."
         )
 
-    global EVERVAULT_CLIENT
-
-    EVERVAULT_CLIENT = EVERVAULT_CLIENT or evervault.Client(
+    EVERVAULT_CLIENT = evervault.Client(
         app_uuid=settings.EVERVAULT_APP_ID, api_key=settings.EVERVAULT_API_KEY
     )
-
-    return EVERVAULT_CLIENT
 
 
 def evervault_encrypt(
@@ -41,9 +36,7 @@ def evervault_encrypt(
 ) -> EvervaultData:
     """Encrypt data using Evervault."""
 
-    evervault_client = load_evervault_client()
-
-    return evervault_client.encrypt(fields, role=settings.EVERVAULT_ENCRYPTION_ROLE)
+    return EVERVAULT_CLIENT.encrypt(fields, role=settings.EVERVAULT_ENCRYPTION_ROLE)
 
 
 def evervault_decrypt(
@@ -51,6 +44,4 @@ def evervault_decrypt(
 ) -> EvervaultData:
     """Decrypt data using Evervault."""
 
-    evervault_client = load_evervault_client()
-
-    return evervault_client.decrypt(fields)
+    return EVERVAULT_CLIENT.decrypt(fields)
