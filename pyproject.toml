@@ -23,8 +23,6 @@ generics = ["python-generics>=0.2.3"]
 sqlalchemy = [
     "sqlalchemy (>=2.0.40,<3.0.0)",
     "sqlmodel (>=0.0.24,<0.0.25)",
-    "boto3 (>=1.38.3,<2.0.0)",
-    "aws-encryption-sdk[mpl] (>=4.0.1,<5.0.0)"
 ]
 
 test = [
@@ -39,8 +37,6 @@ test = [
     "psycopg2-binary (>=2.9.10,<3.0.0)",
     "sqlalchemy (>=2.0.40,<3.0.0)",
     "sqlmodel (>=0.0.24,<0.0.25)",
-    "boto3 (>=1.38.3,<2.0.0)",
-    "aws-encryption-sdk[mpl] (>=4.0.1,<5.0.0)"
 ]
 
 # Include all dependencies
@@ -48,8 +44,6 @@ all = [
     "python-generics>=0.2.3",
     "sqlalchemy (>=2.0.40,<3.0.0)",
     "sqlmodel (>=0.0.24,<0.0.25)",
-    "boto3 (>=1.38.3,<2.0.0)",
-    "aws-encryption-sdk[mpl] (>=4.0.1,<5.0.0)",
     "pytest>=8.3.5",
     "coverage>=7.8.0",
     "pytest-env (>=1.1.5,<2.0.0)",

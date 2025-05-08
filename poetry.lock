@@ -1619,12 +1619,12 @@ files = [
 ]
 
 [extras]
-all = ["aws-encryption-sdk", "boto3", "coverage", "psycopg2-binary", "pytest", "pytest-asyncio", "pytest-cov", "pytest-docker", "pytest-env", "pytest-sqlalchemy", "python-generics", "sqlalchemy", "sqlalchemy-utils", "sqlmodel"]
+all = ["coverage", "psycopg2-binary", "pytest", "pytest-asyncio", "pytest-cov", "pytest-docker", "pytest-env", "pytest-sqlalchemy", "python-generics", "sqlalchemy", "sqlalchemy-utils", "sqlmodel"]
 generics = ["python-generics"]
-sqlalchemy = ["aws-encryption-sdk", "boto3", "sqlalchemy", "sqlmodel"]
-test = ["aws-encryption-sdk", "boto3", "coverage", "psycopg2-binary", "pytest", "pytest-asyncio", "pytest-cov", "pytest-docker", "pytest-env", "pytest-sqlalchemy", "sqlalchemy", "sqlalchemy-utils", "sqlmodel"]
+sqlalchemy = ["sqlalchemy", "sqlmodel"]
+test = ["coverage", "psycopg2-binary", "pytest", "pytest-asyncio", "pytest-cov", "pytest-docker", "pytest-env", "pytest-sqlalchemy", "sqlalchemy", "sqlalchemy-utils", "sqlmodel"]
 
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11.0,<4.0.0"
-content-hash = "37446176e6b794e0e2c761d69beb27f6ba20315e32bdfab78f91d3df2838b300"
+content-hash = "e7ebf263c0eee8d86358995ec9cd7110b128584bebc356f367ed7329826369a9"
