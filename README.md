@@ -33,12 +33,13 @@ poetry add pydantic_encryption -E all
 ## Example
 
 ```python
-from pydantic_encryption import BaseModel, Encrypt, Hash, Annotated
+from typing import Annotated
+from pydantic_encryption import BaseModel, Encrypt, Hash
 
 class User(BaseModel):
     name: str
-    address: Annotated[str, Encrypt] # This field will be encrypted
-    password: Annotated[str, Hash] # This field will be hashed
+    address: Annotated[bytes, Encrypt] # This field will be encrypted
+    password: Annotated[bytes, Hash] # This field will be hashed
 
 user = User(name="John Doe", address="123456", password="secret123")
 
