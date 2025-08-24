@@ -1,0 +1,50 @@
+name: Setup Python and Poetry
+description: Set up a specific Python and Poetry version for CI jobs, then run a command.
+
+inputs:
+  python-version:
+    description: Python version to use (e.g. 3.12)
+    required: true
+    default: "3.12"
+  poetry-version:
+    description: Poetry version to install (use 'latest' for newest)
+    required: false
+    default: "2.1.4"
+  post_setup_command:
+    description: Command to run after setup (e.g. 'poetry install -E dev')
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python ${{ inputs.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install Poetry
+      shell: bash
+      run: |
+        if [ "${{ inputs.poetry-version }}" = "latest" ]; then
+          pipx install poetry
+        else
+          pipx install poetry==${{ inputs.poetry-version }}
+        fi
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+    - name: Show tool versions
+      shell: bash
+      run: |
+        python --version
+        poetry --version
+
+    - name: Run specified command
+      shell: bash
+      run: |
+        if [ -n "${{ inputs.post_setup_command }}" ]; then
+          echo "> Running post-setup command: ${{ inputs.post_setup_command }}"
+          eval "${{ inputs.post_setup_command }}"
+        else
+          echo "> No post-setup command provided. Skipping."
+        fi

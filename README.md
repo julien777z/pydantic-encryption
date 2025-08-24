@@ -4,22 +4,20 @@ This package provides Pydantic field annotations that encrypt, decrypt, and hash
 
 ## Installation
 
-Install with [Pip](https://pip.pypa.io/en/stable/):
+Install with [pip](https://pip.pypa.io/en/stable/):
 ```bash
-pip install "pydantic_encryption[all]"
+pip install "pydantic_encryption[sqlalchemy]"
 ```
 
 Install with [Poetry](https://python-poetry.org/docs/):
 ```bash
-poetry add pydantic_encryption -E all
+poetry add pydantic_encryption --E sqlalchemy
 ```
 
 ### Optional extras
 
-- `generics`: Support for generics
 - `sqlalchemy`: Built-in SQLAlchemy integration
-- `test`: Test dependencies
-- `all`: All optional extras
+- `dev`: Development and test dependencies
 
 ## Features
 
@@ -295,8 +293,6 @@ print(user.address) # encrypted
 ## Generics
 
 Each BaseModel has an additional helpful method that will tell you its generic type.
-
-To use generics, you must install this package with the `generics` extra: `pip install pydantic_encryption[generics]`.
 
 ```py
 from pydantic_encryption import BaseModel
