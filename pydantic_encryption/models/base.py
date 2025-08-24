@@ -1,6 +1,6 @@
 from typing import Any
 
-from super_model import SuperModel
+from pydantic_super_model import SuperModel
 
 from . import SecureModel
 

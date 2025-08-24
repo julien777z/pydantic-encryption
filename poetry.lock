@@ -1139,14 +1139,14 @@ yaml = ["pyyaml (>=6.0.1)"]
 
 [[package]]
 name = "pydantic-super-model"
-version = "1.0.2"
+version = "1.0.3"
 description = "Pydantic BaseModel supercharged with helper methods for generic and annotation support"
 optional = false
 python-versions = "<3.14,>=3.11.0"
 groups = ["main"]
 files = [
-    {file = "pydantic_super_model-1.0.2-py3-none-any.whl", hash = "sha256:ec42b681ee58623eab6dd45309bfd89d9c9650836490d27039ebf4f5d4074440"},
-    {file = "pydantic_super_model-1.0.2.tar.gz", hash = "sha256:24833d8bee958b2afd60c1936bf09d4d789a80f7108315e6b5f1a9ee5ebd753f"},
+    {file = "pydantic_super_model-1.0.3-py3-none-any.whl", hash = "sha256:9bc14223997739dcc77f78679fcbde2d9b2c494439048292ac96994ff97b339c"},
+    {file = "pydantic_super_model-1.0.3.tar.gz", hash = "sha256:2bb074a49a4dc24dfc12fa0db5519ca3e121b8d5d000166598a9f9f3b87ee490"},
 ]
 
 [package.dependencies]
@@ -1697,4 +1697,4 @@ sqlalchemy = ["sqlalchemy", "sqlmodel"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11.0,<3.14"
-content-hash = "808f19f358e9286a2ce1f800339871d522b09fc5001712865e2a23aa54fc0bad"
+content-hash = "6e4d1faa1fd973e066f57030e222f6dc4880ca978a19c870b72a3b15e7768ff4"
