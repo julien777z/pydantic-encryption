@@ -4,14 +4,14 @@ This package provides Pydantic field annotations that encrypt, decrypt, and hash
 
 ## Installation
 
-Install with [Pip](https://pip.pypa.io/en/stable/):
+Install with [pip](https://pip.pypa.io/en/stable/):
 ```bash
 pip install "pydantic_encryption[all]"
 ```
 
 Install with [Poetry](https://python-poetry.org/docs/):
 ```bash
-poetry add pydantic_encryption -E all
+poetry add pydantic_encryption --all-extras
 ```
 
 ### Optional extras
