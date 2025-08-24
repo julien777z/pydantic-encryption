@@ -1,5 +1,5 @@
-from tests.models import User, UserDecrypt
 from pydantic_encryption.lib.adapters.encryption.fernet import fernet_encrypt
+from tests.models import User, UserDecrypt
 
 
 class TestUnitEncryptionModel:

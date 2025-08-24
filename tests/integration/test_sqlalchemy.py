@@ -1,7 +1,8 @@
 from typing import Final
-from sqlalchemy.orm import Session
-from tests.integration.database import User
 
+from sqlalchemy.orm import Session
+
+from tests.integration.database import User
 
 TEST_PASSWORD: Final[str] = "pass123"
 TEST_EMAIL: Final[str] = "user1@example.com"

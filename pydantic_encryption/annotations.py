@@ -1,5 +1,6 @@
 from enum import Enum
-from typing import Any, Callable, Optional, Type, get_origin, get_args, Annotated
+from typing import Annotated, Any, Callable, Optional, Type, get_args, get_origin
+
 from pydantic import BeforeValidator
 
 

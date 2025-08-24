@@ -1,5 +1,5 @@
-from tests.models import User
 from pydantic_encryption.lib.adapters.hashing.argon2 import argon2_hash_data
+from tests.models import User
 
 
 class TestUnitHashing:

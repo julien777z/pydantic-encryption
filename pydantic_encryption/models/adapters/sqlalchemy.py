@@ -1,18 +1,14 @@
 try:
-    from sqlalchemy.types import TypeDecorator, LargeBinary
+    from sqlalchemy.types import LargeBinary, TypeDecorator
 except ImportError:
     sqlalchemy_available = False
 else:
     sqlalchemy_available = True
 
-from pydantic_encryption.lib.adapters import encryption, hashing
 from pydantic_encryption.annotations import EncryptionMethod
-from pydantic_encryption.models.encryptable import (
-    EncryptedValue,
-    DecryptedValue,
-    HashedValue,
-)
 from pydantic_encryption.config import settings
+from pydantic_encryption.lib.adapters import encryption, hashing
+from pydantic_encryption.models.encryptable import DecryptedValue, EncryptedValue, HashedValue
 
 
 class SQLAlchemyEncrypted(TypeDecorator):
