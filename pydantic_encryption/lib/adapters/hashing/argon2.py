@@ -1,6 +1,6 @@
 from argon2 import PasswordHasher
-
 from pydantic_encryption.models.encryptable import HashedValue
+
 
 argon2_hasher = PasswordHasher()
 

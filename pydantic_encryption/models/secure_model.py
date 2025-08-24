@@ -1,8 +1,17 @@
-from typing import Annotated, Any, Optional, Union, get_args, get_origin, get_type_hints
+from typing import (
+    Annotated,
+    Optional,
+    Union,
+    get_args,
+    get_origin,
+    get_type_hints,
+    Any,
+)
 
-from pydantic_encryption.annotations import Decrypt, Encrypt, EncryptionMethod, Hash
+from pydantic_encryption.lib import argon2, fernet, evervault, aws
+from pydantic_encryption.annotations import Encrypt, Decrypt, Hash, EncryptionMethod
 from pydantic_encryption.config import settings
-from pydantic_encryption.lib import argon2, aws, evervault, fernet
+
 
 __all__ = ["SecureModel"]
 

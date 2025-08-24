@@ -1,5 +1,5 @@
-from pydantic_encryption.annotations import EncryptionMethod
 from pydantic_encryption.config import settings
+from pydantic_encryption.annotations import EncryptionMethod
 
 try:
     import evervault

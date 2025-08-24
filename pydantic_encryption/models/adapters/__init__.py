@@ -1,1 +1,4 @@
-from .sqlalchemy import SQLAlchemyEncrypted, SQLAlchemyHashed
+from .sqlalchemy import (
+    SQLAlchemyEncrypted,
+    SQLAlchemyHashed,
+)

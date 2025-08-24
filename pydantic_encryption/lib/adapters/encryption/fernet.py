@@ -5,9 +5,9 @@ except ImportError:
 else:
     FERNET_CLIENT = None
 
-from pydantic_encryption.annotations import EncryptionMethod
 from pydantic_encryption.config import settings
-from pydantic_encryption.models.encryptable import DecryptedValue, EncryptedValue
+from pydantic_encryption.annotations import EncryptionMethod
+from pydantic_encryption.models.encryptable import EncryptedValue, DecryptedValue
 
 if settings.ENCRYPTION_METHOD == EncryptionMethod.FERNET:
     if not settings.ENCRYPTION_KEY:

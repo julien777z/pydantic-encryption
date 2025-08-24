@@ -1,8 +1,6 @@
 from typing import Annotated
-
 import pytest
-
-from pydantic_encryption import BaseModel, Decrypt, Encrypt, Hash
+from pydantic_encryption import Encrypt, Decrypt, Hash, BaseModel
 
 __all__ = [
     "User",

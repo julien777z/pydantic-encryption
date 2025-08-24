@@ -1,10 +1,12 @@
 try:
-    import aws_encryption_sdk
     import boto3
-    from aws_cryptographic_material_providers.mpl import AwsCryptographicMaterialProviders
+    import aws_encryption_sdk
+    from aws_encryption_sdk import CommitmentPolicy
+    from aws_cryptographic_material_providers.mpl import (
+        AwsCryptographicMaterialProviders,
+    )
     from aws_cryptographic_material_providers.mpl.config import MaterialProvidersConfig
     from aws_cryptographic_material_providers.mpl.models import CreateAwsKmsKeyringInput
-    from aws_encryption_sdk import CommitmentPolicy
 except ImportError:
     pass
 else:
@@ -13,9 +15,9 @@ else:
     MAT_PROV = None
     KMS_KEYRING = None
 
+from pydantic_encryption.models.encryptable import EncryptedValue, DecryptedValue
 from pydantic_encryption.annotations import EncryptionMethod
 from pydantic_encryption.config import settings
-from pydantic_encryption.models.encryptable import DecryptedValue, EncryptedValue
 
 if settings.ENCRYPTION_METHOD == EncryptionMethod.AWS:
     KMS_CLIENT = boto3.client(

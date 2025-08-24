@@ -1,13 +1,11 @@
 import asyncio
 import time
 from typing import Final
-
 import pytest
 import pytest_asyncio
-from sqlalchemy import Engine
+from sqlalchemy_utils import database_exists, create_database
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy_utils import create_database, database_exists
-
+from sqlalchemy import Engine
 from tests.integration.database.tables import Base
 
 DATABASE_CONNECTION_MAX_TRIES: Final[int] = 10

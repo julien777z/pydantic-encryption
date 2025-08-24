@@ -1,2 +1,2 @@
-from .adapters.encryption import aws, evervault, fernet
+from .adapters.encryption import fernet, evervault, aws
 from .adapters.hashing import argon2
