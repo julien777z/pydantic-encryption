@@ -1,18 +1,14 @@
 try:
-    from sqlalchemy.types import TypeDecorator, LargeBinary
+    from sqlalchemy.types import LargeBinary, TypeDecorator
 except ImportError:
     sqlalchemy_available = False
 else:
     sqlalchemy_available = True
 
-from pydantic_encryption.lib.adapters import encryption, hashing
 from pydantic_encryption.annotations import EncryptionMethod
-from pydantic_encryption.models.encryptable import (
-    EncryptedValue,
-    DecryptedValue,
-    HashedValue,
-)
 from pydantic_encryption.config import settings
+from pydantic_encryption.lib.adapters import encryption, hashing
+from pydantic_encryption.models.encryptable import DecryptedValue, EncryptedValue, HashedValue
 
 
 class SQLAlchemyEncrypted(TypeDecorator):
@@ -33,9 +29,7 @@ class SQLAlchemyEncrypted(TypeDecorator):
 
         super().__init__(*args, **kwargs)
 
-    def _process_encrypt_value(
-        self, value: str | bytes | None
-    ) -> EncryptedValue | None:
+    def _process_encrypt_value(self, value: str | bytes | None) -> EncryptedValue | None:
         if value is None:
             return None
 
@@ -60,23 +54,17 @@ class SQLAlchemyEncrypted(TypeDecorator):
                 value = encryption.aws_decrypt(value)
                 return value
 
-    def process_bind_param(
-        self, value: str | bytes | None, dialect
-    ) -> str | bytes | None:
+    def process_bind_param(self, value: str | bytes | None, dialect) -> str | bytes | None:
         """Encrypts a string before binding it to the database."""
 
         return self._process_encrypt_value(value)
 
-    def process_literal_param(
-        self, value: str | bytes | None, dialect
-    ) -> str | bytes | None:
+    def process_literal_param(self, value: str | bytes | None, dialect) -> str | bytes | None:
         """Encrypts a string for literal SQL expressions."""
 
         return self._process_encrypt_value(value)
 
-    def process_result_value(
-        self, value: str | bytes | None, dialect
-    ) -> DecryptedValue | None:
+    def process_result_value(self, value: str | bytes | None, dialect) -> DecryptedValue | None:
         """Decrypts a string after retrieving it from the database."""
 
         if value is None:
@@ -115,9 +103,7 @@ class SQLAlchemyHashed(TypeDecorator):
 
         return hashing.argon2_hash_data(value)
 
-    def process_literal_param(
-        self, value: str | bytes | None, dialect
-    ) -> HashedValue | None:
+    def process_literal_param(self, value: str | bytes | None, dialect) -> HashedValue | None:
         """Hashes a string for literal SQL expressions."""
 
         if value is None:
@@ -127,9 +113,7 @@ class SQLAlchemyHashed(TypeDecorator):
 
         return dialect.literal_processor(self.impl)(processed)
 
-    def process_result_value(
-        self, value: str | bytes | None, dialect
-    ) -> HashedValue | None:
+    def process_result_value(self, value: str | bytes | None, dialect) -> HashedValue | None:
         """Returns the hash value as-is from the database, wrapped as a HashableBinary."""
 
         if value is None:
