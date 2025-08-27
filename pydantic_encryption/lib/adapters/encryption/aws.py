@@ -1,51 +1,81 @@
 try:
-    import boto3
-    import aws_encryption_sdk
-    from aws_encryption_sdk import CommitmentPolicy
-    from aws_cryptographic_material_providers.mpl import (
-        AwsCryptographicMaterialProviders,
-    )
-    from aws_cryptographic_material_providers.mpl.config import MaterialProvidersConfig
-    from aws_cryptographic_material_providers.mpl.models import CreateAwsKmsKeyringInput
-except ImportError:
-    pass
-else:
-    KMS_CLIENT = None
-    CLIENT = None
-    MAT_PROV = None
-    KMS_KEYRING = None
+    import aws_encryption_sdk  # type: ignore
+    import boto3  # type: ignore
+    from aws_cryptographic_material_providers.mpl import AwsCryptographicMaterialProviders  # type: ignore
+    from aws_cryptographic_material_providers.mpl.config import MaterialProvidersConfig  # type: ignore
+    from aws_cryptographic_material_providers.mpl.models import CreateAwsKmsKeyringInput  # type: ignore
+    from aws_encryption_sdk import CommitmentPolicy  # type: ignore
 
-from pydantic_encryption.models.encryptable import EncryptedValue, DecryptedValue
+    _AWS_LIBS_AVAILABLE = True
+except ImportError:
+    boto3 = None  # type: ignore
+    aws_encryption_sdk = None  # type: ignore
+    CommitmentPolicy = None  # type: ignore
+    AwsCryptographicMaterialProviders = None  # type: ignore
+    MaterialProvidersConfig = None  # type: ignore
+    CreateAwsKmsKeyringInput = None  # type: ignore
+    _AWS_LIBS_AVAILABLE = False
+
+KMS_CLIENT = None
+CLIENT = None
+MAT_PROV = None
+KMS_KEYRING = None
+
 from pydantic_encryption.annotations import EncryptionMethod
 from pydantic_encryption.config import settings
+from pydantic_encryption.models.encryptable import DecryptedValue, EncryptedValue
 
-if settings.ENCRYPTION_METHOD == EncryptionMethod.AWS:
-    KMS_CLIENT = boto3.client(
-        "kms",
-        region_name=settings.AWS_KMS_REGION,
-        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-    )
 
-    CLIENT = aws_encryption_sdk.EncryptionSDKClient(
-        commitment_policy=CommitmentPolicy.REQUIRE_ENCRYPT_ALLOW_DECRYPT
-    )
+def _ensure_clients() -> None:
+    """Initialize AWS encryption clients lazily and validate configuration."""
 
-    MAT_PROV = AwsCryptographicMaterialProviders(config=MaterialProvidersConfig())
+    global KMS_CLIENT, CLIENT, MAT_PROV, KMS_KEYRING
 
-    keyring_input = CreateAwsKmsKeyringInput(
-        kms_key_id=settings.AWS_KMS_KEY_ARN,
-        kms_client=KMS_CLIENT,
-    )
+    if settings.ENCRYPTION_METHOD != EncryptionMethod.AWS:
+        return
 
-    KMS_KEYRING = MAT_PROV.create_aws_kms_keyring(input=keyring_input)
+    if not _AWS_LIBS_AVAILABLE:
+        raise ValueError("AWS encryption is not available. Please install this package with the `aws` extra.")
+
+    if not (
+        settings.AWS_KMS_KEY_ARN
+        and settings.AWS_KMS_REGION
+        and settings.AWS_ACCESS_KEY_ID
+        and settings.AWS_SECRET_ACCESS_KEY
+    ):
+        raise ValueError(
+            "AWS KMS settings are not configured. Please set AWS_KMS_KEY_ARN, AWS_KMS_REGION, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY."
+        )
+
+    if KMS_CLIENT is None:
+        KMS_CLIENT = boto3.client(
+            "kms",
+            region_name=settings.AWS_KMS_REGION,
+            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+        )
+
+    if CLIENT is None:
+        CLIENT = aws_encryption_sdk.EncryptionSDKClient(
+            commitment_policy=CommitmentPolicy.REQUIRE_ENCRYPT_ALLOW_DECRYPT
+        )
+
+    if MAT_PROV is None:
+        MAT_PROV = AwsCryptographicMaterialProviders(config=MaterialProvidersConfig())
+
+    if KMS_KEYRING is None:
+        keyring_input = CreateAwsKmsKeyringInput(
+            kms_key_id=settings.AWS_KMS_KEY_ARN,
+            kms_client=KMS_CLIENT,
+        )
+
+        KMS_KEYRING = MAT_PROV.create_aws_kms_keyring(input=keyring_input)
 
 
 def _check_aws_encryption():
+    _ensure_clients()
     if not (KMS_CLIENT and CLIENT and MAT_PROV and KMS_KEYRING):
-        raise ValueError(
-            "AWS encryption is not available. Please install this package with the `aws` extra."
-        )
+        raise ValueError("AWS encryption is not available. Please install this package with the `aws` extra.")
 
 
 def aws_encrypt(plaintext: bytes | str | EncryptedValue) -> EncryptedValue:

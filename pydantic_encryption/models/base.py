@@ -2,7 +2,7 @@ from typing import Any
 
 from pydantic_super_model import SuperModel
 
-from . import SecureModel
+from .secure_model import SecureModel
 
 __all__ = ["BaseModel"]
 

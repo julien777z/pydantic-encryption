@@ -1,17 +1,9 @@
-from typing import (
-    Annotated,
-    Optional,
-    Union,
-    get_args,
-    get_origin,
-    get_type_hints,
-    Any,
-)
+from typing import Annotated, Any, Optional, Union, get_args, get_origin, get_type_hints
 
-from pydantic_encryption.lib import argon2, fernet, evervault, aws
-from pydantic_encryption.annotations import Encrypt, Decrypt, Hash, EncryptionMethod
+from pydantic_encryption.annotations import Decrypt, Encrypt, EncryptionMethod, Hash
 from pydantic_encryption.config import settings
-
+from pydantic_encryption.lib.adapters.encryption import aws, evervault, fernet
+from pydantic_encryption.lib.adapters.hashing import argon2
 
 __all__ = ["SecureModel"]
 
@@ -43,9 +35,7 @@ class SecureModel:
 
         match settings.ENCRYPTION_METHOD:
             case EncryptionMethod.EVERVAULT:
-                encrypted_data = evervault.evervault_encrypt(
-                    self.pending_encryption_fields
-                )
+                encrypted_data = evervault.evervault_encrypt(self.pending_encryption_fields)
 
             case EncryptionMethod.FERNET:
                 encrypted_data = {
@@ -74,9 +64,7 @@ class SecureModel:
 
         match settings.ENCRYPTION_METHOD:
             case EncryptionMethod.EVERVAULT:
-                decrypted_data = evervault.evervault_decrypt(
-                    self.pending_decryption_fields
-                )
+                decrypted_data = evervault.evervault_decrypt(self.pending_decryption_fields)
 
             case EncryptionMethod.FERNET:
                 decrypted_data = {
@@ -133,9 +121,7 @@ class SecureModel:
             """Check if a type has any of the target annotations."""
 
             # Direct match
-            if any(
-                target_type is ann or target_type == ann for ann in target_annotations
-            ):
+            if any(target_type is ann or target_type == ann for ann in target_annotations):
                 return True
 
             # Annotated type

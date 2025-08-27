@@ -19,6 +19,7 @@ dependencies = [
     "aws-encryption-sdk[mpl] (>=4.0.1,<5.0.0)",
     "boto3 (>=1.38.8,<2.0.0)",
     "pydantic-super-model (>=1.0.3,<2.0.0)",
+    "generalimport (>=0.5.2,<0.6.0)",
 ]
 
 [project.optional-dependencies]
@@ -48,9 +49,6 @@ line_length = 110
 
 [project.scripts]
 tests = "scripts.run_tests:main"
-
-[tool.pytest_env]
-ENCRYPTION_KEY = "FF9OqqsxdRoge7b0orbJ7EZAn96bLFDgoa8icBF3GNM="
 
 [build-system]
 requires = ["poetry-core", "setuptools"]

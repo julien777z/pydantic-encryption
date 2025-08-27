@@ -26,6 +26,8 @@ jobs:
       - name: Test with Pytest
         run: |
           poetry run pytest --cov=pydantic_encryption --cov-branch --cov-report=xml
+        env:
+          ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5
