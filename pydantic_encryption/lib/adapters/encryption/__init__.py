@@ -1,3 +1,22 @@
-from .fernet import fernet_encrypt, fernet_decrypt
-from .evervault import evervault_encrypt, evervault_decrypt
-from .aws import aws_encrypt, aws_decrypt
+__all__ = []
+
+try:
+    from . import fernet
+
+    __all__.append("fernet")
+except ImportError:
+    fernet = None
+
+try:
+    from . import evervault
+
+    __all__.append("evervault")
+except ImportError:
+    evervault = None
+
+try:
+    from . import aws
+
+    __all__.append("aws")
+except ImportError:
+    aws = None

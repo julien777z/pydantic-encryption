@@ -35,11 +35,23 @@ class SQLAlchemyEncrypted(TypeDecorator):
 
         match settings.ENCRYPTION_METHOD:
             case EncryptionMethod.FERNET:
-                return encryption.fernet_encrypt(value)
+                if encryption.fernet is None:
+                    raise ValueError(
+                        "Fernet encryption is not available. Please set the ENCRYPTION_KEY environment variable."
+                    )
+                return encryption.fernet.fernet_encrypt(value)
             case EncryptionMethod.EVERVAULT:
-                return encryption.evervault_encrypt(value)
+                if encryption.evervault is None:
+                    raise ValueError(
+                        "Evervault encryption is not available. Please install this package with the `evervault` extra."
+                    )
+                return encryption.evervault.evervault_encrypt(value)
             case EncryptionMethod.AWS:
-                return encryption.aws_encrypt(value)
+                if encryption.aws is None:
+                    raise ValueError(
+                        "AWS encryption is not available. Please install this package with the `aws` extra."
+                    )
+                return encryption.aws.aws_encrypt(value)
 
     def _process_decrypt_value(self, value: str | bytes | None) -> str | bytes | None:
         if value is None:
@@ -47,11 +59,23 @@ class SQLAlchemyEncrypted(TypeDecorator):
 
         match settings.ENCRYPTION_METHOD:
             case EncryptionMethod.FERNET:
-                return encryption.fernet_decrypt(value)
+                if encryption.fernet is None:
+                    raise ValueError(
+                        "Fernet decryption is not available. Please set the ENCRYPTION_KEY environment variable."
+                    )
+                return encryption.fernet.fernet_decrypt(value)
             case EncryptionMethod.EVERVAULT:
-                return encryption.evervault_decrypt(value)
+                if encryption.evervault is None:
+                    raise ValueError(
+                        "Evervault decryption is not available. Please install this package with the `evervault` extra."
+                    )
+                return encryption.evervault.evervault_decrypt(value)
             case EncryptionMethod.AWS:
-                value = encryption.aws_decrypt(value)
+                if encryption.aws is None:
+                    raise ValueError(
+                        "AWS decryption is not available. Please install this package with the `aws` extra."
+                    )
+                value = encryption.aws.aws_decrypt(value)
                 return value
 
     def process_bind_param(self, value: str | bytes | None, dialect) -> str | bytes | None:
@@ -101,7 +125,10 @@ class SQLAlchemyHashed(TypeDecorator):
         if value is None:
             return None
 
-        return hashing.argon2_hash_data(value)
+        if hashing.argon2 is None:
+            raise ValueError("Argon2 hashing is not available. Please ensure argon2-cffi is installed.")
+
+        return hashing.argon2.argon2_hash_data(value)
 
     def process_literal_param(self, value: str | bytes | None, dialect) -> HashedValue | None:
         """Hashes a string for literal SQL expressions."""
@@ -109,7 +136,10 @@ class SQLAlchemyHashed(TypeDecorator):
         if value is None:
             return None
 
-        processed = hashing.argon2_hash_data(value)
+        if hashing.argon2 is None:
+            raise ValueError("Argon2 hashing is not available. Please ensure argon2-cffi is installed.")
+
+        processed = hashing.argon2.argon2_hash_data(value)
 
         return dialect.literal_processor(self.impl)(processed)
 
