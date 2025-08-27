@@ -1,7 +1,12 @@
 import importlib
 
 
-def optional_import(module_name: str, __all__: list[str] | None = None) -> object | None:
+def optional_import(
+    module_name: str,
+    __all__: list[str] | None = None,
+    *,
+    package: str | None = None,
+) -> object | None:
     """Safely import a module with optional ``__all__`` management.
 
     Args:
@@ -13,7 +18,7 @@ def optional_import(module_name: str, __all__: list[str] | None = None) -> objec
     """
 
     try:
-        module = importlib.import_module(module_name, __package__)
+        module = importlib.import_module(module_name, package or __package__)
 
         if __all__ is not None:
             __all__.append(module_name.rsplit(".", 1)[-1])
