@@ -1,4 +1,4 @@
-from ...imports import optional_import
+from pydantic_encryption.lib.imports import optional_import
 
 __all__ = []
 
