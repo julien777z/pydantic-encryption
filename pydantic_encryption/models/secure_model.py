@@ -2,7 +2,8 @@ from typing import Annotated, Any, Optional, Union, get_args, get_origin, get_ty
 
 from pydantic_encryption.annotations import Decrypt, Encrypt, EncryptionMethod, Hash
 from pydantic_encryption.config import settings
-from pydantic_encryption.lib import argon2, aws, evervault, fernet
+from pydantic_encryption.lib.adapters.encryption import aws, evervault, fernet
+from pydantic_encryption.lib.adapters.hashing import argon2
 
 __all__ = ["SecureModel"]
 
@@ -34,26 +35,14 @@ class SecureModel:
 
         match settings.ENCRYPTION_METHOD:
             case EncryptionMethod.EVERVAULT:
-                if evervault is None:
-                    raise ValueError(
-                        "Evervault encryption is not available. Please install this package with the `evervault` extra."
-                    )
                 encrypted_data = evervault.evervault_encrypt(self.pending_encryption_fields)
 
             case EncryptionMethod.FERNET:
-                if fernet is None:
-                    raise ValueError(
-                        "Fernet encryption is not available. Please set the ENCRYPTION_KEY environment variable."
-                    )
                 encrypted_data = {
                     field_name: fernet.fernet_encrypt(value)
                     for field_name, value in self.pending_encryption_fields.items()
                 }
             case EncryptionMethod.AWS:
-                if aws is None:
-                    raise ValueError(
-                        "AWS encryption is not available. Please install this package with the `aws` extra."
-                    )
                 encrypted_data = {
                     field_name: aws.aws_encrypt(value)
                     for field_name, value in self.pending_encryption_fields.items()
@@ -75,26 +64,14 @@ class SecureModel:
 
         match settings.ENCRYPTION_METHOD:
             case EncryptionMethod.EVERVAULT:
-                if evervault is None:
-                    raise ValueError(
-                        "Evervault decryption is not available. Please install this package with the `evervault` extra."
-                    )
                 decrypted_data = evervault.evervault_decrypt(self.pending_decryption_fields)
 
             case EncryptionMethod.FERNET:
-                if fernet is None:
-                    raise ValueError(
-                        "Fernet decryption is not available. Please set the ENCRYPTION_KEY environment variable."
-                    )
                 decrypted_data = {
                     field_name: fernet.fernet_decrypt(value)
                     for field_name, value in self.pending_decryption_fields.items()
                 }
             case EncryptionMethod.AWS:
-                if aws is None:
-                    raise ValueError(
-                        "AWS decryption is not available. Please install this package with the `aws` extra."
-                    )
                 decrypted_data = {
                     field_name: aws.aws_decrypt(value)
                     for field_name, value in self.pending_decryption_fields.items()
@@ -111,9 +88,6 @@ class SecureModel:
 
         if not self.pending_hash_fields:
             return
-
-        if argon2 is None:
-            raise ValueError("Argon2 hashing is not available. Please ensure argon2-cffi is installed.")
 
         for field_name, value in self.pending_hash_fields.items():
             hashed = argon2.argon2_hash_data(value)

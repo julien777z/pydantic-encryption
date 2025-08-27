@@ -1,5 +1,10 @@
-from pydantic_encryption.lib.imports import optional_import
+def _try_import(name: str):
+    try:
+        return __import__(__name__ + "." + name, fromlist=[None])
+    except Exception:
+        return None
 
-__all__: list[str] = []
 
-argon2 = optional_import(".argon2", __all__, package=__package__)
+argon2 = _try_import("argon2")
+
+__all__ = [n for n, m in (("argon2", argon2),) if m]

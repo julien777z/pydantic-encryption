@@ -687,6 +687,18 @@ files = [
 ]
 
 [[package]]
+name = "generalimport"
+version = "0.5.2"
+description = "Handle all your optional dependencies with a single call!"
+optional = false
+python-versions = "*"
+groups = ["main"]
+files = [
+    {file = "generalimport-0.5.2-py3-none-any.whl", hash = "sha256:ce9082be1e6cd48ef108fede3b13ccc308d6aff2b6f6d65f52310521e8332fcd"},
+    {file = "generalimport-0.5.2.tar.gz", hash = "sha256:083f5e8feeada8a23cf3917edf299e71e71f2c7d2bd29e1795e11eeb759d7c62"},
+]
+
+[[package]]
 name = "greenlet"
 version = "3.2.4"
 description = "Lightweight in-process concurrent programming"
@@ -1697,4 +1709,4 @@ sqlalchemy = ["sqlalchemy", "sqlmodel"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11.0,<3.14"
-content-hash = "6e4d1faa1fd973e066f57030e222f6dc4880ca978a19c870b72a3b15e7768ff4"
+content-hash = "7b98deb143d66f6363ec25723a99b14192a0760cd2d501ab06be1d3df1609028"

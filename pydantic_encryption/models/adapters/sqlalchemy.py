@@ -47,22 +47,13 @@ else:
 
             match settings.ENCRYPTION_METHOD:
                 case EncryptionMethod.FERNET:
-                    if encryption.fernet is None:
-                        raise ValueError(
-                            "Fernet encryption is not available. Please set the ENCRYPTION_KEY environment variable."
-                        )
+                    # optional_import returns a sentinel that raises on use; no inline checks needed
                     return encryption.fernet.fernet_encrypt(value)
                 case EncryptionMethod.EVERVAULT:
-                    if encryption.evervault is None:
-                        raise ValueError(
-                            "Evervault encryption is not available. Please install this package with the `evervault` extra."
-                        )
+                    # raises with clear message if missing
                     return encryption.evervault.evervault_encrypt(value)
                 case EncryptionMethod.AWS:
-                    if encryption.aws is None:
-                        raise ValueError(
-                            "AWS encryption is not available. Please install this package with the `aws` extra."
-                        )
+                    # raises with clear message if missing
                     return encryption.aws.aws_encrypt(value)
 
         def _process_decrypt_value(self, value: str | bytes | None) -> str | bytes | None:
@@ -71,22 +62,13 @@ else:
 
             match settings.ENCRYPTION_METHOD:
                 case EncryptionMethod.FERNET:
-                    if encryption.fernet is None:
-                        raise ValueError(
-                            "Fernet decryption is not available. Please set the ENCRYPTION_KEY environment variable."
-                        )
+                    # raises if missing
                     return encryption.fernet.fernet_decrypt(value)
                 case EncryptionMethod.EVERVAULT:
-                    if encryption.evervault is None:
-                        raise ValueError(
-                            "Evervault decryption is not available. Please install this package with the `evervault` extra."
-                        )
+                    # raises if missing
                     return encryption.evervault.evervault_decrypt(value)
                 case EncryptionMethod.AWS:
-                    if encryption.aws is None:
-                        raise ValueError(
-                            "AWS decryption is not available. Please install this package with the `aws` extra."
-                        )
+                    # raises if missing
                     value = encryption.aws.aws_decrypt(value)
                     return value
 
@@ -131,9 +113,6 @@ else:
             if value is None:
                 return None
 
-            if hashing.argon2 is None:
-                raise ValueError("Argon2 hashing is not available. Please ensure argon2-cffi is installed.")
-
             return hashing.argon2.argon2_hash_data(value)
 
         def process_literal_param(self, value: str | bytes | None, dialect) -> HashedValue | None:
@@ -141,9 +120,6 @@ else:
 
             if value is None:
                 return None
-
-            if hashing.argon2 is None:
-                raise ValueError("Argon2 hashing is not available. Please ensure argon2-cffi is installed.")
 
             processed = hashing.argon2.argon2_hash_data(value)
 
