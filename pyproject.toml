@@ -49,9 +49,6 @@ line_length = 110
 [project.scripts]
 tests = "scripts.run_tests:main"
 
-[tool.pytest_env]
-ENCRYPTION_KEY = "FF9OqqsxdRoge7b0orbJ7EZAn96bLFDgoa8icBF3GNM="
-
 [build-system]
 requires = ["poetry-core", "setuptools"]
 build-backend = "poetry.core.masonry.api"
