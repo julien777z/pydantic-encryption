@@ -1,22 +1,7 @@
+from ...imports import optional_import
+
 __all__ = []
 
-try:
-    from . import fernet
-
-    __all__.append("fernet")
-except ImportError:
-    fernet = None
-
-try:
-    from . import evervault
-
-    __all__.append("evervault")
-except ImportError:
-    evervault = None
-
-try:
-    from . import aws
-
-    __all__.append("aws")
-except ImportError:
-    aws = None
+fernet = optional_import(".fernet", __all__)
+evervault = optional_import(".evervault", __all__)
+aws = optional_import(".aws", __all__)

@@ -1,8 +1,5 @@
+from ...imports import optional_import
+
 __all__ = []
 
-try:
-    from . import argon2
-
-    __all__.append("argon2")
-except ImportError:
-    argon2 = None
+argon2 = optional_import(".argon2", __all__)
