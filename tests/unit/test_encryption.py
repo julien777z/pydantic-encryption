@@ -1,37 +1,43 @@
 from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
-from tests.models import User, UserDecrypt
+from tests.models import User, UserDecrypt, UserDisabledEncryption
 
 
 class TestUnitEncryptionModel:
     """Test basic functionality of pydantic-encryption with mocked models."""
 
-    def test_encrypt_field(self, mock_basic_user: User):
-        """Test encrypting fields with EncryptField annotation."""
+    def test_encrypt_field(self, user: User):
+        """Test encrypting fields with Encrypt annotation."""
 
-        assert mock_basic_user.username == "user1"  # Not encrypted
+        assert user.username is not None
+        assert getattr(user.address, "encrypted", False)
 
-        assert getattr(mock_basic_user.address, "encrypted", False)
+    def test_double_encrypt_fails(self, user: User):
+        """Test double encrypting returns same value."""
 
-    def test_double_encrypt_fails(self, mock_basic_user: User):
-        """Test double encrypting fails."""
+        old_address = user.address
 
-        old_address = mock_basic_user.address
+        user.address = FernetAdapter.encrypt(user.address)
 
-        mock_basic_user.address = FernetAdapter.encrypt(mock_basic_user.address)
+        assert user.address == old_address
 
-        assert mock_basic_user.address == old_address
+    def test_decrypt_field(self, user: User):
+        """Test decrypting fields with Decrypt annotation."""
 
-    def test_decrypt_field(self, mock_basic_user: User):
-        """Test decrypting fields with DecryptField annotation."""
-
-        encrypted_data = mock_basic_user.model_dump()
+        encrypted_data = user.model_dump()
 
         decrypted_user = UserDecrypt(**encrypted_data)
 
-        assert decrypted_user.username == "user1"
+        assert decrypted_user.username == user.username
         assert not getattr(decrypted_user.address, "encrypted", False)
 
-    def test_disable_encryption(self, mock_user_disabled_encryption: User):
+    def test_disable_encryption(self, user_disabled: UserDisabledEncryption):
         """Test disabling encryption."""
 
-        assert not getattr(mock_user_disabled_encryption.address, "encrypted", False)
+        assert not getattr(user_disabled.address, "encrypted", False)
+
+    def test_encrypt_multiple_users(self, users_batch: list[User]):
+        """Test encrypting multiple users with batch."""
+
+        for user in users_batch:
+            assert getattr(user.address, "encrypted", False)
+            assert user.username is not None
