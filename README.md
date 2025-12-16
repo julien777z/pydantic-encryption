@@ -6,18 +6,28 @@ This package provides Pydantic field annotations that encrypt, decrypt, and hash
 
 Install with [pip](https://pip.pypa.io/en/stable/):
 ```bash
-pip install "pydantic_encryption[sqlalchemy]"
+pip install pydantic_encryption
 ```
 
 Install with [Poetry](https://python-poetry.org/docs/):
 ```bash
-poetry add pydantic_encryption --E sqlalchemy
+poetry add pydantic_encryption
 ```
 
 ### Optional extras
 
+- `aws`: AWS KMS encryption support
+- `evervault`: Evervault encryption support
 - `sqlalchemy`: Built-in SQLAlchemy integration
+- `all`: All optional dependencies
 - `dev`: Development and test dependencies
+
+```bash
+# Install with specific extras
+pip install "pydantic_encryption[sqlalchemy]"
+pip install "pydantic_encryption[aws]"
+pip install "pydantic_encryption[all]"
+```
 
 ## Features
 
@@ -58,7 +68,7 @@ When you create a new instance of the model, the fields will be encrypted and wh
 
 ```python
 import uuid
-from pydantic_encryption import SQLAlchemyEncrypted, SQLAlchemyHashed
+from pydantic_encryption.integrations.sqlalchemy import SQLAlchemyEncrypted, SQLAlchemyHashed
 from sqlmodel import SQLModel, Field
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -266,7 +276,7 @@ user = User(username="john_doe", password="secret123")
 print(user.password) # hashed value
 ```
 
-Fields marked with `Hash` are automatically hashed using bcrypt during model initialization.
+Fields marked with `Hash` are automatically hashed using Argon2 during model initialization.
 
 ## Disable Auto Processing
 
@@ -309,8 +319,8 @@ print(model.get_type()) # <class 'str'>
 Install [Poetry](https://python-poetry.org/docs/) and run:
 
 ```bash
-poetry install --with test
-poetry run coverage run -m pytest -v -s
+poetry install --all-extras
+poetry run pytest -v
 ```
 
 ## Roadmap
