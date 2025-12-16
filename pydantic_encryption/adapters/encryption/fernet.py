@@ -1,13 +1,9 @@
-try:
-    from cryptography.fernet import Fernet
-except ImportError:  # cryptography not installed
-    Fernet = None  # type: ignore[assignment]
+from cryptography.fernet import Fernet
+
+from pydantic_encryption.config import settings
+from pydantic_encryption.types import DecryptedValue, EncryptedValue, EncryptionMethod
 
 FERNET_CLIENT = None
-
-from pydantic_encryption.annotations import EncryptionMethod
-from pydantic_encryption.config import settings
-from pydantic_encryption.models.encryptable import DecryptedValue, EncryptedValue
 
 
 def _ensure_client() -> None:
@@ -16,9 +12,6 @@ def _ensure_client() -> None:
     if settings.ENCRYPTION_METHOD != EncryptionMethod.FERNET:
         return
 
-    if Fernet is None:
-        raise ValueError("Fernet is not available. Please install this package with the 'fernet' extra.")
-
     if not settings.ENCRYPTION_KEY:
         raise ValueError("Fernet is not available. Please set the ENCRYPTION_KEY environment variable.")
 
@@ -26,9 +19,7 @@ def _ensure_client() -> None:
         FERNET_CLIENT = Fernet(settings.ENCRYPTION_KEY)
 
 
-def fernet_encrypt(
-    plaintext: bytes | str | EncryptedValue,
-) -> EncryptedValue:
+def fernet_encrypt(plaintext: bytes | str | EncryptedValue) -> EncryptedValue:
     """Encrypt data using Fernet."""
 
     _ensure_client()
@@ -44,9 +35,7 @@ def fernet_encrypt(
     return encrypted_value
 
 
-def fernet_decrypt(
-    ciphertext: str | bytes | EncryptedValue,
-) -> DecryptedValue:
+def fernet_decrypt(ciphertext: str | bytes | EncryptedValue) -> DecryptedValue:
     """Decrypt data using Fernet."""
 
     _ensure_client()

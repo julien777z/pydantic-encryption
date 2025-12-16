@@ -2,7 +2,7 @@ import uuid
 
 from sqlmodel import Field, SQLModel
 
-from pydantic_encryption.models.adapters import SQLAlchemyEncrypted, SQLAlchemyHashed
+from pydantic_encryption.integrations.sqlalchemy import SQLAlchemyEncrypted, SQLAlchemyHashed
 
 __all__ = ["Base", "User"]
 

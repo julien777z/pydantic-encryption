@@ -1,6 +1,6 @@
 from argon2 import PasswordHasher
-from pydantic_encryption.models.encryptable import HashedValue
 
+from pydantic_encryption.types import HashedValue
 
 argon2_hasher = PasswordHasher()
 
@@ -8,8 +8,8 @@ argon2_hasher = PasswordHasher()
 def argon2_hash_data(value: str | bytes | HashedValue) -> HashedValue:
     """Hash data using Argon2.
 
-    This function will not re-hash values that already have the 'hashed' flag set to True
-    Otherwise, it will hash the value using Argon2 and return a HashableString.
+    This function will not re-hash values that already have the 'hashed' flag set to True.
+    Otherwise, it will hash the value using Argon2 and return a HashedValue.
     """
 
     if isinstance(value, HashedValue):

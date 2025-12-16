@@ -1,6 +1,8 @@
 from typing import Optional
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic_encryption.annotations import EncryptionMethod
+
+from pydantic_encryption.types import EncryptionMethod
 
 
 class Settings(BaseSettings):
