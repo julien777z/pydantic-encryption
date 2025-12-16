@@ -23,20 +23,41 @@ class AWSAdapter(EncryptionAdapter):
     _kms_client: ClassVar[Any | None] = None
     _encryption_client: ClassVar[Any | None] = None
     _mat_prov: ClassVar[Any | None] = None
-    _keyring: ClassVar[Any | None] = None
+    _encrypt_keyring: ClassVar[Any | None] = None
+    _decrypt_keyring: ClassVar[Any | None] = None
 
     @classmethod
-    def _get_clients(cls) -> tuple[Any, Any, Any, Any]:
+    def _get_encrypt_key_arn(cls) -> str | None:
+        """Get the ARN to use for encryption."""
+
+        return settings.AWS_KMS_ENCRYPT_KEY_ARN or settings.AWS_KMS_KEY_ARN
+
+    @classmethod
+    def _get_decrypt_key_arn(cls) -> str | None:
+        """Get the ARN to use for decryption."""
+
+        return settings.AWS_KMS_DECRYPT_KEY_ARN or settings.AWS_KMS_KEY_ARN
+
+    @classmethod
+    def _init_base_clients(cls) -> None:
+        """Initialize base AWS clients (KMS, encryption SDK, material providers)."""
+
         if cls._kms_client is None:
-            if not (
+            has_key = (
                 settings.AWS_KMS_KEY_ARN
+                or settings.AWS_KMS_ENCRYPT_KEY_ARN
+                or settings.AWS_KMS_DECRYPT_KEY_ARN
+            )
+            if not (
+                has_key
                 and settings.AWS_KMS_REGION
                 and settings.AWS_ACCESS_KEY_ID
                 and settings.AWS_SECRET_ACCESS_KEY
             ):
                 raise ValueError(
-                    "AWS KMS requires AWS_KMS_KEY_ARN, AWS_KMS_REGION, "
-                    "AWS_ACCESS_KEY_ID, and AWS_SECRET_ACCESS_KEY to be set."
+                    "AWS KMS requires AWS_KMS_REGION, AWS_ACCESS_KEY_ID, "
+                    "AWS_SECRET_ACCESS_KEY, and at least one key ARN "
+                    "(AWS_KMS_KEY_ARN, AWS_KMS_ENCRYPT_KEY_ARN, or AWS_KMS_DECRYPT_KEY_ARN) to be set."
                 )
 
             cls._kms_client = boto3.client(
@@ -54,14 +75,48 @@ class AWSAdapter(EncryptionAdapter):
         if cls._mat_prov is None:
             cls._mat_prov = AwsCryptographicMaterialProviders(config=MaterialProvidersConfig())
 
-        if cls._keyring is None:
+    @classmethod
+    def _get_encrypt_keyring(cls) -> Any:
+        """Get or create the keyring for encryption."""
+
+        cls._init_base_clients()
+
+        if cls._encrypt_keyring is None:
+            encrypt_arn = cls._get_encrypt_key_arn()
+
+            if not encrypt_arn:
+                raise ValueError(
+                    "No encryption key configured. Set AWS_KMS_KEY_ARN or AWS_KMS_ENCRYPT_KEY_ARN."
+                )
             keyring_input = CreateAwsKmsKeyringInput(
-                kms_key_id=settings.AWS_KMS_KEY_ARN,
+                kms_key_id=encrypt_arn,
                 kms_client=cls._kms_client,
             )
-            cls._keyring = cls._mat_prov.create_aws_kms_keyring(input=keyring_input)
+            cls._encrypt_keyring = cls._mat_prov.create_aws_kms_keyring(input=keyring_input)
 
-        return cls._kms_client, cls._encryption_client, cls._mat_prov, cls._keyring
+        return cls._encrypt_keyring
+
+    @classmethod
+    def _get_decrypt_keyring(cls) -> Any:
+        """Get or create the keyring for decryption."""
+
+        cls._init_base_clients()
+
+        if cls._decrypt_keyring is None:
+            decrypt_arn = cls._get_decrypt_key_arn()
+
+            if not decrypt_arn:
+                raise ValueError(
+                    "No decryption key configured. Set AWS_KMS_KEY_ARN or AWS_KMS_DECRYPT_KEY_ARN."
+                )
+            keyring_input = CreateAwsKmsKeyringInput(
+                kms_key_id=decrypt_arn,
+                kms_client=cls._kms_client,
+            )
+
+            cls._decrypt_keyring = cls._mat_prov.create_aws_kms_keyring(input=keyring_input)
+
+        return cls._decrypt_keyring
 
     @classmethod
     def encrypt(cls, plaintext: bytes | str | EncryptedValue) -> EncryptedValue:
@@ -71,9 +126,10 @@ class AWSAdapter(EncryptionAdapter):
         if isinstance(plaintext, str):
             plaintext = plaintext.encode("utf-8")
 
-        _, encryption_client, _, keyring = cls._get_clients()
+        cls._init_base_clients()
+        keyring = cls._get_encrypt_keyring()
 
-        ciphertext, _ = encryption_client.encrypt(
+        ciphertext, _ = cls._encryption_client.encrypt(
             source=plaintext,
             keyring=keyring,
         )
@@ -93,9 +149,10 @@ class AWSAdapter(EncryptionAdapter):
         else:
             ciphertext_bytes = ciphertext
 
-        _, encryption_client, _, keyring = cls._get_clients()
+        cls._init_base_clients()
+        keyring = cls._get_decrypt_keyring()
 
-        plaintext, _ = encryption_client.decrypt(
+        plaintext, _ = cls._encryption_client.decrypt(
             source=ciphertext_bytes,
             keyring=keyring,
         )
