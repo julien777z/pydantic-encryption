@@ -12,11 +12,12 @@ from aws_cryptographic_material_providers.mpl.config import MaterialProvidersCon
 from aws_cryptographic_material_providers.mpl.models import CreateAwsKmsKeyringInput
 from aws_encryption_sdk import CommitmentPolicy
 
+from pydantic_encryption.adapters.base import EncryptionAdapter
 from pydantic_encryption.config import settings
 from pydantic_encryption.types import DecryptedValue, EncryptedValue
 
 
-class AWSAdapter:
+class AWSAdapter(EncryptionAdapter):
     """Adapter for AWS KMS encryption."""
 
     _kms_client: ClassVar[Any | None] = None

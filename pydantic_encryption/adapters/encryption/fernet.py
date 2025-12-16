@@ -2,11 +2,12 @@ from typing import ClassVar
 
 from cryptography.fernet import Fernet
 
+from pydantic_encryption.adapters.base import EncryptionAdapter
 from pydantic_encryption.config import settings
 from pydantic_encryption.types import DecryptedValue, EncryptedValue
 
 
-class FernetAdapter:
+class FernetAdapter(EncryptionAdapter):
     """Adapter for Fernet encryption."""
 
     _client: ClassVar[Fernet | None] = None

@@ -2,10 +2,11 @@ from typing import ClassVar
 
 from argon2 import PasswordHasher
 
+from pydantic_encryption.adapters.base import HashingAdapter
 from pydantic_encryption.types import HashedValue
 
 
-class Argon2Adapter:
+class Argon2Adapter(HashingAdapter):
     """Adapter for Argon2 hashing."""
 
     _hasher: ClassVar[PasswordHasher | None] = None
