@@ -148,3 +148,4 @@ class TestArgon2Adapter:
         assert isinstance(hashed, HashedValue)
         assert hashed.hashed is True
 
+
