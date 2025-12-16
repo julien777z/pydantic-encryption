@@ -1,4 +1,4 @@
-from pydantic_encryption.adapters.hashing.argon2 import argon2_hash_data
+from pydantic_encryption.adapters.hashing.argon2 import Argon2Adapter
 from tests.models import User
 
 
@@ -17,7 +17,7 @@ class TestUnitHashing:
 
         old_password = mock_basic_user.password
 
-        mock_basic_user.password = argon2_hash_data(mock_basic_user.password)
+        mock_basic_user.password = Argon2Adapter.hash(mock_basic_user.password)
 
         assert mock_basic_user.password == old_password
 

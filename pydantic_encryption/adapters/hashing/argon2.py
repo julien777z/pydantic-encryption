@@ -1,20 +1,34 @@
+from typing import ClassVar
+
 from argon2 import PasswordHasher
 
 from pydantic_encryption.types import HashedValue
 
-argon2_hasher = PasswordHasher()
 
+class Argon2Adapter:
+    """Adapter for Argon2 hashing."""
 
-def argon2_hash_data(value: str | bytes | HashedValue) -> HashedValue:
-    """Hash data using Argon2.
+    _hasher: ClassVar[PasswordHasher | None] = None
 
-    This function will not re-hash values that already have the 'hashed' flag set to True.
-    Otherwise, it will hash the value using Argon2 and return a HashedValue.
-    """
+    @classmethod
+    def _get_hasher(cls) -> PasswordHasher:
+        if cls._hasher is None:
+            cls._hasher = PasswordHasher()
 
-    if isinstance(value, HashedValue):
-        return value
+        return cls._hasher
 
-    hashed_value = HashedValue(argon2_hasher.hash(value))
+    @classmethod
+    def hash(cls, value: str | bytes | HashedValue) -> HashedValue:
+        """Hash data using Argon2.
 
-    return hashed_value
+        This function will not re-hash values that already have the 'hashed' flag set to True.
+        Otherwise, it will hash the value using Argon2 and return a HashedValue.
+        """
+
+        if isinstance(value, HashedValue):
+            return value
+
+        hasher = cls._get_hasher()
+        hashed_value = HashedValue(hasher.hash(value))
+
+        return hashed_value

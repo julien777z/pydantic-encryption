@@ -1,57 +1,55 @@
+from typing import ClassVar
+
 from cryptography.fernet import Fernet
 
 from pydantic_encryption.config import settings
-from pydantic_encryption.types import DecryptedValue, EncryptedValue, EncryptionMethod
-
-FERNET_CLIENT = None
+from pydantic_encryption.types import DecryptedValue, EncryptedValue
 
 
-def _ensure_client() -> None:
-    global FERNET_CLIENT
+class FernetAdapter:
+    """Adapter for Fernet encryption."""
 
-    if settings.ENCRYPTION_METHOD != EncryptionMethod.FERNET:
-        return
+    _client: ClassVar[Fernet | None] = None
 
-    if not settings.ENCRYPTION_KEY:
-        raise ValueError("Fernet is not available. Please set the ENCRYPTION_KEY environment variable.")
+    @classmethod
+    def _get_client(cls) -> Fernet:
+        if cls._client is None:
+            if not settings.ENCRYPTION_KEY:
+                raise ValueError("Fernet requires ENCRYPTION_KEY to be set.")
 
-    if FERNET_CLIENT is None:
-        FERNET_CLIENT = Fernet(settings.ENCRYPTION_KEY)
+            cls._client = Fernet(settings.ENCRYPTION_KEY)
 
+        return cls._client
 
-def fernet_encrypt(plaintext: bytes | str | EncryptedValue) -> EncryptedValue:
-    """Encrypt data using Fernet."""
+    @classmethod
+    def encrypt(cls, plaintext: bytes | str | EncryptedValue) -> EncryptedValue:
+        if isinstance(plaintext, EncryptedValue):
+            return plaintext
 
-    _ensure_client()
+        if isinstance(plaintext, str):
+            plaintext = plaintext.encode("utf-8")
 
-    if isinstance(plaintext, EncryptedValue):
-        return plaintext
+        client = cls._get_client()
+        encrypted_value = EncryptedValue(client.encrypt(plaintext))
 
-    if isinstance(plaintext, str):
-        plaintext = plaintext.encode("utf-8")
+        return encrypted_value
 
-    encrypted_value = EncryptedValue(FERNET_CLIENT.encrypt(plaintext))
+    @classmethod
+    def decrypt(cls, ciphertext: str | bytes | EncryptedValue) -> DecryptedValue:
+        if isinstance(ciphertext, DecryptedValue):
+            return ciphertext
 
-    return encrypted_value
+        if isinstance(ciphertext, str):
+            try:
+                ciphertext_bytes = ciphertext.encode("utf-8")
+            except UnicodeDecodeError:
+                ciphertext_bytes = str(ciphertext)
+        else:
+            ciphertext_bytes = ciphertext
 
+        client = cls._get_client()
 
-def fernet_decrypt(ciphertext: str | bytes | EncryptedValue) -> DecryptedValue:
-    """Decrypt data using Fernet."""
+        decrypted_bytes = client.decrypt(ciphertext_bytes)
+        decrypted_value = decrypted_bytes.decode("utf-8")
 
-    _ensure_client()
-
-    if isinstance(ciphertext, DecryptedValue):
-        return ciphertext
-
-    if isinstance(ciphertext, str):
-        try:
-            ciphertext_bytes = ciphertext.encode("utf-8")
-        except UnicodeDecodeError:
-            ciphertext_bytes = str(ciphertext)
-    else:
-        ciphertext_bytes = ciphertext
-
-    decrypted_bytes = FERNET_CLIENT.decrypt(ciphertext_bytes)
-    decrypted_value = decrypted_bytes.decode("utf-8")
-
-    return DecryptedValue(decrypted_value)
+        return DecryptedValue(decrypted_value)

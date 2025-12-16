@@ -30,15 +30,15 @@ class SecureModel:
 
         match settings.ENCRYPTION_METHOD:
             case EncryptionMethod.EVERVAULT:
-                encrypted_data = encryption.evervault.evervault_encrypt(self.pending_encryption_fields)
+                encrypted_data = encryption.evervault.EvervaultAdapter.encrypt(self.pending_encryption_fields)
             case EncryptionMethod.FERNET:
                 encrypted_data = {
-                    field_name: encryption.fernet.fernet_encrypt(value)
+                    field_name: encryption.fernet.FernetAdapter.encrypt(value)
                     for field_name, value in self.pending_encryption_fields.items()
                 }
             case EncryptionMethod.AWS:
                 encrypted_data = {
-                    field_name: encryption.aws.aws_encrypt(value)
+                    field_name: encryption.aws.AWSAdapter.encrypt(value)
                     for field_name, value in self.pending_encryption_fields.items()
                 }
 
@@ -58,15 +58,15 @@ class SecureModel:
 
         match settings.ENCRYPTION_METHOD:
             case EncryptionMethod.EVERVAULT:
-                decrypted_data = encryption.evervault.evervault_decrypt(self.pending_decryption_fields)
+                decrypted_data = encryption.evervault.EvervaultAdapter.decrypt(self.pending_decryption_fields)
             case EncryptionMethod.FERNET:
                 decrypted_data = {
-                    field_name: encryption.fernet.fernet_decrypt(value)
+                    field_name: encryption.fernet.FernetAdapter.decrypt(value)
                     for field_name, value in self.pending_decryption_fields.items()
                 }
             case EncryptionMethod.AWS:
                 decrypted_data = {
-                    field_name: encryption.aws.aws_decrypt(value)
+                    field_name: encryption.aws.AWSAdapter.decrypt(value)
                     for field_name, value in self.pending_decryption_fields.items()
                 }
 
@@ -83,7 +83,7 @@ class SecureModel:
             return
 
         for field_name, value in self.pending_hash_fields.items():
-            hashed = hashing.argon2.argon2_hash_data(value)
+            hashed = hashing.argon2.Argon2Adapter.hash(value)
             setattr(self, field_name, hashed)
 
     def default_post_init(self) -> None:

@@ -21,11 +21,11 @@ class SQLAlchemyEncrypted(TypeDecorator):
 
         match settings.ENCRYPTION_METHOD:
             case EncryptionMethod.FERNET:
-                return encryption.fernet.fernet_encrypt(value)
+                return encryption.fernet.FernetAdapter.encrypt(value)
             case EncryptionMethod.EVERVAULT:
-                return encryption.evervault.evervault_encrypt(value)
+                return encryption.evervault.EvervaultAdapter.encrypt(value)
             case EncryptionMethod.AWS:
-                return encryption.aws.aws_encrypt(value)
+                return encryption.aws.AWSAdapter.encrypt(value)
 
     def _process_decrypt_value(self, value: str | bytes | None) -> str | bytes | None:
         if value is None:
@@ -33,11 +33,11 @@ class SQLAlchemyEncrypted(TypeDecorator):
 
         match settings.ENCRYPTION_METHOD:
             case EncryptionMethod.FERNET:
-                return encryption.fernet.fernet_decrypt(value)
+                return encryption.fernet.FernetAdapter.decrypt(value)
             case EncryptionMethod.EVERVAULT:
-                return encryption.evervault.evervault_decrypt(value)
+                return encryption.evervault.EvervaultAdapter.decrypt(value)
             case EncryptionMethod.AWS:
-                return encryption.aws.aws_decrypt(value)
+                return encryption.aws.AWSAdapter.decrypt(value)
 
     def process_bind_param(self, value: str | bytes | None, dialect) -> str | bytes | None:
         """Encrypts a string before binding it to the database."""
@@ -78,7 +78,7 @@ class SQLAlchemyHashed(TypeDecorator):
         if value is None:
             return None
 
-        return hashing.argon2.argon2_hash_data(value)
+        return hashing.argon2.Argon2Adapter.hash(value)
 
     def process_literal_param(self, value: str | bytes | None, dialect) -> HashedValue | None:
         """Hashes a string for literal SQL expressions."""
@@ -86,7 +86,7 @@ class SQLAlchemyHashed(TypeDecorator):
         if value is None:
             return None
 
-        processed = hashing.argon2.argon2_hash_data(value)
+        processed = hashing.argon2.Argon2Adapter.hash(value)
 
         return dialect.literal_processor(self.impl)(processed)
 

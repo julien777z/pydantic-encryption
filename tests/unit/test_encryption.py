@@ -1,4 +1,4 @@
-from pydantic_encryption.adapters.encryption.fernet import fernet_encrypt
+from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
 from tests.models import User, UserDecrypt
 
 
@@ -17,7 +17,7 @@ class TestUnitEncryptionModel:
 
         old_address = mock_basic_user.address
 
-        mock_basic_user.address = fernet_encrypt(mock_basic_user.address)
+        mock_basic_user.address = FernetAdapter.encrypt(mock_basic_user.address)
 
         assert mock_basic_user.address == old_address
 
