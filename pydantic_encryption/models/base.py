@@ -20,6 +20,7 @@ class SecureModel:
 
     def encrypt_data(self) -> None:
         """Encrypt data using the specified encryption method."""
+
         if self._disable:
             return
 
@@ -41,6 +42,8 @@ class SecureModel:
                     field_name: encryption.aws.AWSAdapter.encrypt(value)
                     for field_name, value in self.pending_encryption_fields.items()
                 }
+            case _:
+                raise ValueError(f"Unknown encryption method: {settings.ENCRYPTION_METHOD}")
 
         for field_name, value in encrypted_data.items():
             setattr(self, field_name, value)
@@ -69,6 +72,8 @@ class SecureModel:
                     field_name: encryption.aws.AWSAdapter.decrypt(value)
                     for field_name, value in self.pending_decryption_fields.items()
                 }
+            case _:
+                raise ValueError(f"Unknown encryption method: {settings.ENCRYPTION_METHOD}")
 
         for field_name, value in decrypted_data.items():
             setattr(self, field_name, value)

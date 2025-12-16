@@ -26,6 +26,8 @@ class SQLAlchemyEncrypted(TypeDecorator):
                 return encryption.evervault.EvervaultAdapter.encrypt(value)
             case EncryptionMethod.AWS:
                 return encryption.aws.AWSAdapter.encrypt(value)
+            case _:
+                raise ValueError(f"Unknown encryption method: {settings.ENCRYPTION_METHOD}")
 
     def _process_decrypt_value(self, value: str | bytes | None) -> str | bytes | None:
         if value is None:
@@ -38,6 +40,8 @@ class SQLAlchemyEncrypted(TypeDecorator):
                 return encryption.evervault.EvervaultAdapter.decrypt(value)
             case EncryptionMethod.AWS:
                 return encryption.aws.AWSAdapter.decrypt(value)
+            case _:
+                raise ValueError(f"Unknown encryption method: {settings.ENCRYPTION_METHOD}")
 
     def process_bind_param(self, value: str | bytes | None, dialect) -> str | bytes | None:
         """Encrypts a string before binding it to the database."""
