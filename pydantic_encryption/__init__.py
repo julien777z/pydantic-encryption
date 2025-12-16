@@ -14,6 +14,7 @@ from pydantic_encryption.types import (
     HashedValue,
 )
 
+# Lazy loading for optional dependencies
 if TYPE_CHECKING:
     from pydantic_encryption.adapters.encryption.aws import AWSAdapter
     from pydantic_encryption.adapters.encryption.evervault import EvervaultAdapter
