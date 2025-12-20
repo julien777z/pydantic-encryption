@@ -41,10 +41,7 @@ class FernetAdapter(EncryptionAdapter):
             return ciphertext
 
         if isinstance(ciphertext, str):
-            try:
-                ciphertext_bytes = ciphertext.encode("utf-8")
-            except UnicodeDecodeError:
-                ciphertext_bytes = str(ciphertext)
+            ciphertext_bytes = ciphertext.encode("utf-8")
         else:
             ciphertext_bytes = ciphertext
 
