@@ -1,27 +1,28 @@
-from tests.models import User
-from pydantic_encryption.lib.adapters.hashing.argon2 import argon2_hash_data
+from pydantic_encryption.adapters.hashing.argon2 import Argon2Adapter
+from tests.models import User, UserDisabledEncryption
 
 
 class TestUnitHashing:
-    """Test basic functionality of pydantic-encryption."""
+    """Test basic functionality of pydantic-encryption hashing."""
 
-    def test_hash_field(self, mock_basic_user: User):
-        """Test hashing fields with HashField annotation."""
+    def test_hash_field(self, user: User):
+        """Test hashing fields with Hash annotation."""
+        assert user.username is not None
+        assert getattr(user.password, "hashed", False)
 
-        assert mock_basic_user.username == "user1"  # Not encrypted
+    def test_double_hash_fails(self, user: User):
+        """Test double hashing returns same value."""
+        old_password = user.password
 
-        assert getattr(mock_basic_user.password, "hashed", False)
+        user.password = Argon2Adapter.hash(user.password)
 
-    def test_double_hash_fails(self, mock_basic_user: User):
-        """Test double hashing fails."""
+        assert user.password == old_password
 
-        old_password = mock_basic_user.password
-
-        mock_basic_user.password = argon2_hash_data(mock_basic_user.password)
-
-        assert mock_basic_user.password == old_password
-
-    def test_disable_hashing(self, mock_user_disabled_encryption: User):
+    def test_disable_hashing(self, user_disabled: UserDisabledEncryption):
         """Test disabling hashing."""
+        assert not getattr(user_disabled.password, "hashed", False)
 
-        assert not getattr(mock_user_disabled_encryption.password, "hashed", False)
+    def test_hash_multiple_users(self, users_batch: list[User]):
+        """Test hashing multiple users with batch."""
+        for user in users_batch:
+            assert getattr(user.password, "hashed", False)

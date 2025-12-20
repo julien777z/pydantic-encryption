@@ -1,6 +1,6 @@
 [project]
 name = "pydantic_encryption"
-version = "0.0.3"
+version = "0.1.1"
 description = "Encryption and Hashing Models for Pydantic"
 authors = [
     { name = "Julien Kmec", email = "me@julien.dev" },
@@ -10,32 +10,45 @@ packages = [
     {include = "pydantic_encryption"},
     {include = "scripts"},
 ]
-requires-python = ">=3.11.0,<3.14"
+requires-python = ">=3.11,<3.15"
 dependencies = [
     "pydantic>=2.10.6",
     "pydantic-settings>=2.9.1",
-    "evervault>=4.4.1",
-    "argon2-cffi (>=23.1.0,<24.0.0)",
-    "aws-encryption-sdk[mpl] (>=4.0.1,<5.0.0)",
-    "boto3 (>=1.38.8,<2.0.0)",
-    "pydantic-super-model (>=1.0.3,<2.0.0)",
+    "pydantic-super-model>=1.1.2",
+    "cryptography>=44.0.0",
+    "argon2-cffi>=23.1.0",
 ]
 
 [project.optional-dependencies]
+aws = [
+    "aws-encryption-sdk[mpl]>=4.0.1",
+    "boto3>=1.38.8",
+]
+evervault = [
+    "evervault>=4.4.1",
+]
 sqlalchemy = [
-    "sqlalchemy (>=2.0.40,<3.0.0)",
-    "sqlmodel (>=0.0.24,<0.0.25)",
+    "sqlalchemy>=2.0.40",
+    "sqlmodel>=0.0.24",
+]
+all = [
+    "aws-encryption-sdk[mpl]>=4.0.1",
+    "boto3>=1.38.8",
+    "evervault>=4.4.1",
+    "sqlalchemy>=2.0.40",
+    "sqlmodel>=0.0.24",
 ]
 dev = [
     "pytest>=8.3.5",
     "coverage>=7.8.0",
-    "pytest-env (>=1.1.5,<2.0.0)",
-    "pytest-docker (>=3.2.1,<4.0.0)",
-    "pytest-asyncio (>=0.26.0,<0.27.0)",
-    "pytest-cov (>=6.1.1,<7.0.0)",
-    "pytest-sqlalchemy (>=0.3.0,<0.4.0)",
-    "sqlalchemy-utils (>=0.41.2,<0.42.0)",
-    "psycopg2-binary (>=2.9.10,<3.0.0)"
+    "pytest-env>=1.1.5",
+    "pytest-docker>=3.2.1",
+    "pytest-asyncio>=0.26.0",
+    "pytest-cov>=6.1.1",
+    "pytest-sqlalchemy>=0.3.0",
+    "sqlalchemy-utils>=0.41.2",
+    "psycopg2-binary>=2.9.10",
+    "polyfactory>=2.0.0",
 ]
 
 [tool.black]
@@ -48,9 +61,6 @@ line_length = 110
 
 [project.scripts]
 tests = "scripts.run_tests:main"
-
-[tool.pytest_env]
-ENCRYPTION_KEY = "FF9OqqsxdRoge7b0orbJ7EZAn96bLFDgoa8icBF3GNM="
 
 [build-system]
 requires = ["poetry-core", "setuptools"]

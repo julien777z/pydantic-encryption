@@ -6,18 +6,28 @@ This package provides Pydantic field annotations that encrypt, decrypt, and hash
 
 Install with [pip](https://pip.pypa.io/en/stable/):
 ```bash
-pip install "pydantic_encryption[sqlalchemy]"
+pip install pydantic_encryption
 ```
 
 Install with [Poetry](https://python-poetry.org/docs/):
 ```bash
-poetry add pydantic_encryption --E sqlalchemy
+poetry add pydantic_encryption
 ```
 
 ### Optional extras
 
+- `aws`: AWS KMS encryption support
+- `evervault`: Evervault encryption support
 - `sqlalchemy`: Built-in SQLAlchemy integration
+- `all`: All optional dependencies
 - `dev`: Development and test dependencies
+
+```bash
+# Install with specific extras
+pip install "pydantic_encryption[sqlalchemy]"
+pip install "pydantic_encryption[aws]"
+pip install "pydantic_encryption[all]"
+```
 
 ## Features
 
@@ -58,7 +68,7 @@ When you create a new instance of the model, the fields will be encrypted and wh
 
 ```python
 import uuid
-from pydantic_encryption import SQLAlchemyEncrypted, SQLAlchemyHashed
+from pydantic_encryption.integrations.sqlalchemy import SQLAlchemyEncrypted, SQLAlchemyHashed
 from sqlmodel import SQLModel, Field
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -126,6 +136,33 @@ class User(BaseModel):
     name: str
     address: Annotated[bytes, Encrypt] # This field will be encrypted by AWS KMS
 ```
+
+### Separate Encrypt/Decrypt Keys (AWS KMS)
+
+You can use different KMS keys for encryption and decryption by setting separate ARNs:
+
+`.env`
+```env
+ENCRYPTION_METHOD=aws
+AWS_KMS_ENCRYPT_KEY_ARN=arn:aws:kms:us-east-1:123456789:key/encrypt-key-id
+AWS_KMS_DECRYPT_KEY_ARN=arn:aws:kms:us-east-1:123456789:key/decrypt-key-id
+AWS_KMS_REGION=us-east-1
+AWS_ACCESS_KEY_ID=123
+AWS_SECRET_ACCESS_KEY=123
+```
+
+For read-only scenarios where you only need to decrypt data, you can specify just the decrypt key:
+
+`.env`
+```env
+ENCRYPTION_METHOD=aws
+AWS_KMS_DECRYPT_KEY_ARN=arn:aws:kms:us-east-1:123456789:key/decrypt-key-id
+AWS_KMS_REGION=us-east-1
+AWS_ACCESS_KEY_ID=123
+AWS_SECRET_ACCESS_KEY=123
+```
+
+**Note:** You cannot mix `AWS_KMS_KEY_ARN` with the separate key settings. Use either the global key or the separate encrypt/decrypt keys. If you specify `AWS_KMS_ENCRYPT_KEY_ARN`, you must also specify `AWS_KMS_DECRYPT_KEY_ARN`.
 
 ### Default Encryption (Fernet Symmetric Encryption)
 
@@ -266,7 +303,7 @@ user = User(username="john_doe", password="secret123")
 print(user.password) # hashed value
 ```
 
-Fields marked with `Hash` are automatically hashed using bcrypt during model initialization.
+Fields marked with `Hash` are automatically hashed using Argon2 during model initialization.
 
 ## Disable Auto Processing
 
@@ -309,8 +346,8 @@ print(model.get_type()) # <class 'str'>
 Install [Poetry](https://python-poetry.org/docs/) and run:
 
 ```bash
-poetry install --with test
-poetry run coverage run -m pytest -v -s
+poetry install --all-extras
+poetry run pytest -v
 ```
 
 ## Roadmap
