@@ -19,6 +19,9 @@ dependencies = [
     "argon2-cffi>=23.1.0",
 ]
 
+[project.urls]
+Repository = "https://github.com/julien777z/pydantic-encryption"
+
 [project.optional-dependencies]
 aws = [
     "aws-encryption-sdk[mpl]>=4.0.1",
