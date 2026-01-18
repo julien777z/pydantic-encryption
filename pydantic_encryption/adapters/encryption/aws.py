@@ -51,20 +51,20 @@ class AWSAdapter(EncryptionAdapter):
             if not (
                 has_key
                 and settings.AWS_KMS_REGION
-                and settings.AWS_ACCESS_KEY_ID
-                and settings.AWS_SECRET_ACCESS_KEY
+                and settings.AWS_KMS_ACCESS_KEY_ID
+                and settings.AWS_KMS_SECRET_ACCESS_KEY
             ):
                 raise ValueError(
-                    "AWS KMS requires AWS_KMS_REGION, AWS_ACCESS_KEY_ID, "
-                    "AWS_SECRET_ACCESS_KEY, and at least one key ARN "
+                    "AWS KMS requires AWS_KMS_REGION, AWS_KMS_ACCESS_KEY_ID, "
+                    "AWS_KMS_SECRET_ACCESS_KEY, and at least one key ARN "
                     "(AWS_KMS_KEY_ARN, AWS_KMS_ENCRYPT_KEY_ARN, or AWS_KMS_DECRYPT_KEY_ARN) to be set."
                 )
 
             cls._kms_client = boto3.client(
                 "kms",
                 region_name=settings.AWS_KMS_REGION,
-                aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-                aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+                aws_access_key_id=settings.AWS_KMS_ACCESS_KEY_ID,
+                aws_secret_access_key=settings.AWS_KMS_SECRET_ACCESS_KEY,
             )
 
         if cls._encryption_client is None:

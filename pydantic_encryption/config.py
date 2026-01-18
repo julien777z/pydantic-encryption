@@ -17,8 +17,8 @@ class Settings(BaseSettings):
     AWS_KMS_ENCRYPT_KEY_ARN: Optional[str] = None
     AWS_KMS_DECRYPT_KEY_ARN: Optional[str] = None
     AWS_KMS_REGION: Optional[str] = None
-    AWS_ACCESS_KEY_ID: Optional[str] = None
-    AWS_SECRET_ACCESS_KEY: Optional[str] = None
+    AWS_KMS_ACCESS_KEY_ID: Optional[str] = None
+    AWS_KMS_SECRET_ACCESS_KEY: Optional[str] = None
 
     # Evervault settings
     EVERVAULT_API_KEY: Optional[str] = None
