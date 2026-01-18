@@ -124,8 +124,8 @@ See [config.py](https://github.com/julien777z/pydantic-encryption/blob/main/pyda
 ENCRYPTION_METHOD=aws
 AWS_KMS_KEY_ARN=123
 AWS_KMS_REGION=us-east-1
-AWS_ACCESS_KEY_ID=123
-AWS_SECRET_ACCESS_KEY=123
+AWS_KMS_ACCESS_KEY_ID=123
+AWS_KMS_SECRET_ACCESS_KEY=123
 ```
 
 ```python
@@ -147,8 +147,8 @@ ENCRYPTION_METHOD=aws
 AWS_KMS_ENCRYPT_KEY_ARN=arn:aws:kms:us-east-1:123456789:key/encrypt-key-id
 AWS_KMS_DECRYPT_KEY_ARN=arn:aws:kms:us-east-1:123456789:key/decrypt-key-id
 AWS_KMS_REGION=us-east-1
-AWS_ACCESS_KEY_ID=123
-AWS_SECRET_ACCESS_KEY=123
+AWS_KMS_ACCESS_KEY_ID=123
+AWS_KMS_SECRET_ACCESS_KEY=123
 ```
 
 For read-only scenarios where you only need to decrypt data, you can specify just the decrypt key:
@@ -158,8 +158,8 @@ For read-only scenarios where you only need to decrypt data, you can specify jus
 ENCRYPTION_METHOD=aws
 AWS_KMS_DECRYPT_KEY_ARN=arn:aws:kms:us-east-1:123456789:key/decrypt-key-id
 AWS_KMS_REGION=us-east-1
-AWS_ACCESS_KEY_ID=123
-AWS_SECRET_ACCESS_KEY=123
+AWS_KMS_ACCESS_KEY_ID=123
+AWS_KMS_SECRET_ACCESS_KEY=123
 ```
 
 **Note:** You cannot mix `AWS_KMS_KEY_ARN` with the separate key settings. Use either the global key or the separate encrypt/decrypt keys. If you specify `AWS_KMS_ENCRYPT_KEY_ARN`, you must also specify `AWS_KMS_DECRYPT_KEY_ARN`.
