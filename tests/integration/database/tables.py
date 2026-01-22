@@ -1,4 +1,5 @@
 import uuid
+from datetime import date, datetime
 
 from sqlmodel import Field, SQLModel
 
@@ -26,4 +27,16 @@ class User(Base, table=True):
     password: bytes = Field(
         sa_type=SQLAlchemyHashed(),
         nullable=False,
+    )
+    birth_date: date | None = Field(
+        default=None,
+        sa_type=SQLAlchemyEncrypted(),
+    )
+    last_login: datetime | None = Field(
+        default=None,
+        sa_type=SQLAlchemyEncrypted(),
+    )
+    age: int | None = Field(
+        default=None,
+        sa_type=SQLAlchemyEncrypted(),
     )

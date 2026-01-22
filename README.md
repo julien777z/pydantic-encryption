@@ -106,6 +106,28 @@ print(user.email) # decrypted
 print(user.password) # hashed
 ```
 
+### Supported Types
+
+`SQLAlchemyEncrypted` automatically detects and preserves the Python type of your data:
+
+| Type | Example |
+|------|---------|
+| `str` | `"hello@example.com"` |
+| `bytes` | `b"binary data"` |
+| `int` | `42` |
+| `date` | `date(1990, 5, 15)` |
+| `datetime` | `datetime(2025, 1, 21, 14, 30, 45)` |
+
+```python
+from datetime import date, datetime
+
+class User(Base, table=True):
+    email: str = Field(sa_type=SQLAlchemyEncrypted())
+    birth_date: date = Field(sa_type=SQLAlchemyEncrypted())
+    last_login: datetime = Field(sa_type=SQLAlchemyEncrypted())
+    age: int = Field(sa_type=SQLAlchemyEncrypted())
+```
+
 ## Choose an Encryption Method
 
 You can choose which encryption algorithm to use by setting the `ENCRYPTION_METHOD` environment variable.

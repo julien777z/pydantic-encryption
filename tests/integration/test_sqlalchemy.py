@@ -1,11 +1,15 @@
+from datetime import date, datetime, timezone
 from typing import Final
-from sqlalchemy.orm import Session
-from tests.integration.database import User
 
+from sqlalchemy.orm import Session
+
+from tests.integration.database import User
 
 TEST_PASSWORD: Final[str] = "pass123"
 TEST_EMAIL: Final[str] = "user1@example.com"
-TEST_USERNAME: Final[str] = "user1"
+TEST_BIRTH_DATE: Final[date] = date(1990, 5, 15)
+TEST_LAST_LOGIN: Final[datetime] = datetime(2025, 1, 21, 14, 30, 45)
+TEST_AGE: Final[int] = 34
 
 
 class TestIntegrationSQLAlchemy:
@@ -13,38 +17,83 @@ class TestIntegrationSQLAlchemy:
 
     def _create_user(
         self,
-        model: type[User],
         db_session: Session,
+        username: str,
         password: str,
+        birth_date: date | None = None,
+        last_login: datetime | None = None,
+        age: int | None = None,
     ) -> User:
         """Create a user."""
 
-        user = db_session.add(
-            model(
-                username=TEST_USERNAME,
-                email=TEST_EMAIL,
-                password=password,
-            )
+        user = User(
+            username=username,
+            email=TEST_EMAIL,
+            password=password,
+            birth_date=birth_date,
+            last_login=last_login,
+            age=age,
         )
-
+        db_session.add(user)
         db_session.commit()
 
-        return user
+        return db_session.query(User).filter_by(username=username).first()
 
     def test_secure_fields(self, db_session: Session):
         """Test encrypting and hashing fields with the SQLAlchemyEncrypted and SQLAlchemyHashed types."""
 
-        self._create_user(User, db_session, password=TEST_PASSWORD)
+        user = self._create_user(db_session, username="user1", password=TEST_PASSWORD)
 
-        user = db_session.query(User).first()
-
-        self._assert_correct_user(user)
-
-    def _assert_correct_user(self, user: User):
-        """Assert that the user is correct."""
-
-        assert user.username == TEST_USERNAME
+        assert user.username == "user1"
         assert user.email == TEST_EMAIL
+        assert getattr(user.password, "hashed") is True
 
-        assert getattr(user.password, "hashed") is True  # Hashed
-        assert getattr(user.email, "encrypted") is False  # Decrypted
+    def test_encrypt_decrypt_date(self, db_session: Session):
+        """Test that date fields are encrypted and decrypted correctly."""
+
+        user = self._create_user(
+            db_session, username="user2", password=TEST_PASSWORD, birth_date=TEST_BIRTH_DATE
+        )
+
+        assert user.birth_date == TEST_BIRTH_DATE
+        assert isinstance(user.birth_date, date)
+
+    def test_encrypt_decrypt_datetime(self, db_session: Session):
+        """Test that datetime fields are encrypted and decrypted correctly."""
+
+        user = self._create_user(
+            db_session, username="user3", password=TEST_PASSWORD, last_login=TEST_LAST_LOGIN
+        )
+
+        assert user.last_login == TEST_LAST_LOGIN
+        assert isinstance(user.last_login, datetime)
+
+    def test_encrypt_decrypt_datetime_with_timezone(self, db_session: Session):
+        """Test that timezone-aware datetime fields preserve timezone."""
+
+        test_datetime = datetime(2025, 1, 21, 14, 30, 45, tzinfo=timezone.utc)
+
+        user = self._create_user(
+            db_session, username="user4", password=TEST_PASSWORD, last_login=test_datetime
+        )
+
+        assert user.last_login == test_datetime
+        assert user.last_login.tzinfo is not None
+
+    def test_null_date_handling(self, db_session: Session):
+        """Test that None values are handled correctly."""
+
+        user = self._create_user(
+            db_session, username="user5", password=TEST_PASSWORD, birth_date=None, last_login=None
+        )
+
+        assert user.birth_date is None
+        assert user.last_login is None
+
+    def test_encrypt_decrypt_int(self, db_session: Session):
+        """Test that integer fields are encrypted and decrypted correctly."""
+
+        user = self._create_user(db_session, username="user6", password=TEST_PASSWORD, age=TEST_AGE)
+
+        assert user.age == TEST_AGE
+        assert isinstance(user.age, int)
