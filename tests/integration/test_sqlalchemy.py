@@ -1,4 +1,6 @@
-from datetime import date, datetime, timezone
+import uuid
+from datetime import date, datetime, time, timedelta, timezone
+from decimal import Decimal
 from typing import Final
 
 from sqlalchemy.orm import Session
@@ -11,6 +13,11 @@ TEST_BIRTH_DATE: Final[date] = date(1990, 5, 15)
 TEST_LAST_LOGIN: Final[datetime] = datetime(2025, 1, 21, 14, 30, 45)
 TEST_AGE: Final[int] = 34
 TEST_SECRET_DATA: Final[bytes] = b"\x00\x01\x02\x03binary\xff\xfe"
+TEST_BALANCE: Final[float] = 1234.56
+TEST_SALARY: Final[Decimal] = Decimal("99999.99")
+TEST_EXTERNAL_ID: Final[uuid.UUID] = uuid.UUID("12345678-1234-5678-1234-567812345678")
+TEST_LOGIN_TIME: Final[time] = time(14, 30, 45)
+TEST_SESSION_DURATION: Final[timedelta] = timedelta(hours=2, minutes=30)
 
 
 class TestIntegrationSQLAlchemy:
@@ -26,6 +33,11 @@ class TestIntegrationSQLAlchemy:
         age: int | None = None,
         secret_data: bytes | None = None,
         is_active: bool | None = None,
+        balance: float | None = None,
+        salary: Decimal | None = None,
+        external_id: uuid.UUID | None = None,
+        login_time: time | None = None,
+        session_duration: timedelta | None = None,
     ) -> User:
         """Create a user."""
 
@@ -38,6 +50,11 @@ class TestIntegrationSQLAlchemy:
             age=age,
             secret_data=secret_data,
             is_active=is_active,
+            balance=balance,
+            salary=salary,
+            external_id=external_id,
+            login_time=login_time,
+            session_duration=session_duration,
         )
         db_session.add(user)
         db_session.commit()
@@ -149,3 +166,96 @@ class TestIntegrationSQLAlchemy:
         )
 
         assert user.is_active is None
+
+    def test_encrypt_decrypt_float(self, db_session: Session):
+        """Test that float fields are encrypted and decrypted correctly."""
+
+        user = self._create_user(
+            db_session, username="user12", password=TEST_PASSWORD, balance=TEST_BALANCE
+        )
+
+        assert user.balance == TEST_BALANCE
+        assert isinstance(user.balance, float)
+
+    def test_encrypt_decrypt_float_negative(self, db_session: Session):
+        """Test that negative float values are handled correctly."""
+
+        user = self._create_user(
+            db_session, username="user13", password=TEST_PASSWORD, balance=-123.45
+        )
+
+        assert user.balance == -123.45
+
+    def test_encrypt_decrypt_decimal(self, db_session: Session):
+        """Test that Decimal fields are encrypted and decrypted correctly."""
+
+        user = self._create_user(
+            db_session, username="user14", password=TEST_PASSWORD, salary=TEST_SALARY
+        )
+
+        assert user.salary == TEST_SALARY
+        assert isinstance(user.salary, Decimal)
+
+    def test_encrypt_decrypt_decimal_high_precision(self, db_session: Session):
+        """Test that high-precision Decimal values are preserved."""
+
+        high_precision = Decimal("123.456789012345678901234567890")
+
+        user = self._create_user(
+            db_session, username="user15", password=TEST_PASSWORD, salary=high_precision
+        )
+
+        assert user.salary == high_precision
+
+    def test_encrypt_decrypt_uuid(self, db_session: Session):
+        """Test that UUID fields are encrypted and decrypted correctly."""
+
+        user = self._create_user(
+            db_session, username="user16", password=TEST_PASSWORD, external_id=TEST_EXTERNAL_ID
+        )
+
+        assert user.external_id == TEST_EXTERNAL_ID
+        assert isinstance(user.external_id, uuid.UUID)
+
+    def test_encrypt_decrypt_time(self, db_session: Session):
+        """Test that time fields are encrypted and decrypted correctly."""
+
+        user = self._create_user(
+            db_session, username="user17", password=TEST_PASSWORD, login_time=TEST_LOGIN_TIME
+        )
+
+        assert user.login_time == TEST_LOGIN_TIME
+        assert isinstance(user.login_time, time)
+
+    def test_encrypt_decrypt_time_with_timezone(self, db_session: Session):
+        """Test that timezone-aware time fields preserve timezone."""
+
+        tz_time = time(14, 30, 45, tzinfo=timezone.utc)
+
+        user = self._create_user(
+            db_session, username="user18", password=TEST_PASSWORD, login_time=tz_time
+        )
+
+        assert user.login_time == tz_time
+        assert user.login_time.tzinfo is not None
+
+    def test_encrypt_decrypt_timedelta(self, db_session: Session):
+        """Test that timedelta fields are encrypted and decrypted correctly."""
+
+        user = self._create_user(
+            db_session, username="user19", password=TEST_PASSWORD, session_duration=TEST_SESSION_DURATION
+        )
+
+        assert user.session_duration == TEST_SESSION_DURATION
+        assert isinstance(user.session_duration, timedelta)
+
+    def test_encrypt_decrypt_timedelta_negative(self, db_session: Session):
+        """Test that negative timedelta values are handled correctly."""
+
+        negative_duration = timedelta(days=-1, hours=-5)
+
+        user = self._create_user(
+            db_session, username="user20", password=TEST_PASSWORD, session_duration=negative_duration
+        )
+
+        assert user.session_duration == negative_duration

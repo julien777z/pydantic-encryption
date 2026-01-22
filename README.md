@@ -114,18 +114,31 @@ print(user.password) # hashed
 |------|---------|
 | `str` | `"hello@example.com"` |
 | `bytes` | `b"binary data"` |
+| `bool` | `True`, `False` |
 | `int` | `42` |
+| `float` | `3.14159` |
+| `Decimal` | `Decimal("99999.99")` |
+| `UUID` | `UUID("12345678-1234-5678-1234-567812345678")` |
 | `date` | `date(1990, 5, 15)` |
 | `datetime` | `datetime(2025, 1, 21, 14, 30, 45)` |
+| `time` | `time(14, 30, 45)` |
+| `timedelta` | `timedelta(hours=2, minutes=30)` |
 
 ```python
-from datetime import date, datetime
+import uuid
+from datetime import date, datetime, time, timedelta
+from decimal import Decimal
 
 class User(Base, table=True):
     email: str = Field(sa_type=SQLAlchemyEncrypted())
     birth_date: date = Field(sa_type=SQLAlchemyEncrypted())
     last_login: datetime = Field(sa_type=SQLAlchemyEncrypted())
     age: int = Field(sa_type=SQLAlchemyEncrypted())
+    balance: float = Field(sa_type=SQLAlchemyEncrypted())
+    salary: Decimal = Field(sa_type=SQLAlchemyEncrypted())
+    external_id: uuid.UUID = Field(sa_type=SQLAlchemyEncrypted())
+    login_time: time = Field(sa_type=SQLAlchemyEncrypted())
+    session_duration: timedelta = Field(sa_type=SQLAlchemyEncrypted())
 ```
 
 ## Choose an Encryption Method
