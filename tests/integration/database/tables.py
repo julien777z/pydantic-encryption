@@ -40,3 +40,7 @@ class User(Base, table=True):
         default=None,
         sa_type=SQLAlchemyEncrypted(),
     )
+    secret_data: bytes | None = Field(
+        default=None,
+        sa_type=SQLAlchemyEncrypted(),
+    )

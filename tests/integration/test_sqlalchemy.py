@@ -10,6 +10,7 @@ TEST_EMAIL: Final[str] = "user1@example.com"
 TEST_BIRTH_DATE: Final[date] = date(1990, 5, 15)
 TEST_LAST_LOGIN: Final[datetime] = datetime(2025, 1, 21, 14, 30, 45)
 TEST_AGE: Final[int] = 34
+TEST_SECRET_DATA: Final[bytes] = b"\x00\x01\x02\x03binary\xff\xfe"
 
 
 class TestIntegrationSQLAlchemy:
@@ -23,6 +24,7 @@ class TestIntegrationSQLAlchemy:
         birth_date: date | None = None,
         last_login: datetime | None = None,
         age: int | None = None,
+        secret_data: bytes | None = None,
     ) -> User:
         """Create a user."""
 
@@ -33,6 +35,7 @@ class TestIntegrationSQLAlchemy:
             birth_date=birth_date,
             last_login=last_login,
             age=age,
+            secret_data=secret_data,
         )
         db_session.add(user)
         db_session.commit()
@@ -97,3 +100,21 @@ class TestIntegrationSQLAlchemy:
 
         assert user.age == TEST_AGE
         assert isinstance(user.age, int)
+
+    def test_encrypt_decrypt_bytes(self, db_session: Session):
+        """Test that bytes fields are encrypted and decrypted correctly."""
+
+        user = self._create_user(
+            db_session, username="user7", password=TEST_PASSWORD, secret_data=TEST_SECRET_DATA
+        )
+
+        assert user.secret_data == TEST_SECRET_DATA
+        assert isinstance(user.secret_data, bytes)
+
+    def test_encrypt_decrypt_str(self, db_session: Session):
+        """Test that string fields are encrypted and decrypted correctly."""
+
+        user = self._create_user(db_session, username="user8", password=TEST_PASSWORD)
+
+        assert user.email == TEST_EMAIL
+        assert isinstance(user.email, str)
