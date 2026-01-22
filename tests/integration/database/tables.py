@@ -1,4 +1,6 @@
 import uuid
+from datetime import date, datetime, time, timedelta
+from decimal import Decimal
 
 from sqlmodel import Field, SQLModel
 
@@ -26,4 +28,44 @@ class User(Base, table=True):
     password: bytes = Field(
         sa_type=SQLAlchemyHashed(),
         nullable=False,
+    )
+    birth_date: date | None = Field(
+        default=None,
+        sa_type=SQLAlchemyEncrypted(),
+    )
+    last_login: datetime | None = Field(
+        default=None,
+        sa_type=SQLAlchemyEncrypted(),
+    )
+    age: int | None = Field(
+        default=None,
+        sa_type=SQLAlchemyEncrypted(),
+    )
+    secret_data: bytes | None = Field(
+        default=None,
+        sa_type=SQLAlchemyEncrypted(),
+    )
+    is_active: bool | None = Field(
+        default=None,
+        sa_type=SQLAlchemyEncrypted(),
+    )
+    balance: float | None = Field(
+        default=None,
+        sa_type=SQLAlchemyEncrypted(),
+    )
+    salary: Decimal | None = Field(
+        default=None,
+        sa_type=SQLAlchemyEncrypted(),
+    )
+    external_id: uuid.UUID | None = Field(
+        default=None,
+        sa_type=SQLAlchemyEncrypted(),
+    )
+    login_time: time | None = Field(
+        default=None,
+        sa_type=SQLAlchemyEncrypted(),
+    )
+    session_duration: timedelta | None = Field(
+        default=None,
+        sa_type=SQLAlchemyEncrypted(),
     )
