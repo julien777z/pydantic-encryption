@@ -99,11 +99,7 @@ class SQLAlchemyEncrypted(TypeDecorator):
                 return time.fromisoformat(data)
             case _TypePrefix.TIMEDELTA:
                 parts = data.split(",")
-                if len(parts) == 3:
-                    # New format: days,seconds,microseconds
-                    return timedelta(days=int(parts[0]), seconds=int(parts[1]), microseconds=int(parts[2]))
-                # Legacy format: total_seconds as float
-                return timedelta(seconds=float(data))
+                return timedelta(days=int(parts[0]), seconds=int(parts[1]), microseconds=int(parts[2]))
             case _TypePrefix.BYTES:
                 return base64.b64decode(data)
             case _TypePrefix.BOOL:
