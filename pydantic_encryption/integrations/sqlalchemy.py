@@ -19,8 +19,13 @@ class _TypePrefix(StrEnum):
     STR = "str"
     BYTES = "bytes"
     INT = "int"
+    BOOL = "bool"
     DATE = "date"
     DATETIME = "datetime"
+
+
+# Version marker to distinguish new serialized data from old data (pre-type-prefix format)
+_SERIALIZATION_VERSION = "__v1__"
 
 
 class SQLAlchemyEncrypted(TypeDecorator):
@@ -29,23 +34,32 @@ class SQLAlchemyEncrypted(TypeDecorator):
     impl = LargeBinary
     cache_ok = True
 
-    def _serialize_value(self, value: str | bytes | int | date | datetime) -> str:
+    def _serialize_value(self, value: str | bytes | int | bool | date | datetime) -> str:
         """Serialize a value with type prefix for encryption."""
         match value:
             case datetime():
-                return f"{_TypePrefix.DATETIME}:{value.isoformat()}"
+                return f"{_SERIALIZATION_VERSION}{_TypePrefix.DATETIME}:{value.isoformat()}"
             case date():
-                return f"{_TypePrefix.DATE}:{value.isoformat()}"
+                return f"{_SERIALIZATION_VERSION}{_TypePrefix.DATE}:{value.isoformat()}"
             case bytes():
-                return f"{_TypePrefix.BYTES}:{base64.b64encode(value).decode('ascii')}"
+                return f"{_SERIALIZATION_VERSION}{_TypePrefix.BYTES}:{base64.b64encode(value).decode('ascii')}"
+            case bool():
+                return f"{_SERIALIZATION_VERSION}{_TypePrefix.BOOL}:{value}"
             case int():
-                return f"{_TypePrefix.INT}:{value}"
+                return f"{_SERIALIZATION_VERSION}{_TypePrefix.INT}:{value}"
             case _:
-                return f"{_TypePrefix.STR}:{value}"
+                return f"{_SERIALIZATION_VERSION}{_TypePrefix.STR}:{value}"
 
-    def _deserialize_value(self, value: str) -> str | bytes | int | date | datetime:
+    def _deserialize_value(self, value: str) -> str | bytes | int | bool | date | datetime:
         """Deserialize a decrypted value based on its type prefix."""
-        prefix, _, data = value.partition(":")
+        # Check for version marker to distinguish new format from old (pre-type-prefix) data
+        if not value.startswith(_SERIALIZATION_VERSION):
+            # Old data without type prefixes - return as-is
+            return value
+
+        # Strip version prefix and parse type prefix
+        versioned_data = value[len(_SERIALIZATION_VERSION):]
+        prefix, _, data = versioned_data.partition(":")
         match prefix:
             case _TypePrefix.DATETIME:
                 return datetime.fromisoformat(data)
@@ -53,6 +67,8 @@ class SQLAlchemyEncrypted(TypeDecorator):
                 return date.fromisoformat(data)
             case _TypePrefix.BYTES:
                 return base64.b64decode(data)
+            case _TypePrefix.BOOL:
+                return data == "True"
             case _TypePrefix.INT:
                 return int(data)
             case _TypePrefix.STR:
@@ -60,7 +76,7 @@ class SQLAlchemyEncrypted(TypeDecorator):
             case _:
                 return value
 
-    def _process_encrypt_value(self, value: str | bytes | int | date | datetime | None) -> EncryptedValue | None:
+    def _process_encrypt_value(self, value: str | bytes | int | bool | date | datetime | None) -> EncryptedValue | None:
         if value is None:
             return None
 
@@ -91,14 +107,14 @@ class SQLAlchemyEncrypted(TypeDecorator):
                 raise ValueError(f"Unknown encryption method: {settings.ENCRYPTION_METHOD}")
 
     def process_bind_param(
-        self, value: str | bytes | int | date | datetime | None, dialect
+        self, value: str | bytes | int | bool | date | datetime | None, dialect
     ) -> bytes | None:
         """Encrypts data before binding it to the database."""
 
         return self._process_encrypt_value(value)
 
     def process_literal_param(
-        self, value: str | bytes | int | date | datetime | None, dialect
+        self, value: str | bytes | int | bool | date | datetime | None, dialect
     ) -> bytes | None:
         """Encrypts data for literal SQL expressions."""
 
@@ -106,7 +122,7 @@ class SQLAlchemyEncrypted(TypeDecorator):
 
     def process_result_value(
         self, value: str | bytes | None, dialect
-    ) -> str | bytes | int | date | datetime | None:
+    ) -> str | bytes | int | bool | date | datetime | None:
         """Decrypts data after retrieving it from the database."""
 
         if value is None:
