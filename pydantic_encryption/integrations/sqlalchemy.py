@@ -18,6 +18,7 @@ class _TypePrefix(StrEnum):
 
     STR = "str"
     BYTES = "bytes"
+    BOOL = "bool"
     INT = "int"
     DATE = "date"
     DATETIME = "datetime"
@@ -29,7 +30,7 @@ class SQLAlchemyEncrypted(TypeDecorator):
     impl = LargeBinary
     cache_ok = True
 
-    def _serialize_value(self, value: str | bytes | int | date | datetime) -> str:
+    def _serialize_value(self, value: str | bytes | bool | int | date | datetime) -> str:
         """Serialize a value with type prefix for encryption."""
         match value:
             case datetime():
@@ -38,12 +39,14 @@ class SQLAlchemyEncrypted(TypeDecorator):
                 return f"{_TypePrefix.DATE}:{value.isoformat()}"
             case bytes():
                 return f"{_TypePrefix.BYTES}:{base64.b64encode(value).decode('ascii')}"
+            case bool():
+                return f"{_TypePrefix.BOOL}:{value}"
             case int():
                 return f"{_TypePrefix.INT}:{value}"
             case _:
                 return f"{_TypePrefix.STR}:{value}"
 
-    def _deserialize_value(self, value: str) -> str | bytes | int | date | datetime:
+    def _deserialize_value(self, value: str) -> str | bytes | bool | int | date | datetime:
         """Deserialize a decrypted value based on its type prefix."""
         prefix, _, data = value.partition(":")
         match prefix:
@@ -53,6 +56,8 @@ class SQLAlchemyEncrypted(TypeDecorator):
                 return date.fromisoformat(data)
             case _TypePrefix.BYTES:
                 return base64.b64decode(data)
+            case _TypePrefix.BOOL:
+                return data == "True"
             case _TypePrefix.INT:
                 return int(data)
             case _TypePrefix.STR:
@@ -60,7 +65,7 @@ class SQLAlchemyEncrypted(TypeDecorator):
             case _:
                 return value
 
-    def _process_encrypt_value(self, value: str | bytes | int | date | datetime | None) -> EncryptedValue | None:
+    def _process_encrypt_value(self, value: str | bytes | bool | int | date | datetime | None) -> EncryptedValue | None:
         if value is None:
             return None
 
@@ -91,14 +96,14 @@ class SQLAlchemyEncrypted(TypeDecorator):
                 raise ValueError(f"Unknown encryption method: {settings.ENCRYPTION_METHOD}")
 
     def process_bind_param(
-        self, value: str | bytes | int | date | datetime | None, dialect
+        self, value: str | bytes | bool | int | date | datetime | None, dialect
     ) -> bytes | None:
         """Encrypts data before binding it to the database."""
 
         return self._process_encrypt_value(value)
 
     def process_literal_param(
-        self, value: str | bytes | int | date | datetime | None, dialect
+        self, value: str | bytes | bool | int | date | datetime | None, dialect
     ) -> bytes | None:
         """Encrypts data for literal SQL expressions."""
 
@@ -106,7 +111,7 @@ class SQLAlchemyEncrypted(TypeDecorator):
 
     def process_result_value(
         self, value: str | bytes | None, dialect
-    ) -> str | bytes | int | date | datetime | None:
+    ) -> str | bytes | bool | int | date | datetime | None:
         """Decrypts data after retrieving it from the database."""
 
         if value is None:

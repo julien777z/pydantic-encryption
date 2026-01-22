@@ -44,3 +44,7 @@ class User(Base, table=True):
         default=None,
         sa_type=SQLAlchemyEncrypted(),
     )
+    is_active: bool | None = Field(
+        default=None,
+        sa_type=SQLAlchemyEncrypted(),
+    )

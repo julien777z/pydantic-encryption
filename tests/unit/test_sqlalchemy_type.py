@@ -59,6 +59,20 @@ class TestSerializeValue:
 
         assert result == f"{_TypePrefix.INT}:-123"
 
+    def test_serialize_bool_true(self):
+        """Test serializing boolean True."""
+
+        result = self.type_adapter._serialize_value(True)
+
+        assert result == f"{_TypePrefix.BOOL}:True"
+
+    def test_serialize_bool_false(self):
+        """Test serializing boolean False."""
+
+        result = self.type_adapter._serialize_value(False)
+
+        assert result == f"{_TypePrefix.BOOL}:False"
+
     def test_serialize_date(self):
         """Test serializing a date value."""
 
@@ -144,6 +158,22 @@ class TestDeserializeValue:
 
         assert result == -123
 
+    def test_deserialize_bool_true(self):
+        """Test deserializing boolean True."""
+
+        result = self.type_adapter._deserialize_value(f"{_TypePrefix.BOOL}:True")
+
+        assert result is True
+        assert isinstance(result, bool)
+
+    def test_deserialize_bool_false(self):
+        """Test deserializing boolean False."""
+
+        result = self.type_adapter._deserialize_value(f"{_TypePrefix.BOOL}:False")
+
+        assert result is False
+        assert isinstance(result, bool)
+
     def test_deserialize_date(self):
         """Test deserializing a date value."""
 
@@ -223,6 +253,28 @@ class TestSerializeDeserializeRoundTrip:
         result = self.type_adapter._deserialize_value(serialized)
 
         assert result == original
+
+    def test_roundtrip_bool_true(self):
+        """Test round-trip for boolean True."""
+
+        original = True
+
+        serialized = self.type_adapter._serialize_value(original)
+        result = self.type_adapter._deserialize_value(serialized)
+
+        assert result is True
+        assert isinstance(result, bool)
+
+    def test_roundtrip_bool_false(self):
+        """Test round-trip for boolean False."""
+
+        original = False
+
+        serialized = self.type_adapter._serialize_value(original)
+        result = self.type_adapter._deserialize_value(serialized)
+
+        assert result is False
+        assert isinstance(result, bool)
 
     def test_roundtrip_date(self):
         """Test round-trip for date."""

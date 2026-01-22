@@ -25,6 +25,7 @@ class TestIntegrationSQLAlchemy:
         last_login: datetime | None = None,
         age: int | None = None,
         secret_data: bytes | None = None,
+        is_active: bool | None = None,
     ) -> User:
         """Create a user."""
 
@@ -36,6 +37,7 @@ class TestIntegrationSQLAlchemy:
             last_login=last_login,
             age=age,
             secret_data=secret_data,
+            is_active=is_active,
         )
         db_session.add(user)
         db_session.commit()
@@ -118,3 +120,32 @@ class TestIntegrationSQLAlchemy:
 
         assert user.email == TEST_EMAIL
         assert isinstance(user.email, str)
+
+    def test_encrypt_decrypt_bool_true(self, db_session: Session):
+        """Test that boolean True is encrypted and decrypted correctly."""
+
+        user = self._create_user(
+            db_session, username="user9", password=TEST_PASSWORD, is_active=True
+        )
+
+        assert user.is_active is True
+        assert isinstance(user.is_active, bool)
+
+    def test_encrypt_decrypt_bool_false(self, db_session: Session):
+        """Test that boolean False is encrypted and decrypted correctly."""
+
+        user = self._create_user(
+            db_session, username="user10", password=TEST_PASSWORD, is_active=False
+        )
+
+        assert user.is_active is False
+        assert isinstance(user.is_active, bool)
+
+    def test_encrypt_decrypt_bool_none(self, db_session: Session):
+        """Test that boolean None is handled correctly."""
+
+        user = self._create_user(
+            db_session, username="user11", password=TEST_PASSWORD, is_active=None
+        )
+
+        assert user.is_active is None
