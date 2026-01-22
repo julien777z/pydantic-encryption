@@ -115,7 +115,7 @@ class SQLAlchemyEncrypted(TypeDecorator):
             case _TypePrefix.STR:
                 return data
             case _:
-                return value
+                return data
 
     def _process_encrypt_value(self, value: EncryptableValue | None) -> EncryptedValue | None:
         if value is None:
