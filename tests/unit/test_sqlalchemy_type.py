@@ -343,7 +343,8 @@ class TestDeserializeValue:
     def test_deserialize_timedelta(self):
         """Test deserializing a timedelta value."""
 
-        result = self.type_adapter._deserialize_value(f"v1:{_TypePrefix.TIMEDELTA}:95445.0")
+        # timedelta(days=1, hours=2, minutes=30, seconds=45) -> days=1, seconds=9045, microseconds=0
+        result = self.type_adapter._deserialize_value(f"v1:{_TypePrefix.TIMEDELTA}:1,9045,0")
 
         assert result == timedelta(days=1, hours=2, minutes=30, seconds=45)
         assert isinstance(result, timedelta)
@@ -351,14 +352,16 @@ class TestDeserializeValue:
     def test_deserialize_timedelta_negative(self):
         """Test deserializing a negative timedelta."""
 
-        result = self.type_adapter._deserialize_value(f"v1:{_TypePrefix.TIMEDELTA}:-93600.0")
+        # timedelta(days=-1, hours=-2) normalizes to days=-2, seconds=79200, microseconds=0
+        result = self.type_adapter._deserialize_value(f"v1:{_TypePrefix.TIMEDELTA}:-2,79200,0")
 
         assert result == timedelta(days=-1, hours=-2)
 
     def test_deserialize_timedelta_fractional(self):
         """Test deserializing a timedelta with fractional seconds."""
 
-        result = self.type_adapter._deserialize_value(f"v1:{_TypePrefix.TIMEDELTA}:1.5")
+        # timedelta(seconds=1.5) -> days=0, seconds=1, microseconds=500000
+        result = self.type_adapter._deserialize_value(f"v1:{_TypePrefix.TIMEDELTA}:0,1,500000")
 
         assert result == timedelta(seconds=1.5)
 
