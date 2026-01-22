@@ -136,7 +136,8 @@ class TestSerializeValue:
 
         result = self.type_adapter._serialize_value(test_timedelta)
 
-        assert result == f"v1:{_TypePrefix.TIMEDELTA}:{test_timedelta.total_seconds()}"
+        # Format: days,seconds,microseconds to preserve precision
+        assert result == f"v1:{_TypePrefix.TIMEDELTA}:{test_timedelta.days},{test_timedelta.seconds},{test_timedelta.microseconds}"
 
     def test_serialize_timedelta_negative(self):
         """Test serializing a negative timedelta."""
@@ -145,16 +146,18 @@ class TestSerializeValue:
 
         result = self.type_adapter._serialize_value(test_timedelta)
 
-        assert result == f"v1:{_TypePrefix.TIMEDELTA}:{test_timedelta.total_seconds()}"
+        # Format: days,seconds,microseconds to preserve precision
+        assert result == f"v1:{_TypePrefix.TIMEDELTA}:{test_timedelta.days},{test_timedelta.seconds},{test_timedelta.microseconds}"
 
     def test_serialize_timedelta_fractional(self):
-        """Test serializing a timedelta with fractional seconds."""
+        """Test serializing a timedelta with fractional seconds (stored as microseconds)."""
 
         test_timedelta = timedelta(seconds=1.5)
 
         result = self.type_adapter._serialize_value(test_timedelta)
 
-        assert result == f"v1:{_TypePrefix.TIMEDELTA}:1.5"
+        # Format: days,seconds,microseconds - fractional seconds become microseconds
+        assert result == f"v1:{_TypePrefix.TIMEDELTA}:{test_timedelta.days},{test_timedelta.seconds},{test_timedelta.microseconds}"
 
     def test_serialize_float(self):
         """Test serializing a float value."""

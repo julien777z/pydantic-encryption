@@ -56,7 +56,7 @@ class SQLAlchemyEncrypted(TypeDecorator):
             case time():
                 type_data = f"{_TypePrefix.TIME}:{value.isoformat()}"
             case timedelta():
-                type_data = f"{_TypePrefix.TIMEDELTA}:{value.total_seconds()}"
+                type_data = f"{_TypePrefix.TIMEDELTA}:{value.days},{value.seconds},{value.microseconds}"
             case bytes():
                 type_data = f"{_TypePrefix.BYTES}:{base64.b64encode(value).decode('ascii')}"
             case bool():
@@ -98,6 +98,11 @@ class SQLAlchemyEncrypted(TypeDecorator):
             case _TypePrefix.TIME:
                 return time.fromisoformat(data)
             case _TypePrefix.TIMEDELTA:
+                parts = data.split(",")
+                if len(parts) == 3:
+                    # New format: days,seconds,microseconds
+                    return timedelta(days=int(parts[0]), seconds=int(parts[1]), microseconds=int(parts[2]))
+                # Legacy format: total_seconds as float
                 return timedelta(seconds=float(data))
             case _TypePrefix.BYTES:
                 return base64.b64decode(data)
