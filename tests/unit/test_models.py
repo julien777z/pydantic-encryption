@@ -1,6 +1,6 @@
-from typing import Annotated, Optional
+from typing import Annotated
 
-import pytest
+from pydantic_super_model import AnnotatedFieldInfo
 
 from pydantic_encryption import BaseModel, Decrypt, Encrypt, Hash
 
@@ -147,6 +147,46 @@ class TestModelSerialization:
 
         assert dumped["password"] != "plaintext"
         assert b"$argon2" in dumped["password"]
+
+
+class TestAnnotatedFieldLookup:
+    """Test annotated field lookup behavior."""
+
+    def test_returns_annotated_field_info_for_encrypted_fields(self):
+        """Return annotated field info objects for encrypted fields."""
+
+        class EncryptModel(BaseModel):
+            secret: Annotated[bytes, Encrypt]
+
+        model = EncryptModel(secret="plaintext")
+        fields = model.get_annotated_fields(Encrypt)
+
+        assert isinstance(fields["secret"], AnnotatedFieldInfo)
+        assert fields["secret"].value == model.secret
+        assert fields["secret"].matched_metadata == (Encrypt,)
+
+    def test_includes_explicit_none_values_in_annotated_field_lookup(self):
+        """Include explicit None values in annotated field info results."""
+
+        class EncryptModel(BaseModel):
+            secret: Annotated[bytes, Encrypt] | None
+
+        model = EncryptModel(secret=None)
+
+        fields = model.get_annotated_fields(Encrypt)
+
+        assert isinstance(fields["secret"], AnnotatedFieldInfo)
+        assert fields["secret"].value is None
+
+    def test_omits_unset_default_none_values_from_annotated_field_lookup(self):
+        """Omit unset default None values from annotated field info results."""
+
+        class EncryptModel(BaseModel):
+            secret: Annotated[bytes, Encrypt] | None = None
+
+        model = EncryptModel()
+
+        assert model.get_annotated_fields(Encrypt) == {}
 
 
 class TestEdgeCases:

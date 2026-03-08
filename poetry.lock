@@ -1885,4 +1885,4 @@ sqlalchemy = ["sqlalchemy", "sqlmodel"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<3.15"
-content-hash = "c97108422bbf908e91d81d0e8fa794546e0686b25d35833b538410389443fe68"
+content-hash = "d85507014097297292a93cca5e12b46e731af02a8aa56cf1b21df465c0233a7d"
