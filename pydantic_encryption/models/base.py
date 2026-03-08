@@ -99,8 +99,10 @@ class SecureModel:
         if not self.pending_hash_fields:
             return
 
-        for field_name, annotated_field in self.pending_hash_fields.items():
-            hashed = hashing.argon2.Argon2Adapter.hash(annotated_field.value)
+        hash_fields = self._get_field_values(self.pending_hash_fields)
+
+        for field_name, value in hash_fields.items():
+            hashed = hashing.argon2.Argon2Adapter.hash(value)
             setattr(self, field_name, hashed)
 
     def default_post_init(self) -> None:
