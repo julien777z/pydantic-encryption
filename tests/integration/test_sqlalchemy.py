@@ -342,14 +342,16 @@ class TestIntegrationSQLAlchemy:
     def test_blind_index_deterministic_query(self, db_session: Session):
         """Test that blind index enables deterministic querying."""
 
+        unique_email = "blind-index-query-test@example.com"
+
         self._create_user(
-            db_session, username="user28", password=TEST_PASSWORD, blind_index_email=TEST_EMAIL
+            db_session, username="user28", password=TEST_PASSWORD, blind_index_email=unique_email
         )
 
         # Query using the same plaintext value — SQLAlchemy's TypeDecorator
         # will hash it via process_bind_param, producing the same blind index
         found_user = db_session.query(User).filter(
-            User.blind_index_email == TEST_EMAIL
+            User.blind_index_email == unique_email
         ).first()
 
         assert found_user is not None
