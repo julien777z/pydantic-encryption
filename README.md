@@ -143,10 +143,10 @@ class User(Base, table=True):
 
 ### Array Support (PostgreSQL)
 
-You can encrypt arrays of values using `SQLAlchemyEncryptedArray`. Each element in the array is individually encrypted and stored in a PostgreSQL `ARRAY(bytea)` column.
+You can encrypt arrays of values using `SQLAlchemyPGEncryptedArray`. Each element in the array is individually encrypted and stored in a PostgreSQL `ARRAY(bytea)` column.
 
 ```python
-from pydantic_encryption.integrations.sqlalchemy import SQLAlchemyEncryptedArray
+from pydantic_encryption.integrations.sqlalchemy import SQLAlchemyPGEncryptedArray
 from sqlmodel import SQLModel, Field
 
 class User(Base, table=True):
@@ -155,7 +155,7 @@ class User(Base, table=True):
     username: str = Field(default=None)
     tags: list[str] | None = Field(
         default=None,
-        sa_type=SQLAlchemyEncryptedArray(),
+        sa_type=SQLAlchemyPGEncryptedArray(),
     )
 ```
 
@@ -172,7 +172,7 @@ user.scores = [100, 95, 87]
 user.metadata = [42, "hello", 3.14]
 ```
 
-**Note:** `SQLAlchemyEncryptedArray` requires a PostgreSQL backend since it uses PostgreSQL's native `ARRAY` type.
+**Note:** `SQLAlchemyPGEncryptedArray` requires a PostgreSQL backend since it uses PostgreSQL's native `ARRAY` type.
 
 ## Choose an Encryption Method
 

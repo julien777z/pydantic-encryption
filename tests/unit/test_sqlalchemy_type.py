@@ -5,7 +5,7 @@ from uuid import UUID
 
 import pytest
 
-from pydantic_encryption.integrations.sqlalchemy import SQLAlchemyEncrypted, SQLAlchemyEncryptedArray, _TypePrefix
+from pydantic_encryption.integrations.sqlalchemy import SQLAlchemyEncrypted, SQLAlchemyPGEncryptedArray, _TypePrefix
 
 
 class TestSerializeValue:
@@ -583,13 +583,13 @@ class TestSerializeDeserializeRoundTrip:
         assert isinstance(result, UUID)
 
 
-class TestSQLAlchemyEncryptedArray:
-    """Test the SQLAlchemyEncryptedArray type adapter."""
+class TestSQLAlchemyPGEncryptedArray:
+    """Test the SQLAlchemyPGEncryptedArray type adapter."""
 
     def setup_method(self):
         """Set up test fixtures."""
 
-        self.type_adapter = SQLAlchemyEncryptedArray()
+        self.type_adapter = SQLAlchemyPGEncryptedArray()
 
     def test_process_bind_param_none(self):
         """Test that None column value returns None."""

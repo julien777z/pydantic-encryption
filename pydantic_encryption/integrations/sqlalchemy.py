@@ -174,7 +174,7 @@ class SQLAlchemyEncrypted(TypeDecorator):
         return self.impl.python_type
 
 
-class SQLAlchemyEncryptedArray(TypeDecorator):
+class SQLAlchemyPGEncryptedArray(TypeDecorator):
     """Type adapter for SQLAlchemy to encrypt and decrypt arrays using the specified encryption method.
 
     Each element in the array is individually encrypted/decrypted. This type uses PostgreSQL's

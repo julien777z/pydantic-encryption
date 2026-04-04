@@ -4,7 +4,7 @@ from decimal import Decimal
 
 from sqlmodel import Field, SQLModel
 
-from pydantic_encryption.integrations.sqlalchemy import SQLAlchemyEncrypted, SQLAlchemyEncryptedArray, SQLAlchemyHashed
+from pydantic_encryption.integrations.sqlalchemy import SQLAlchemyEncrypted, SQLAlchemyPGEncryptedArray, SQLAlchemyHashed
 
 __all__ = ["Base", "User"]
 
@@ -71,5 +71,5 @@ class User(Base, table=True):
     )
     tags: list[str] | None = Field(
         default=None,
-        sa_type=SQLAlchemyEncryptedArray(),
+        sa_type=SQLAlchemyPGEncryptedArray(),
     )
