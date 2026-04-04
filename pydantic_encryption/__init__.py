@@ -5,6 +5,8 @@ from pydantic_encryption.adapters.hashing.argon2 import Argon2Adapter
 from pydantic_encryption.config import settings
 from pydantic_encryption.models import BaseModel, SecureModel
 from pydantic_encryption.types import (
+    BlindIndexMethod,
+    BlindIndexValue,
     Decrypt,
     DecryptedValue,
     Encrypt,
@@ -19,6 +21,7 @@ if TYPE_CHECKING:
     from pydantic_encryption.adapters.encryption.aws import AWSAdapter
     from pydantic_encryption.adapters.encryption.evervault import EvervaultAdapter
     from pydantic_encryption.integrations.sqlalchemy import (
+        SQLAlchemyBlindIndex,
         SQLAlchemyEncrypted,
         SQLAlchemyPGEncryptedArray,
         SQLAlchemyHashed,
@@ -40,6 +43,11 @@ def __getattr__(name: str):
         from pydantic_encryption.integrations.sqlalchemy import SQLAlchemyHashed
 
         return SQLAlchemyHashed
+
+    if name == "SQLAlchemyBlindIndex":
+        from pydantic_encryption.integrations.sqlalchemy import SQLAlchemyBlindIndex
+
+        return SQLAlchemyBlindIndex
 
     if name == "AWSAdapter":
         from pydantic_encryption.adapters.encryption.aws import AWSAdapter
@@ -65,6 +73,8 @@ __all__ = [
     "Decrypt",
     "Hash",
     # Types
+    "BlindIndexMethod",
+    "BlindIndexValue",
     "EncryptionMethod",
     "EncryptedValue",
     "DecryptedValue",
@@ -76,6 +86,7 @@ __all__ = [
     "AWSAdapter",
     "EvervaultAdapter",
     # SQLAlchemy (optional - lazy loaded)
+    "SQLAlchemyBlindIndex",
     "SQLAlchemyEncrypted",
     "SQLAlchemyPGEncryptedArray",
     "SQLAlchemyHashed",

@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     EVERVAULT_APP_ID: Optional[str] = None
     EVERVAULT_ENCRYPTION_ROLE: Optional[str] = None
 
+    # Blind index settings
+    BLIND_INDEX_SECRET_KEY: Optional[str] = None
+
     # Encryption settings
     ENCRYPTION_METHOD: EncryptionMethod = EncryptionMethod.FERNET
 

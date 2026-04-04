@@ -20,6 +20,13 @@ class EncryptionMethod(Enum):
     AWS = "aws"
 
 
+class BlindIndexMethod(Enum):
+    """Enum for blind index hashing methods."""
+
+    HMAC_SHA256 = "hmac-sha256"
+    ARGON2 = "argon2"
+
+
 def _decrypt_bytes_to_str(v: bytes | str) -> str:
     if isinstance(v, bytes):
         return v.decode("utf-8")
@@ -62,6 +69,10 @@ class HashedValue(NormalizeToBytes):
     hashed: bool = True
 
 
+class BlindIndexValue(NormalizeToBytes):
+    blind_indexed: bool = True
+
+
 __all__ = [
     "Encrypt",
     "Decrypt",
@@ -70,6 +81,8 @@ __all__ = [
     "EncryptedValue",
     "DecryptedValue",
     "HashedValue",
+    "BlindIndexMethod",
+    "BlindIndexValue",
     "NormalizeToBytes",
     "NormalizeToString",
 ]

@@ -1,4 +1,6 @@
 import base64
+import hashlib
+import hmac
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from enum import StrEnum
@@ -13,7 +15,7 @@ from sqlalchemy.types import ARRAY, LargeBinary, TypeDecorator
 
 from pydantic_encryption.adapters import encryption, hashing
 from pydantic_encryption.config import settings
-from pydantic_encryption.types import EncryptedValue, EncryptionMethod, HashedValue
+from pydantic_encryption.types import BlindIndexMethod, BlindIndexValue, EncryptedValue, EncryptionMethod, HashedValue
 
 # Type alias for all supported encrypted value types
 EncryptableValue = str | bytes | bool | int | float | Decimal | UUID | date | datetime | time | timedelta
@@ -261,5 +263,90 @@ class SQLAlchemyHashed(TypeDecorator):
     @property
     def python_type(self):
         """Return the Python type this is bound to (str)."""
+
+        return self.impl.python_type
+
+
+class SQLAlchemyBlindIndex(TypeDecorator):
+    """Type adapter for SQLAlchemy to create deterministic blind indexes.
+
+    Blind indexes enable equality searches on encrypted columns by storing a
+    keyed hash of the plaintext alongside the ciphertext. The hash is deterministic
+    (same input always produces the same output) but requires the secret key to compute.
+
+    Supports HMAC-SHA256 and Argon2 hashing methods. Requires
+    BLIND_INDEX_SECRET_KEY to be set in configuration.
+    """
+
+    impl = LargeBinary
+    cache_ok = True
+
+    def __init__(self, method: BlindIndexMethod = BlindIndexMethod.HMAC_SHA256):
+        super().__init__()
+        self.method = method
+
+    def _get_key_bytes(self) -> bytes:
+        if settings.BLIND_INDEX_SECRET_KEY is None:
+            raise ValueError(
+                "BLIND_INDEX_SECRET_KEY must be set to use SQLAlchemyBlindIndex. "
+                "Set it via environment variable or .env file."
+            )
+        return settings.BLIND_INDEX_SECRET_KEY.encode("utf-8")
+
+    def _compute_blind_index(self, value: str | bytes) -> bytes:
+        """Compute a deterministic blind index for the given value."""
+
+        key = self._get_key_bytes()
+
+        if isinstance(value, str):
+            value = value.encode("utf-8")
+
+        match self.method:
+            case BlindIndexMethod.HMAC_SHA256:
+                return hmac.new(key, value, hashlib.sha256).digest()
+            case BlindIndexMethod.ARGON2:
+                from argon2.low_level import Type as Argon2Type
+                from argon2.low_level import hash_secret_raw
+
+                salt = hashlib.sha256(key).digest()[:16]
+                return hash_secret_raw(
+                    secret=value,
+                    salt=salt,
+                    time_cost=3,
+                    memory_cost=65536,
+                    parallelism=1,
+                    hash_len=32,
+                    type=Argon2Type.ID,
+                )
+            case _:
+                raise ValueError(f"Unknown blind index method: {self.method}")
+
+    def process_bind_param(self, value: str | bytes | None, dialect) -> bytes | None:
+        """Computes the blind index before binding to the database."""
+
+        if value is None:
+            return None
+
+        return self._compute_blind_index(value)
+
+    def process_literal_param(self, value: str | bytes | None, dialect) -> bytes | None:
+        """Computes the blind index for literal SQL expressions."""
+
+        if value is None:
+            return None
+
+        return self._compute_blind_index(value)
+
+    def process_result_value(self, value: bytes | None, dialect) -> BlindIndexValue | None:
+        """Returns the blind index value as-is from the database."""
+
+        if value is None:
+            return None
+
+        return BlindIndexValue(value)
+
+    @property
+    def python_type(self):
+        """Return the Python type this is bound to."""
 
         return self.impl.python_type
