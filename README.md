@@ -174,6 +174,42 @@ user.metadata = [42, "hello", 3.14]
 
 **Note:** `SQLAlchemyPGEncryptedArray` requires a PostgreSQL backend since it uses PostgreSQL's native `ARRAY` type.
 
+### Blind Index Support
+
+Blind indexes enable equality searches on encrypted columns without decrypting the data. A deterministic keyed hash of the plaintext is stored alongside the ciphertext, allowing `WHERE` clause lookups.
+
+```python
+from pydantic_encryption.integrations.sqlalchemy import SQLAlchemyBlindIndexValue, SQLAlchemyEncryptedValue
+from pydantic_encryption.types import BlindIndexMethod
+from sqlmodel import SQLModel, Field
+
+class User(Base, table=True):
+    __tablename__ = "users"
+
+    email: bytes = Field(sa_type=SQLAlchemyEncryptedValue())
+    blind_index_email: bytes = Field(sa_type=SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256))
+```
+
+Two hashing methods are available:
+
+| Method | Description |
+|--------|-------------|
+| `BlindIndexMethod.HMAC_SHA256` | Fast HMAC-SHA256 keyed hash. Standard choice for blind indexes. |
+| `BlindIndexMethod.ARGON2` | Memory-hard Argon2 hash with a deterministic salt derived from the secret key. Better brute-force resistance at the cost of speed. |
+
+**Configuration:** Set the `BLIND_INDEX_SECRET_KEY` environment variable or add it to your `.env` file:
+
+```bash
+BLIND_INDEX_SECRET_KEY=your_secret_key
+```
+
+**Querying:** SQLAlchemy's TypeDecorator automatically hashes the query value, so you can filter using the plaintext directly:
+
+```python
+# Find user by email — the blind index is computed automatically
+user = session.query(User).filter(User.blind_index_email == "john@example.com").first()
+```
+
 ## Choose an Encryption Method
 
 You can choose which encryption algorithm to use by setting the `ENCRYPTION_METHOD` environment variable.

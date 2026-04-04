@@ -5,8 +5,7 @@ from typing import Final
 
 from sqlalchemy.orm import Session
 
-from pydantic_encryption.integrations.sqlalchemy import SQLAlchemyBlindIndexValue
-from pydantic_encryption.types import BlindIndexMethod, BlindIndexValue
+from pydantic_encryption.types import BlindIndexValue
 
 from tests.integration.database import User
 
@@ -347,12 +346,10 @@ class TestIntegrationSQLAlchemy:
             db_session, username="user28", password=TEST_PASSWORD, blind_index_email=TEST_EMAIL
         )
 
-        # Compute the same blind index to query by
-        blind_index_type = SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256)
-        search_index = blind_index_type._compute_blind_index(TEST_EMAIL)
-
+        # Query using the same plaintext value — SQLAlchemy's TypeDecorator
+        # will hash it via process_bind_param, producing the same blind index
         found_user = db_session.query(User).filter(
-            User.blind_index_email == search_index
+            User.blind_index_email == TEST_EMAIL
         ).first()
 
         assert found_user is not None
