@@ -28,6 +28,7 @@ jobs:
           poetry run pytest --cov=pydantic_encryption --cov-branch --cov-report=xml
         env:
           ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
+          BLIND_INDEX_SECRET_KEY: ${{ secrets.BLIND_INDEX_SECRET_KEY || 'test-blind-index-secret-key' }}
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5

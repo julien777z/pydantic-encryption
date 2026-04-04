@@ -7,7 +7,7 @@ import pytest
 
 from pydantic_encryption.integrations.sqlalchemy import (
     SQLAlchemyBlindIndexValue,
-    SQLAlchemyEncrypted,
+    SQLAlchemyEncryptedValue,
     SQLAlchemyPGEncryptedArray,
     _TypePrefix,
 )
@@ -15,12 +15,12 @@ from pydantic_encryption.types import BlindIndexMethod, BlindIndexValue
 
 
 class TestSerializeValue:
-    """Test the _serialize_value method of SQLAlchemyEncrypted."""
+    """Test the _serialize_value method of SQLAlchemyEncryptedValue."""
 
     def setup_method(self):
         """Set up test fixtures."""
 
-        self.type_adapter = SQLAlchemyEncrypted()
+        self.type_adapter = SQLAlchemyEncryptedValue()
 
     def test_serialize_str(self):
         """Test serializing a string value."""
@@ -224,12 +224,12 @@ class TestSerializeValue:
 
 
 class TestDeserializeValue:
-    """Test the _deserialize_value method of SQLAlchemyEncrypted."""
+    """Test the _deserialize_value method of SQLAlchemyEncryptedValue."""
 
     def setup_method(self):
         """Set up test fixtures."""
 
-        self.type_adapter = SQLAlchemyEncrypted()
+        self.type_adapter = SQLAlchemyEncryptedValue()
 
     def test_deserialize_str(self):
         """Test deserializing a string value."""
@@ -452,7 +452,7 @@ class TestSerializeDeserializeRoundTrip:
     def setup_method(self):
         """Set up test fixtures."""
 
-        self.type_adapter = SQLAlchemyEncrypted()
+        self.type_adapter = SQLAlchemyEncryptedValue()
 
     def test_roundtrip_str(self):
         """Test round-trip for string."""
@@ -633,9 +633,9 @@ class TestSQLAlchemyPGEncryptedArray:
         assert result == [None, None]
 
     def test_element_type_is_sqlalchemy_encrypted(self):
-        """Test that the internal element type is SQLAlchemyEncrypted."""
+        """Test that the internal element type is SQLAlchemyEncryptedValue."""
 
-        assert isinstance(self.type_adapter._element_type, SQLAlchemyEncrypted)
+        assert isinstance(self.type_adapter._element_type, SQLAlchemyEncryptedValue)
 
     def test_python_type_is_list(self):
         """Test that python_type returns list."""

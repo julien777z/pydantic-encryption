@@ -39,7 +39,7 @@ class _TypePrefix(StrEnum):
     TIMEDELTA = "timedelta"
 
 
-class SQLAlchemyEncrypted(TypeDecorator):
+class SQLAlchemyEncryptedValue(TypeDecorator):
     """Type adapter for SQLAlchemy to encrypt and decrypt data using the specified encryption method."""
 
     impl = LargeBinary
@@ -188,7 +188,7 @@ class SQLAlchemyPGEncryptedArray(TypeDecorator):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._element_type = SQLAlchemyEncrypted()
+        self._element_type = SQLAlchemyEncryptedValue()
 
     def process_bind_param(self, value: list[EncryptableValue] | None, dialect) -> list[bytes] | None:
         """Encrypts each element in the array before binding to the database."""

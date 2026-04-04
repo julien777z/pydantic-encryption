@@ -60,7 +60,7 @@ print(user.password) # hashed
 
 If you install this package with the `sqlalchemy` extra, you can use the built-in SQLAlchemy integration for the columns.
 
-SQLAlchemy will automatically handle the encryption/decryption of fields with the `SQLAlchemyEncrypted` type and the hashing of fields with the `SQLAlchemyHashed` type.
+SQLAlchemy will automatically handle the encryption/decryption of fields with the `SQLAlchemyEncryptedValue` type and the hashing of fields with the `SQLAlchemyHashed` type.
 
 When you create a new instance of the model, the fields will be encrypted and when you query the database, the fields will be decrypted.
 
@@ -68,7 +68,7 @@ When you create a new instance of the model, the fields will be encrypted and wh
 
 ```python
 import uuid
-from pydantic_encryption.integrations.sqlalchemy import SQLAlchemyEncrypted, SQLAlchemyHashed
+from pydantic_encryption.integrations.sqlalchemy import SQLAlchemyEncryptedValue, SQLAlchemyHashed
 from sqlmodel import SQLModel, Field
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -80,7 +80,7 @@ class User(Base, table=True):
     username: str = Field(default=None)
     email: bytes = Field(
         default=None,
-        sa_type=SQLAlchemyEncrypted(),
+        sa_type=SQLAlchemyEncryptedValue(),
     )
     password: bytes = Field(
         sa_type=SQLAlchemyHashed(),
@@ -108,7 +108,7 @@ print(user.password) # hashed
 
 ### Supported Types
 
-`SQLAlchemyEncrypted` automatically detects and preserves the Python type of your data:
+`SQLAlchemyEncryptedValue` automatically detects and preserves the Python type of your data:
 
 | Type | Example |
 |------|---------|
@@ -130,15 +130,15 @@ from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 
 class User(Base, table=True):
-    email: str = Field(sa_type=SQLAlchemyEncrypted())
-    birth_date: date = Field(sa_type=SQLAlchemyEncrypted())
-    last_login: datetime = Field(sa_type=SQLAlchemyEncrypted())
-    age: int = Field(sa_type=SQLAlchemyEncrypted())
-    balance: float = Field(sa_type=SQLAlchemyEncrypted())
-    salary: Decimal = Field(sa_type=SQLAlchemyEncrypted())
-    external_id: uuid.UUID = Field(sa_type=SQLAlchemyEncrypted())
-    login_time: time = Field(sa_type=SQLAlchemyEncrypted())
-    session_duration: timedelta = Field(sa_type=SQLAlchemyEncrypted())
+    email: str = Field(sa_type=SQLAlchemyEncryptedValue())
+    birth_date: date = Field(sa_type=SQLAlchemyEncryptedValue())
+    last_login: datetime = Field(sa_type=SQLAlchemyEncryptedValue())
+    age: int = Field(sa_type=SQLAlchemyEncryptedValue())
+    balance: float = Field(sa_type=SQLAlchemyEncryptedValue())
+    salary: Decimal = Field(sa_type=SQLAlchemyEncryptedValue())
+    external_id: uuid.UUID = Field(sa_type=SQLAlchemyEncryptedValue())
+    login_time: time = Field(sa_type=SQLAlchemyEncryptedValue())
+    session_duration: timedelta = Field(sa_type=SQLAlchemyEncryptedValue())
 ```
 
 ### Array Support (PostgreSQL)
@@ -352,7 +352,7 @@ print(user.name) # plaintext (untouched)
 
 Fields marked with `Decrypt` are automatically decrypted during model initialization.
 
-Note: if you use `SQLAlchemyEncrypted`, then the value will be decrypted automatically when you query the database.
+Note: if you use `SQLAlchemyEncryptedValue`, then the value will be decrypted automatically when you query the database.
 
 
 ## Hashing

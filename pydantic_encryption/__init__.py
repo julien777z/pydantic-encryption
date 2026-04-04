@@ -22,17 +22,17 @@ if TYPE_CHECKING:
     from pydantic_encryption.adapters.encryption.evervault import EvervaultAdapter
     from pydantic_encryption.integrations.sqlalchemy import (
         SQLAlchemyBlindIndexValue,
-        SQLAlchemyEncrypted,
+        SQLAlchemyEncryptedValue,
         SQLAlchemyPGEncryptedArray,
         SQLAlchemyHashed,
     )
 
 
 def __getattr__(name: str):
-    if name == "SQLAlchemyEncrypted":
-        from pydantic_encryption.integrations.sqlalchemy import SQLAlchemyEncrypted
+    if name == "SQLAlchemyEncryptedValue":
+        from pydantic_encryption.integrations.sqlalchemy import SQLAlchemyEncryptedValue
 
-        return SQLAlchemyEncrypted
+        return SQLAlchemyEncryptedValue
 
     if name == "SQLAlchemyPGEncryptedArray":
         from pydantic_encryption.integrations.sqlalchemy import SQLAlchemyPGEncryptedArray
@@ -87,7 +87,7 @@ __all__ = [
     "EvervaultAdapter",
     # SQLAlchemy (optional - lazy loaded)
     "SQLAlchemyBlindIndexValue",
-    "SQLAlchemyEncrypted",
+    "SQLAlchemyEncryptedValue",
     "SQLAlchemyPGEncryptedArray",
     "SQLAlchemyHashed",
 ]
