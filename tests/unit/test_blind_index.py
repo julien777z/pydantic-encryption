@@ -1,6 +1,6 @@
 import pytest
 
-from pydantic_encryption.integrations.sqlalchemy import SQLAlchemyBlindIndex
+from pydantic_encryption.integrations.sqlalchemy import SQLAlchemyBlindIndexValue
 from pydantic_encryption.types import BlindIndexMethod, BlindIndexValue
 
 
@@ -13,11 +13,11 @@ def set_blind_index_key(monkeypatch):
     monkeypatch.setattr(sqlalchemy.settings, "BLIND_INDEX_SECRET_KEY", "test-secret-key-for-blind-index")
 
 
-class TestSQLAlchemyBlindIndexHMAC:
-    """Test SQLAlchemyBlindIndex with HMAC-SHA256 method."""
+class TestSQLAlchemyBlindIndexValueHMAC:
+    """Test SQLAlchemyBlindIndexValue with HMAC-SHA256 method."""
 
     def setup_method(self):
-        self.type_adapter = SQLAlchemyBlindIndex(BlindIndexMethod.HMAC_SHA256)
+        self.type_adapter = SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256)
 
     def test_process_bind_param_none_returns_none(self):
         """Test that None input returns None."""
@@ -100,11 +100,11 @@ class TestSQLAlchemyBlindIndexHMAC:
         assert result == test_bytes
 
 
-class TestSQLAlchemyBlindIndexArgon2:
-    """Test SQLAlchemyBlindIndex with Argon2 method."""
+class TestSQLAlchemyBlindIndexValueArgon2:
+    """Test SQLAlchemyBlindIndexValue with Argon2 method."""
 
     def setup_method(self):
-        self.type_adapter = SQLAlchemyBlindIndex(BlindIndexMethod.ARGON2)
+        self.type_adapter = SQLAlchemyBlindIndexValue(BlindIndexMethod.ARGON2)
 
     def test_process_bind_param_none_returns_none(self):
         """Test that None input returns None."""
@@ -146,8 +146,8 @@ class TestSQLAlchemyBlindIndexArgon2:
         assert result_str == result_bytes
 
 
-class TestSQLAlchemyBlindIndexConfig:
-    """Test SQLAlchemyBlindIndex configuration and edge cases."""
+class TestSQLAlchemyBlindIndexValueConfig:
+    """Test SQLAlchemyBlindIndexValue configuration and edge cases."""
 
     def test_missing_secret_key_raises_error(self, monkeypatch):
         """Test that missing BLIND_INDEX_SECRET_KEY raises ValueError."""
@@ -156,7 +156,7 @@ class TestSQLAlchemyBlindIndexConfig:
 
         monkeypatch.setattr(sqlalchemy.settings, "BLIND_INDEX_SECRET_KEY", None)
 
-        type_adapter = SQLAlchemyBlindIndex(BlindIndexMethod.HMAC_SHA256)
+        type_adapter = SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256)
 
         with pytest.raises(ValueError, match="BLIND_INDEX_SECRET_KEY must be set"):
             type_adapter.process_bind_param("test", None)
@@ -166,7 +166,7 @@ class TestSQLAlchemyBlindIndexConfig:
 
         from pydantic_encryption.integrations import sqlalchemy
 
-        type_adapter = SQLAlchemyBlindIndex(BlindIndexMethod.HMAC_SHA256)
+        type_adapter = SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256)
 
         monkeypatch.setattr(sqlalchemy.settings, "BLIND_INDEX_SECRET_KEY", "key-one")
         result1 = type_adapter.process_bind_param("test@example.com", None)
@@ -179,17 +179,10 @@ class TestSQLAlchemyBlindIndexConfig:
     def test_different_methods_produce_different_outputs(self):
         """Test that HMAC-SHA256 and Argon2 produce different outputs for same input."""
 
-        hmac_adapter = SQLAlchemyBlindIndex(BlindIndexMethod.HMAC_SHA256)
-        argon2_adapter = SQLAlchemyBlindIndex(BlindIndexMethod.ARGON2)
+        hmac_adapter = SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256)
+        argon2_adapter = SQLAlchemyBlindIndexValue(BlindIndexMethod.ARGON2)
 
         hmac_result = hmac_adapter.process_bind_param("test@example.com", None)
         argon2_result = argon2_adapter.process_bind_param("test@example.com", None)
 
         assert hmac_result != argon2_result
-
-    def test_default_method_is_hmac_sha256(self):
-        """Test that the default method is HMAC-SHA256."""
-
-        type_adapter = SQLAlchemyBlindIndex()
-
-        assert type_adapter.method == BlindIndexMethod.HMAC_SHA256

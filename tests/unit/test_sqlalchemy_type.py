@@ -5,7 +5,13 @@ from uuid import UUID
 
 import pytest
 
-from pydantic_encryption.integrations.sqlalchemy import SQLAlchemyEncrypted, SQLAlchemyPGEncryptedArray, _TypePrefix
+from pydantic_encryption.integrations.sqlalchemy import (
+    SQLAlchemyBlindIndexValue,
+    SQLAlchemyEncrypted,
+    SQLAlchemyPGEncryptedArray,
+    _TypePrefix,
+)
+from pydantic_encryption.types import BlindIndexMethod, BlindIndexValue
 
 
 class TestSerializeValue:
@@ -701,3 +707,105 @@ class TestSQLAlchemyPGEncryptedArray:
         result = [element_type._deserialize_value(v) for v in serialized]
 
         assert result == original
+
+
+class TestSQLAlchemyBlindIndexValue:
+    """Test the SQLAlchemyBlindIndexValue type adapter."""
+
+    @pytest.fixture(autouse=True)
+    def set_blind_index_key(self, monkeypatch):
+        """Set a test blind index secret key."""
+
+        from pydantic_encryption.integrations import sqlalchemy
+
+        monkeypatch.setattr(sqlalchemy.settings, "BLIND_INDEX_SECRET_KEY", "test-secret-key")
+
+    def test_hmac_method_stores_method(self):
+        """Test that HMAC method is stored on the type adapter."""
+
+        type_adapter = SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256)
+
+        assert type_adapter.method == BlindIndexMethod.HMAC_SHA256
+
+    def test_argon2_method_stores_method(self):
+        """Test that Argon2 method is stored on the type adapter."""
+
+        type_adapter = SQLAlchemyBlindIndexValue(BlindIndexMethod.ARGON2)
+
+        assert type_adapter.method == BlindIndexMethod.ARGON2
+
+    def test_process_bind_param_none(self):
+        """Test that None column value returns None."""
+
+        type_adapter = SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256)
+
+        result = type_adapter.process_bind_param(None, dialect=None)
+
+        assert result is None
+
+    def test_process_result_value_none(self):
+        """Test that None column value returns None on read."""
+
+        type_adapter = SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256)
+
+        result = type_adapter.process_result_value(None, dialect=None)
+
+        assert result is None
+
+    def test_process_bind_param_returns_32_bytes_hmac(self):
+        """Test that HMAC bind param returns 32-byte digest."""
+
+        type_adapter = SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256)
+
+        result = type_adapter.process_bind_param("test@example.com", dialect=None)
+
+        assert isinstance(result, bytes)
+        assert len(result) == 32
+
+    def test_process_bind_param_returns_32_bytes_argon2(self):
+        """Test that Argon2 bind param returns 32-byte hash."""
+
+        type_adapter = SQLAlchemyBlindIndexValue(BlindIndexMethod.ARGON2)
+
+        result = type_adapter.process_bind_param("test@example.com", dialect=None)
+
+        assert isinstance(result, bytes)
+        assert len(result) == 32
+
+    def test_process_result_value_returns_blind_index_value(self):
+        """Test that result value is wrapped as BlindIndexValue."""
+
+        type_adapter = SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256)
+        test_bytes = b"\x01\x02\x03\x04" * 8
+
+        result = type_adapter.process_result_value(test_bytes, dialect=None)
+
+        assert isinstance(result, BlindIndexValue)
+        assert result.blind_indexed is True
+
+    def test_compute_blind_index_deterministic(self):
+        """Test that _compute_blind_index is deterministic."""
+
+        type_adapter = SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256)
+
+        result1 = type_adapter._compute_blind_index("test@example.com")
+        result2 = type_adapter._compute_blind_index("test@example.com")
+
+        assert result1 == result2
+
+    def test_compute_blind_index_different_inputs(self):
+        """Test that different inputs produce different blind indexes."""
+
+        type_adapter = SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256)
+
+        result1 = type_adapter._compute_blind_index("alice@example.com")
+        result2 = type_adapter._compute_blind_index("bob@example.com")
+
+        assert result1 != result2
+
+    def test_python_type(self):
+        """Test that python_type returns the impl's python_type."""
+
+        type_adapter = SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256)
+
+        assert type_adapter.python_type is type_adapter.impl.python_type

@@ -267,7 +267,7 @@ class SQLAlchemyHashed(TypeDecorator):
         return self.impl.python_type
 
 
-class SQLAlchemyBlindIndex(TypeDecorator):
+class SQLAlchemyBlindIndexValue(TypeDecorator):
     """Type adapter for SQLAlchemy to create deterministic blind indexes.
 
     Blind indexes enable equality searches on encrypted columns by storing a
@@ -281,14 +281,14 @@ class SQLAlchemyBlindIndex(TypeDecorator):
     impl = LargeBinary
     cache_ok = True
 
-    def __init__(self, method: BlindIndexMethod = BlindIndexMethod.HMAC_SHA256):
+    def __init__(self, method: BlindIndexMethod):
         super().__init__()
         self.method = method
 
     def _get_key_bytes(self) -> bytes:
         if settings.BLIND_INDEX_SECRET_KEY is None:
             raise ValueError(
-                "BLIND_INDEX_SECRET_KEY must be set to use SQLAlchemyBlindIndex. "
+                "BLIND_INDEX_SECRET_KEY must be set to use SQLAlchemyBlindIndexValue. "
                 "Set it via environment variable or .env file."
             )
         return settings.BLIND_INDEX_SECRET_KEY.encode("utf-8")

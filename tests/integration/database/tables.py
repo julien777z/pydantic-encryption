@@ -4,7 +4,13 @@ from decimal import Decimal
 
 from sqlmodel import Field, SQLModel
 
-from pydantic_encryption.integrations.sqlalchemy import SQLAlchemyEncrypted, SQLAlchemyPGEncryptedArray, SQLAlchemyHashed
+from pydantic_encryption.integrations.sqlalchemy import (
+    SQLAlchemyBlindIndexValue,
+    SQLAlchemyEncrypted,
+    SQLAlchemyHashed,
+    SQLAlchemyPGEncryptedArray,
+)
+from pydantic_encryption.types import BlindIndexMethod
 
 __all__ = ["Base", "User"]
 
@@ -72,4 +78,12 @@ class User(Base, table=True):
     tags: list[str] | None = Field(
         default=None,
         sa_type=SQLAlchemyPGEncryptedArray(),
+    )
+    blind_index_email: bytes | None = Field(
+        default=None,
+        sa_type=SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256),
+    )
+    blind_index_email_argon2: bytes | None = Field(
+        default=None,
+        sa_type=SQLAlchemyBlindIndexValue(BlindIndexMethod.ARGON2),
     )
