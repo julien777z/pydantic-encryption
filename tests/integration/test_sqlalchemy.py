@@ -38,6 +38,7 @@ class TestIntegrationSQLAlchemy:
         external_id: uuid.UUID | None = None,
         login_time: time | None = None,
         session_duration: timedelta | None = None,
+        tags: list[str] | None = None,
     ) -> User:
         """Create a user."""
 
@@ -55,6 +56,7 @@ class TestIntegrationSQLAlchemy:
             external_id=external_id,
             login_time=login_time,
             session_duration=session_duration,
+            tags=tags,
         )
         db_session.add(user)
         db_session.commit()
@@ -259,3 +261,42 @@ class TestIntegrationSQLAlchemy:
         )
 
         assert user.session_duration == negative_duration
+
+    def test_encrypt_decrypt_array(self, db_session: Session):
+        """Test that array fields are encrypted and decrypted correctly."""
+
+        test_tags = ["tag1", "tag2", "tag3"]
+
+        user = self._create_user(
+            db_session, username="user21", password=TEST_PASSWORD, tags=test_tags
+        )
+
+        assert user.tags == test_tags
+        assert isinstance(user.tags, list)
+
+    def test_encrypt_decrypt_array_none(self, db_session: Session):
+        """Test that None array values are handled correctly."""
+
+        user = self._create_user(
+            db_session, username="user22", password=TEST_PASSWORD, tags=None
+        )
+
+        assert user.tags is None
+
+    def test_encrypt_decrypt_array_empty(self, db_session: Session):
+        """Test that empty arrays are handled correctly."""
+
+        user = self._create_user(
+            db_session, username="user23", password=TEST_PASSWORD, tags=[]
+        )
+
+        assert user.tags == []
+
+    def test_encrypt_decrypt_array_single_element(self, db_session: Session):
+        """Test that single-element arrays are handled correctly."""
+
+        user = self._create_user(
+            db_session, username="user24", password=TEST_PASSWORD, tags=["only"]
+        )
+
+        assert user.tags == ["only"]

@@ -5,7 +5,7 @@ from uuid import UUID
 
 import pytest
 
-from pydantic_encryption.integrations.sqlalchemy import SQLAlchemyEncrypted, _TypePrefix
+from pydantic_encryption.integrations.sqlalchemy import SQLAlchemyEncrypted, SQLAlchemyEncryptedArray, _TypePrefix
 
 
 class TestSerializeValue:
@@ -581,3 +581,123 @@ class TestSerializeDeserializeRoundTrip:
 
         assert result == original
         assert isinstance(result, UUID)
+
+
+class TestSQLAlchemyEncryptedArray:
+    """Test the SQLAlchemyEncryptedArray type adapter."""
+
+    def setup_method(self):
+        """Set up test fixtures."""
+
+        self.type_adapter = SQLAlchemyEncryptedArray()
+
+    def test_process_bind_param_none(self):
+        """Test that None column value returns None."""
+
+        result = self.type_adapter.process_bind_param(None, dialect=None)
+
+        assert result is None
+
+    def test_process_result_value_none(self):
+        """Test that None column value returns None on read."""
+
+        result = self.type_adapter.process_result_value(None, dialect=None)
+
+        assert result is None
+
+    def test_process_bind_param_empty_list(self):
+        """Test that empty list returns empty list."""
+
+        result = self.type_adapter.process_bind_param([], dialect=None)
+
+        assert result == []
+
+    def test_process_result_value_empty_list(self):
+        """Test that empty list returns empty list on read."""
+
+        result = self.type_adapter.process_result_value([], dialect=None)
+
+        assert result == []
+
+    def test_process_result_value_none_elements(self):
+        """Test that None elements within array are preserved."""
+
+        result = self.type_adapter.process_result_value([None, None], dialect=None)
+
+        assert result == [None, None]
+
+    def test_element_type_is_sqlalchemy_encrypted(self):
+        """Test that the internal element type is SQLAlchemyEncrypted."""
+
+        assert isinstance(self.type_adapter._element_type, SQLAlchemyEncrypted)
+
+    def test_python_type_is_list(self):
+        """Test that python_type returns list."""
+
+        assert self.type_adapter.python_type is list
+
+    def test_serialize_deserialize_roundtrip_str_array(self):
+        """Test round-trip serialization for string arrays via the element type."""
+
+        element_type = self.type_adapter._element_type
+        original = ["hello", "world", "test"]
+
+        serialized = [element_type._serialize_value(v) for v in original]
+        result = [element_type._deserialize_value(v) for v in serialized]
+
+        assert result == original
+
+    def test_serialize_deserialize_roundtrip_int_array(self):
+        """Test round-trip serialization for integer arrays via the element type."""
+
+        element_type = self.type_adapter._element_type
+        original = [42, -1, 0, 999]
+
+        serialized = [element_type._serialize_value(v) for v in original]
+        result = [element_type._deserialize_value(v) for v in serialized]
+
+        assert result == original
+
+    def test_serialize_deserialize_roundtrip_mixed_types(self):
+        """Test round-trip serialization for mixed-type arrays."""
+
+        element_type = self.type_adapter._element_type
+        original = [42, "hello", 3.14, True, Decimal("99.99")]
+
+        serialized = [element_type._serialize_value(v) for v in original]
+        result = [element_type._deserialize_value(v) for v in serialized]
+
+        assert result == original
+
+    def test_serialize_deserialize_roundtrip_date_array(self):
+        """Test round-trip serialization for date arrays."""
+
+        element_type = self.type_adapter._element_type
+        original = [date(2025, 1, 1), date(2025, 12, 31)]
+
+        serialized = [element_type._serialize_value(v) for v in original]
+        result = [element_type._deserialize_value(v) for v in serialized]
+
+        assert result == original
+
+    def test_serialize_deserialize_roundtrip_uuid_array(self):
+        """Test round-trip serialization for UUID arrays."""
+
+        element_type = self.type_adapter._element_type
+        original = [UUID("12345678-1234-5678-1234-567812345678"), UUID("87654321-4321-8765-4321-876543218765")]
+
+        serialized = [element_type._serialize_value(v) for v in original]
+        result = [element_type._deserialize_value(v) for v in serialized]
+
+        assert result == original
+
+    def test_serialize_deserialize_roundtrip_single_element(self):
+        """Test round-trip serialization for a single-element array."""
+
+        element_type = self.type_adapter._element_type
+        original = ["only one"]
+
+        serialized = [element_type._serialize_value(v) for v in original]
+        result = [element_type._deserialize_value(v) for v in serialized]
+
+        assert result == original
