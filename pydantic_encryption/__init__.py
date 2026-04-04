@@ -18,7 +18,11 @@ from pydantic_encryption.types import (
 if TYPE_CHECKING:
     from pydantic_encryption.adapters.encryption.aws import AWSAdapter
     from pydantic_encryption.adapters.encryption.evervault import EvervaultAdapter
-    from pydantic_encryption.integrations.sqlalchemy import SQLAlchemyEncrypted, SQLAlchemyHashed
+    from pydantic_encryption.integrations.sqlalchemy import (
+        SQLAlchemyEncrypted,
+        SQLAlchemyPGEncryptedArray,
+        SQLAlchemyHashed,
+    )
 
 
 def __getattr__(name: str):
@@ -26,6 +30,11 @@ def __getattr__(name: str):
         from pydantic_encryption.integrations.sqlalchemy import SQLAlchemyEncrypted
 
         return SQLAlchemyEncrypted
+
+    if name == "SQLAlchemyPGEncryptedArray":
+        from pydantic_encryption.integrations.sqlalchemy import SQLAlchemyPGEncryptedArray
+
+        return SQLAlchemyPGEncryptedArray
 
     if name == "SQLAlchemyHashed":
         from pydantic_encryption.integrations.sqlalchemy import SQLAlchemyHashed
@@ -68,5 +77,6 @@ __all__ = [
     "EvervaultAdapter",
     # SQLAlchemy (optional - lazy loaded)
     "SQLAlchemyEncrypted",
+    "SQLAlchemyPGEncryptedArray",
     "SQLAlchemyHashed",
 ]

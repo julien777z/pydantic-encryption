@@ -9,7 +9,7 @@ from pydantic_encryption._lazy import require_optional_dependency
 
 require_optional_dependency("sqlalchemy", "sqlalchemy")
 
-from sqlalchemy.types import LargeBinary, TypeDecorator
+from sqlalchemy.types import ARRAY, LargeBinary, TypeDecorator
 
 from pydantic_encryption.adapters import encryption, hashing
 from pydantic_encryption.config import settings
@@ -172,6 +172,58 @@ class SQLAlchemyEncrypted(TypeDecorator):
         """Return the Python type this is bound to."""
 
         return self.impl.python_type
+
+
+class SQLAlchemyPGEncryptedArray(TypeDecorator):
+    """Type adapter for SQLAlchemy to encrypt and decrypt arrays using the specified encryption method.
+
+    Each element in the array is individually encrypted/decrypted. This type uses PostgreSQL's
+    native ARRAY(LargeBinary) column type, so it requires a PostgreSQL backend.
+    """
+
+    impl = ARRAY(LargeBinary)
+    cache_ok = True
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._element_type = SQLAlchemyEncrypted()
+
+    def process_bind_param(self, value: list[EncryptableValue] | None, dialect) -> list[bytes] | None:
+        """Encrypts each element in the array before binding to the database."""
+
+        if value is None:
+            return None
+
+        return [self._element_type._process_encrypt_value(element) for element in value]
+
+    def process_literal_param(self, value: list[EncryptableValue] | None, dialect) -> list[bytes] | None:
+        """Encrypts each element in the array for literal SQL expressions."""
+
+        if value is None:
+            return None
+
+        return [self._element_type._process_encrypt_value(element) for element in value]
+
+    def process_result_value(self, value: list[bytes] | None, dialect) -> list[EncryptableValue] | None:
+        """Decrypts each element in the array after retrieving from the database."""
+
+        if value is None:
+            return None
+
+        result = []
+        for element in value:
+            if element is None:
+                result.append(None)
+            else:
+                decrypted = self._element_type._process_decrypt_value(element)
+                result.append(self._element_type._deserialize_value(decrypted))
+        return result
+
+    @property
+    def python_type(self):
+        """Return the Python type this is bound to."""
+
+        return list
 
 
 class SQLAlchemyHashed(TypeDecorator):
