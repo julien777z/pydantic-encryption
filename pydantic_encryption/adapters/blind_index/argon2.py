@@ -11,6 +11,9 @@ class Argon2BlindIndexAdapter(BlindIndexAdapter):
     def compute_blind_index(cls, value: str | bytes, key: bytes) -> BlindIndexValue:
         """Compute a deterministic Argon2 blind index."""
 
+        if isinstance(value, BlindIndexValue):
+            return value
+
         from argon2.low_level import Type as Argon2Type
         from argon2.low_level import hash_secret_raw
 

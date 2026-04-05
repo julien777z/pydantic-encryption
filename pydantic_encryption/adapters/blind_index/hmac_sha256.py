@@ -12,6 +12,9 @@ class HMACSHA256Adapter(BlindIndexAdapter):
     def compute_blind_index(cls, value: str | bytes, key: bytes) -> BlindIndexValue:
         """Compute a deterministic HMAC-SHA256 blind index."""
 
+        if isinstance(value, BlindIndexValue):
+            return value
+
         if isinstance(value, str):
             value = value.encode("utf-8")
 

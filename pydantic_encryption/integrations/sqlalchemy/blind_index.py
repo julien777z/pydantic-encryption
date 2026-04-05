@@ -73,19 +73,25 @@ class SQLAlchemyBlindIndexValue(TypeDecorator):
             case _:
                 raise ValueError(f"Unknown blind index method: {self.method}")
 
-    def process_bind_param(self, value: str | bytes | None, dialect) -> bytes | None:
+    def process_bind_param(self, value: str | bytes | BlindIndexValue | None, dialect) -> bytes | None:
         """Computes the blind index before binding to the database."""
 
         if value is None:
             return None
 
+        if isinstance(value, BlindIndexValue):
+            return value
+
         return self._compute_blind_index(value)
 
-    def process_literal_param(self, value: str | bytes | None, dialect) -> bytes | None:
+    def process_literal_param(self, value: str | bytes | BlindIndexValue | None, dialect) -> bytes | None:
         """Computes the blind index for literal SQL expressions."""
 
         if value is None:
             return None
+
+        if isinstance(value, BlindIndexValue):
+            return value
 
         return self._compute_blind_index(value)
 
