@@ -88,9 +88,12 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
             case _:
                 return data
 
-    def _process_encrypt_value(self, value: EncryptableValue | None) -> EncryptedValue | None:
+    def _process_encrypt_value(self, value: EncryptableValue | EncryptedValue | None) -> EncryptedValue | None:
         if value is None:
             return None
+
+        if isinstance(value, EncryptedValue):
+            return value
 
         if settings.ENCRYPTION_METHOD is None:
             raise ValueError("ENCRYPTION_METHOD must be set to use SQLAlchemyEncryptedValue.")

@@ -52,6 +52,18 @@ class TestSQLAlchemyBlindIndexValueHMAC:
         literal_result = self.type_adapter.process_literal_param("test@example.com", None)
         assert bind_result == literal_result
 
+    def test_process_bind_param_already_indexed_returns_same(self):
+        result = self.type_adapter.process_bind_param("test@example.com", None)
+        blind_index_value = BlindIndexValue(result)
+        double_indexed = self.type_adapter.process_bind_param(blind_index_value, None)
+        assert result == double_indexed
+
+    def test_process_literal_param_already_indexed_returns_same(self):
+        result = self.type_adapter.process_literal_param("test@example.com", None)
+        blind_index_value = BlindIndexValue(result)
+        double_indexed = self.type_adapter.process_literal_param(blind_index_value, None)
+        assert result == double_indexed
+
     def test_process_literal_param_none_returns_none(self):
         assert self.type_adapter.process_literal_param(None, None) is None
 

@@ -1,8 +1,9 @@
 import pytest
 
+from pydantic_encryption.adapters.blind_index.hmac_sha256 import HMACSHA256Adapter
 from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
 from pydantic_encryption.adapters.hashing.argon2 import Argon2Adapter
-from pydantic_encryption.types import DecryptedValue, EncryptedValue, HashedValue
+from pydantic_encryption.types import BlindIndexValue, DecryptedValue, EncryptedValue, HashedValue
 
 
 class TestFernetAdapter:
@@ -147,5 +148,44 @@ class TestArgon2Adapter:
 
         assert isinstance(hashed, HashedValue)
         assert hashed.hashed is True
+
+
+class TestHMACSHA256Adapter:
+    """Test HMACSHA256Adapter blind indexing."""
+
+    TEST_KEY = b"test-secret-key"
+
+    def test_compute_blind_index_string(self):
+        result = HMACSHA256Adapter.compute_blind_index("test@example.com", self.TEST_KEY)
+        assert isinstance(result, BlindIndexValue)
+        assert result.blind_indexed is True
+        assert len(result) == 32
+
+    def test_compute_blind_index_bytes(self):
+        result = HMACSHA256Adapter.compute_blind_index(b"test@example.com", self.TEST_KEY)
+        assert isinstance(result, BlindIndexValue)
+
+    def test_compute_blind_index_deterministic(self):
+        result1 = HMACSHA256Adapter.compute_blind_index("test", self.TEST_KEY)
+        result2 = HMACSHA256Adapter.compute_blind_index("test", self.TEST_KEY)
+        assert result1 == result2
+
+    def test_compute_blind_index_already_indexed_returns_same(self):
+        result = HMACSHA256Adapter.compute_blind_index("test", self.TEST_KEY)
+        double_indexed = HMACSHA256Adapter.compute_blind_index(result, self.TEST_KEY)
+        assert result == double_indexed
+
+
+class TestArgon2BlindIndexAdapter:
+    """Test Argon2BlindIndexAdapter blind indexing."""
+
+    TEST_KEY = b"test-secret-key"
+
+    def test_compute_blind_index_already_indexed_returns_same(self):
+        from pydantic_encryption.adapters.blind_index.argon2 import Argon2BlindIndexAdapter
+
+        result = Argon2BlindIndexAdapter.compute_blind_index("test", self.TEST_KEY)
+        double_indexed = Argon2BlindIndexAdapter.compute_blind_index(result, self.TEST_KEY)
+        assert result == double_indexed
 
 

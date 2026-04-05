@@ -324,3 +324,31 @@ class TestSerializeDeserializeRoundTrip:
         result = self.type_adapter._deserialize_value(self.type_adapter._serialize_value(original))
         assert result == original
         assert isinstance(result, UUID)
+
+
+class TestEncryptionIdempotency:
+    """Test that already-encrypted values are not re-encrypted."""
+
+    def setup_method(self):
+        self.type_adapter = SQLAlchemyEncryptedValue()
+
+    def test_process_encrypt_value_already_encrypted_returns_same(self):
+        from pydantic_encryption.types import EncryptedValue
+
+        encrypted = self.type_adapter._process_encrypt_value("hello")
+        double_encrypted = self.type_adapter._process_encrypt_value(encrypted)
+        assert encrypted == double_encrypted
+
+    def test_process_bind_param_already_encrypted_returns_same(self):
+        from pydantic_encryption.types import EncryptedValue
+
+        encrypted = self.type_adapter.process_bind_param("hello", None)
+        double_encrypted = self.type_adapter.process_bind_param(EncryptedValue(encrypted), None)
+        assert encrypted == double_encrypted
+
+    def test_process_literal_param_already_encrypted_returns_same(self):
+        from pydantic_encryption.types import EncryptedValue
+
+        encrypted = self.type_adapter.process_literal_param("hello", None)
+        double_encrypted = self.type_adapter.process_literal_param(EncryptedValue(encrypted), None)
+        assert encrypted == double_encrypted
