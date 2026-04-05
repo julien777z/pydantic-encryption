@@ -20,11 +20,7 @@ class Argon2Adapter(HashingAdapter):
 
     @classmethod
     def hash(cls, value: str | bytes | HashedValue) -> HashedValue:
-        """Hash data using Argon2.
-
-        This function will not re-hash values that already have the 'hashed' flag set to True.
-        Otherwise, it will hash the value using Argon2 and return a HashedValue.
-        """
+        """Hash data using Argon2."""
 
         if isinstance(value, HashedValue):
             return value

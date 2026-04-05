@@ -1,8 +1,6 @@
 import base64
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
-from enum import StrEnum
-from typing import Final
 from uuid import UUID
 
 from pydantic_encryption._lazy import require_optional_dependency
@@ -11,115 +9,94 @@ require_optional_dependency("sqlalchemy", "sqlalchemy")
 
 from sqlalchemy.types import ARRAY, LargeBinary, TypeDecorator
 
-from pydantic_encryption.adapters import encryption, hashing
+from pydantic_encryption.adapters import encryption
 from pydantic_encryption.config import settings
-from pydantic_encryption.types import EncryptedValue, EncryptionMethod, HashedValue
-
-# Type alias for all supported encrypted value types
-EncryptableValue = str | bytes | bool | int | float | Decimal | UUID | date | datetime | time | timedelta
-
-_VERSION_PREFIX: Final[str] = "v1"
+from pydantic_encryption.integrations.sqlalchemy.shared import EncryptableValue, TypePrefix, VERSION_PREFIX
+from pydantic_encryption.types import EncryptedValue, EncryptionMethod
 
 
-class _TypePrefix(StrEnum):
-    """Type prefixes for auto-detection of encrypted field types."""
-
-    STR = "str"
-    BYTES = "bytes"
-    BOOL = "bool"
-    INT = "int"
-    FLOAT = "float"
-    DECIMAL = "decimal"
-    UUID = "uuid"
-    DATE = "date"
-    DATETIME = "datetime"
-    TIME = "time"
-    TIMEDELTA = "timedelta"
-
-
-class SQLAlchemyEncrypted(TypeDecorator):
+class SQLAlchemyEncryptedValue(TypeDecorator):
     """Type adapter for SQLAlchemy to encrypt and decrypt data using the specified encryption method."""
 
     impl = LargeBinary
     cache_ok = True
 
     def _serialize_value(self, value: EncryptableValue) -> str:
-        """Serialize a value with version and type prefix for encryption.
-
-        Format: "v1:type:data"
-        """
+        """Serialize a value with version and type prefix for encryption."""
         match value:
             case datetime():
-                type_data = f"{_TypePrefix.DATETIME}:{value.isoformat()}"
+                type_data = f"{TypePrefix.DATETIME}:{value.isoformat()}"
             case date():
-                type_data = f"{_TypePrefix.DATE}:{value.isoformat()}"
+                type_data = f"{TypePrefix.DATE}:{value.isoformat()}"
             case time():
-                type_data = f"{_TypePrefix.TIME}:{value.isoformat()}"
+                type_data = f"{TypePrefix.TIME}:{value.isoformat()}"
             case timedelta():
-                type_data = f"{_TypePrefix.TIMEDELTA}:{value.days},{value.seconds},{value.microseconds}"
+                type_data = f"{TypePrefix.TIMEDELTA}:{value.days},{value.seconds},{value.microseconds}"
             case bytes():
-                type_data = f"{_TypePrefix.BYTES}:{base64.b64encode(value).decode('ascii')}"
+                type_data = f"{TypePrefix.BYTES}:{base64.b64encode(value).decode('ascii')}"
             case bool():
-                type_data = f"{_TypePrefix.BOOL}:{str(value).lower()}"
+                type_data = f"{TypePrefix.BOOL}:{str(value).lower()}"
             case int():
-                type_data = f"{_TypePrefix.INT}:{value}"
+                type_data = f"{TypePrefix.INT}:{value}"
             case float():
-                type_data = f"{_TypePrefix.FLOAT}:{value!r}"
+                type_data = f"{TypePrefix.FLOAT}:{value!r}"
             case Decimal():
-                type_data = f"{_TypePrefix.DECIMAL}:{value}"
+                type_data = f"{TypePrefix.DECIMAL}:{value}"
             case UUID():
-                type_data = f"{_TypePrefix.UUID}:{value}"
+                type_data = f"{TypePrefix.UUID}:{value}"
             case _:
-                type_data = f"{_TypePrefix.STR}:{value}"
+                type_data = f"{TypePrefix.STR}:{value}"
 
-        return f"{_VERSION_PREFIX}:{type_data}"
+        return f"{VERSION_PREFIX}:{type_data}"
 
     def _deserialize_value(self, value: str) -> EncryptableValue:
-        """Deserialize a decrypted value based on its version and type prefix.
-
-        Format: "v1:type:data"
-        If no version marker is present, returns the value as a string (legacy format).
-        """
+        """Deserialize a decrypted value based on its version and type prefix."""
         version, _, remainder = value.partition(":")
 
         if not version:
             return value
 
-        if version != _VERSION_PREFIX:
+        if version != VERSION_PREFIX:
             raise RuntimeError("Unknown version")
 
         type_prefix, _, data = remainder.partition(":")
 
         match type_prefix:
-            case _TypePrefix.DATETIME:
+            case TypePrefix.DATETIME:
                 return datetime.fromisoformat(data)
-            case _TypePrefix.DATE:
+            case TypePrefix.DATE:
                 return date.fromisoformat(data)
-            case _TypePrefix.TIME:
+            case TypePrefix.TIME:
                 return time.fromisoformat(data)
-            case _TypePrefix.TIMEDELTA:
+            case TypePrefix.TIMEDELTA:
                 parts = data.split(",")
                 return timedelta(days=int(parts[0]), seconds=int(parts[1]), microseconds=int(parts[2]))
-            case _TypePrefix.BYTES:
+            case TypePrefix.BYTES:
                 return base64.b64decode(data)
-            case _TypePrefix.BOOL:
+            case TypePrefix.BOOL:
                 return data == "true"
-            case _TypePrefix.INT:
+            case TypePrefix.INT:
                 return int(data)
-            case _TypePrefix.FLOAT:
+            case TypePrefix.FLOAT:
                 return float(data)
-            case _TypePrefix.DECIMAL:
+            case TypePrefix.DECIMAL:
                 return Decimal(data)
-            case _TypePrefix.UUID:
+            case TypePrefix.UUID:
                 return UUID(data)
-            case _TypePrefix.STR:
+            case TypePrefix.STR:
                 return data
             case _:
                 return data
 
-    def _process_encrypt_value(self, value: EncryptableValue | None) -> EncryptedValue | None:
+    def _process_encrypt_value(self, value: EncryptableValue | EncryptedValue | None) -> EncryptedValue | None:
         if value is None:
             return None
+
+        if isinstance(value, EncryptedValue):
+            return value
+
+        if settings.ENCRYPTION_METHOD is None:
+            raise ValueError("ENCRYPTION_METHOD must be set to use SQLAlchemyEncryptedValue.")
 
         serialized_value = self._serialize_value(value)
 
@@ -136,6 +113,9 @@ class SQLAlchemyEncrypted(TypeDecorator):
     def _process_decrypt_value(self, value: str | bytes | None) -> str | bytes | None:
         if value is None:
             return None
+
+        if settings.ENCRYPTION_METHOD is None:
+            raise ValueError("ENCRYPTION_METHOD must be set to use SQLAlchemyEncryptedValue.")
 
         match settings.ENCRYPTION_METHOD:
             case EncryptionMethod.FERNET:
@@ -175,18 +155,14 @@ class SQLAlchemyEncrypted(TypeDecorator):
 
 
 class SQLAlchemyPGEncryptedArray(TypeDecorator):
-    """Type adapter for SQLAlchemy to encrypt and decrypt arrays using the specified encryption method.
-
-    Each element in the array is individually encrypted/decrypted. This type uses PostgreSQL's
-    native ARRAY(LargeBinary) column type, so it requires a PostgreSQL backend.
-    """
+    """Type adapter for SQLAlchemy to encrypt and decrypt arrays."""
 
     impl = ARRAY(LargeBinary)
     cache_ok = True
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._element_type = SQLAlchemyEncrypted()
+        self._element_type = SQLAlchemyEncryptedValue()
 
     def process_bind_param(self, value: list[EncryptableValue] | None, dialect) -> list[bytes] | None:
         """Encrypts each element in the array before binding to the database."""
@@ -224,42 +200,3 @@ class SQLAlchemyPGEncryptedArray(TypeDecorator):
         """Return the Python type this is bound to."""
 
         return list
-
-
-class SQLAlchemyHashed(TypeDecorator):
-    """Type adapter for SQLAlchemy to hash strings using Argon2."""
-
-    impl = LargeBinary
-    cache_ok = True
-
-    def process_bind_param(self, value: str | bytes | None, dialect) -> bytes | None:
-        """Hashes a string before binding it to the database."""
-
-        if value is None:
-            return None
-
-        return hashing.argon2.Argon2Adapter.hash(value)
-
-    def process_literal_param(self, value: str | bytes | None, dialect) -> HashedValue | None:
-        """Hashes a string for literal SQL expressions."""
-
-        if value is None:
-            return None
-
-        processed = hashing.argon2.Argon2Adapter.hash(value)
-
-        return dialect.literal_processor(self.impl)(processed)
-
-    def process_result_value(self, value: str | bytes | None, dialect) -> HashedValue | None:
-        """Returns the hash value as-is from the database, wrapped as a HashedValue."""
-
-        if value is None:
-            return None
-
-        return HashedValue(value)
-
-    @property
-    def python_type(self):
-        """Return the Python type this is bound to (str)."""
-
-        return self.impl.python_type

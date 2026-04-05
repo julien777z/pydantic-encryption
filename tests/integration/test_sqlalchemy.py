@@ -5,6 +5,8 @@ from typing import Final
 
 from sqlalchemy.orm import Session
 
+from pydantic_encryption.types import BlindIndexValue
+
 from tests.integration.database import User
 
 TEST_PASSWORD: Final[str] = "pass123"
@@ -39,6 +41,8 @@ class TestIntegrationSQLAlchemy:
         login_time: time | None = None,
         session_duration: timedelta | None = None,
         tags: list[str] | None = None,
+        blind_index_email: str | None = None,
+        blind_index_email_argon2: str | None = None,
     ) -> User:
         """Create a user."""
 
@@ -57,6 +61,8 @@ class TestIntegrationSQLAlchemy:
             login_time=login_time,
             session_duration=session_duration,
             tags=tags,
+            blind_index_email=blind_index_email,
+            blind_index_email_argon2=blind_index_email_argon2,
         )
         db_session.add(user)
         db_session.commit()
@@ -64,7 +70,7 @@ class TestIntegrationSQLAlchemy:
         return db_session.query(User).filter_by(username=username).first()
 
     def test_secure_fields(self, db_session: Session):
-        """Test encrypting and hashing fields with the SQLAlchemyEncrypted and SQLAlchemyHashed types."""
+        """Test encrypting and hashing fields with the SQLAlchemyEncryptedValue and SQLAlchemyHashed types."""
 
         user = self._create_user(db_session, username="user1", password=TEST_PASSWORD)
 
@@ -300,3 +306,77 @@ class TestIntegrationSQLAlchemy:
         )
 
         assert user.tags == ["only"]
+
+    def test_blind_index_hmac_stored_and_retrieved(self, db_session: Session):
+        """Test that HMAC-SHA256 blind index is stored and retrieved correctly."""
+
+        user = self._create_user(
+            db_session, username="user25", password=TEST_PASSWORD, blind_index_email=TEST_EMAIL
+        )
+
+        assert user.blind_index_email is not None
+        assert isinstance(user.blind_index_email, BlindIndexValue)
+        assert len(user.blind_index_email) == 32
+
+    def test_blind_index_argon2_stored_and_retrieved(self, db_session: Session):
+        """Test that Argon2 blind index is stored and retrieved correctly."""
+
+        user = self._create_user(
+            db_session, username="user26", password=TEST_PASSWORD, blind_index_email_argon2=TEST_EMAIL
+        )
+
+        assert user.blind_index_email_argon2 is not None
+        assert isinstance(user.blind_index_email_argon2, BlindIndexValue)
+        assert len(user.blind_index_email_argon2) == 32
+
+    def test_blind_index_none_handling(self, db_session: Session):
+        """Test that None blind index values are handled correctly."""
+
+        user = self._create_user(
+            db_session, username="user27", password=TEST_PASSWORD
+        )
+
+        assert user.blind_index_email is None
+        assert user.blind_index_email_argon2 is None
+
+    def test_blind_index_deterministic_query(self, db_session: Session):
+        """Test that blind index enables deterministic querying."""
+
+        unique_email = "blind-index-query-test@example.com"
+
+        self._create_user(
+            db_session, username="user28", password=TEST_PASSWORD, blind_index_email=unique_email
+        )
+
+        # Query using the same plaintext value — SQLAlchemy's TypeDecorator
+        # will hash it via process_bind_param, producing the same blind index
+        found_user = db_session.query(User).filter(
+            User.blind_index_email == unique_email
+        ).first()
+
+        assert found_user is not None
+        assert found_user.username == "user28"
+
+    def test_blind_index_different_emails_produce_different_indexes(self, db_session: Session):
+        """Test that different emails produce different blind indexes."""
+
+        user1 = self._create_user(
+            db_session, username="user29", password=TEST_PASSWORD, blind_index_email="alice@example.com"
+        )
+        user2 = self._create_user(
+            db_session, username="user30", password=TEST_PASSWORD, blind_index_email="bob@example.com"
+        )
+
+        assert user1.blind_index_email != user2.blind_index_email
+
+    def test_blind_index_same_email_produces_same_index(self, db_session: Session):
+        """Test that the same email produces the same blind index across rows."""
+
+        user1 = self._create_user(
+            db_session, username="user31", password=TEST_PASSWORD, blind_index_email="same@example.com"
+        )
+        user2 = self._create_user(
+            db_session, username="user32", password=TEST_PASSWORD, blind_index_email="same@example.com"
+        )
+
+        assert user1.blind_index_email == user2.blind_index_email
