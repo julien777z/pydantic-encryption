@@ -215,7 +215,7 @@ Available options:
 | `BlindIndexMethod.HMAC_SHA256` | Fast HMAC-SHA256 keyed hash. Standard choice. |
 | `BlindIndexMethod.ARGON2` | Memory-hard Argon2 hash with deterministic salt. Better brute-force resistance. |
 
-## Disable Auto Processing
+## Disable Auto-Processing
 
 ```python
 class UserResponse(BaseModel, disable=True):
