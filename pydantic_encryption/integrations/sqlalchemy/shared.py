@@ -8,10 +8,10 @@ from uuid import UUID
 # Type alias for all supported encrypted value types
 EncryptableValue = str | bytes | bool | int | float | Decimal | UUID | date | datetime | time | timedelta
 
-_VERSION_PREFIX: Final[str] = "v1"
+VERSION_PREFIX: Final[str] = "v1"
 
 
-class _TypePrefix(StrEnum):
+class TypePrefix(StrEnum):
     """Type prefixes for auto-detection of encrypted field types."""
 
     STR = "str"

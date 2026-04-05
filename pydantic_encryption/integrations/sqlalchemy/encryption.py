@@ -11,7 +11,7 @@ from sqlalchemy.types import ARRAY, LargeBinary, TypeDecorator
 
 from pydantic_encryption.adapters import encryption
 from pydantic_encryption.config import settings
-from pydantic_encryption.integrations.sqlalchemy._shared import EncryptableValue, _TypePrefix, _VERSION_PREFIX
+from pydantic_encryption.integrations.sqlalchemy.shared import EncryptableValue, TypePrefix, VERSION_PREFIX
 from pydantic_encryption.types import EncryptedValue, EncryptionMethod
 
 
@@ -28,29 +28,29 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
         """
         match value:
             case datetime():
-                type_data = f"{_TypePrefix.DATETIME}:{value.isoformat()}"
+                type_data = f"{TypePrefix.DATETIME}:{value.isoformat()}"
             case date():
-                type_data = f"{_TypePrefix.DATE}:{value.isoformat()}"
+                type_data = f"{TypePrefix.DATE}:{value.isoformat()}"
             case time():
-                type_data = f"{_TypePrefix.TIME}:{value.isoformat()}"
+                type_data = f"{TypePrefix.TIME}:{value.isoformat()}"
             case timedelta():
-                type_data = f"{_TypePrefix.TIMEDELTA}:{value.days},{value.seconds},{value.microseconds}"
+                type_data = f"{TypePrefix.TIMEDELTA}:{value.days},{value.seconds},{value.microseconds}"
             case bytes():
-                type_data = f"{_TypePrefix.BYTES}:{base64.b64encode(value).decode('ascii')}"
+                type_data = f"{TypePrefix.BYTES}:{base64.b64encode(value).decode('ascii')}"
             case bool():
-                type_data = f"{_TypePrefix.BOOL}:{str(value).lower()}"
+                type_data = f"{TypePrefix.BOOL}:{str(value).lower()}"
             case int():
-                type_data = f"{_TypePrefix.INT}:{value}"
+                type_data = f"{TypePrefix.INT}:{value}"
             case float():
-                type_data = f"{_TypePrefix.FLOAT}:{value!r}"
+                type_data = f"{TypePrefix.FLOAT}:{value!r}"
             case Decimal():
-                type_data = f"{_TypePrefix.DECIMAL}:{value}"
+                type_data = f"{TypePrefix.DECIMAL}:{value}"
             case UUID():
-                type_data = f"{_TypePrefix.UUID}:{value}"
+                type_data = f"{TypePrefix.UUID}:{value}"
             case _:
-                type_data = f"{_TypePrefix.STR}:{value}"
+                type_data = f"{TypePrefix.STR}:{value}"
 
-        return f"{_VERSION_PREFIX}:{type_data}"
+        return f"{VERSION_PREFIX}:{type_data}"
 
     def _deserialize_value(self, value: str) -> EncryptableValue:
         """Deserialize a decrypted value based on its version and type prefix.
@@ -63,34 +63,34 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
         if not version:
             return value
 
-        if version != _VERSION_PREFIX:
+        if version != VERSION_PREFIX:
             raise RuntimeError("Unknown version")
 
         type_prefix, _, data = remainder.partition(":")
 
         match type_prefix:
-            case _TypePrefix.DATETIME:
+            case TypePrefix.DATETIME:
                 return datetime.fromisoformat(data)
-            case _TypePrefix.DATE:
+            case TypePrefix.DATE:
                 return date.fromisoformat(data)
-            case _TypePrefix.TIME:
+            case TypePrefix.TIME:
                 return time.fromisoformat(data)
-            case _TypePrefix.TIMEDELTA:
+            case TypePrefix.TIMEDELTA:
                 parts = data.split(",")
                 return timedelta(days=int(parts[0]), seconds=int(parts[1]), microseconds=int(parts[2]))
-            case _TypePrefix.BYTES:
+            case TypePrefix.BYTES:
                 return base64.b64decode(data)
-            case _TypePrefix.BOOL:
+            case TypePrefix.BOOL:
                 return data == "true"
-            case _TypePrefix.INT:
+            case TypePrefix.INT:
                 return int(data)
-            case _TypePrefix.FLOAT:
+            case TypePrefix.FLOAT:
                 return float(data)
-            case _TypePrefix.DECIMAL:
+            case TypePrefix.DECIMAL:
                 return Decimal(data)
-            case _TypePrefix.UUID:
+            case TypePrefix.UUID:
                 return UUID(data)
-            case _TypePrefix.STR:
+            case TypePrefix.STR:
                 return data
             case _:
                 return data
@@ -100,10 +100,7 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
             return None
 
         if settings.ENCRYPTION_METHOD is None:
-            raise ValueError(
-                "ENCRYPTION_METHOD must be set to use SQLAlchemyEncryptedValue. "
-                "Set it via environment variable or .env file (e.g. ENCRYPTION_METHOD=fernet)."
-            )
+            raise ValueError("ENCRYPTION_METHOD must be set to use SQLAlchemyEncryptedValue.")
 
         serialized_value = self._serialize_value(value)
 
@@ -122,10 +119,7 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
             return None
 
         if settings.ENCRYPTION_METHOD is None:
-            raise ValueError(
-                "ENCRYPTION_METHOD must be set to use SQLAlchemyEncryptedValue. "
-                "Set it via environment variable or .env file (e.g. ENCRYPTION_METHOD=fernet)."
-            )
+            raise ValueError("ENCRYPTION_METHOD must be set to use SQLAlchemyEncryptedValue.")
 
         match settings.ENCRYPTION_METHOD:
             case EncryptionMethod.FERNET:

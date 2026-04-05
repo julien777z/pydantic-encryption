@@ -4,7 +4,7 @@ from pydantic_super_model import AnnotatedFieldInfo, SuperModel
 
 from pydantic_encryption.adapters import blind_index, encryption, hashing
 from pydantic_encryption.config import settings
-from pydantic_encryption.normalization import strip_value
+from pydantic_encryption.normalization import normalize_value
 from pydantic_encryption.types import BlindIndex, BlindIndexMethod, Decrypt, Encrypt, EncryptionMethod, Hash
 
 __all__ = ["BaseModel", "SecureModel"]
@@ -42,10 +42,7 @@ class SecureModel:
         encryption_fields = self._get_field_values(self.pending_encryption_fields)
 
         if settings.ENCRYPTION_METHOD is None:
-            raise ValueError(
-                "ENCRYPTION_METHOD must be set to use Encrypt fields. "
-                "Set it via environment variable or .env file (e.g. ENCRYPTION_METHOD=fernet)."
-            )
+            raise ValueError("ENCRYPTION_METHOD must be set to use Encrypt fields.")
 
         match settings.ENCRYPTION_METHOD:
             case EncryptionMethod.EVERVAULT:
@@ -79,10 +76,7 @@ class SecureModel:
         decryption_fields = self._get_field_values(self.pending_decryption_fields)
 
         if settings.ENCRYPTION_METHOD is None:
-            raise ValueError(
-                "ENCRYPTION_METHOD must be set to use Decrypt fields. "
-                "Set it via environment variable or .env file (e.g. ENCRYPTION_METHOD=fernet)."
-            )
+            raise ValueError("ENCRYPTION_METHOD must be set to use Decrypt fields.")
 
         match settings.ENCRYPTION_METHOD:
             case EncryptionMethod.EVERVAULT:
@@ -139,7 +133,7 @@ class SecureModel:
             if isinstance(value, bytes):
                 value = value.decode("utf-8")
 
-            value = strip_value(
+            value = normalize_value(
                 value,
                 strip_whitespace=annotation.strip_whitespace,
                 strip_non_characters=annotation.strip_non_characters,

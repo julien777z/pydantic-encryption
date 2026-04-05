@@ -6,7 +6,7 @@ from sqlalchemy.types import LargeBinary, TypeDecorator
 
 from pydantic_encryption.adapters.blind_index.hmac_sha256 import HMACSHA256Adapter
 from pydantic_encryption.config import settings
-from pydantic_encryption.normalization import strip_value
+from pydantic_encryption.normalization import normalize_value
 from pydantic_encryption.types import BlindIndexMethod, BlindIndexValue
 
 
@@ -56,7 +56,7 @@ class SQLAlchemyBlindIndexValue(TypeDecorator):
         if isinstance(value, bytes):
             return value
 
-        return strip_value(
+        return normalize_value(
             value,
             strip_whitespace=self.strip_whitespace,
             strip_non_characters=self.strip_non_characters,

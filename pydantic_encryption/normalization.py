@@ -1,7 +1,7 @@
 import re
 
 
-def strip_value(
+def normalize_value(
     value: str,
     *,
     strip_whitespace: bool = False,
