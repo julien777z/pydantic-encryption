@@ -5,7 +5,7 @@ from pydantic_super_model import AnnotatedFieldInfo, SuperModel
 from pydantic_encryption.adapters import blind_index, encryption, hashing
 from pydantic_encryption.config import settings
 from pydantic_encryption.normalization import normalize_value
-from pydantic_encryption.types import BlindIndex, BlindIndexMethod, Decrypt, Encrypt, EncryptionMethod, Hash
+from pydantic_encryption.types import BlindIndex, BlindIndexMethod, BlindIndexValue, Decrypt, Encrypt, EncryptionMethod, Hash
 
 __all__ = ["BaseModel", "SecureModel"]
 
@@ -127,6 +127,9 @@ class SecureModel:
 
             annotation = annotated_field.matched_metadata[0]
             value = annotated_field.value
+
+            if isinstance(value, BlindIndexValue):
+                continue
 
             # Pydantic may convert str to bytes for bytes-typed fields,
             # so decode back to str for normalization

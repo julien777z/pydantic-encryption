@@ -142,6 +142,17 @@ class TestBlindIndexAnnotationConfig:
         with pytest.raises(ValueError, match="strip_non_characters and strip_non_digits cannot both be True"):
             BlindIndex(BlindIndexMethod.HMAC_SHA256, strip_non_characters=True, strip_non_digits=True)
 
+    def test_already_indexed_value_not_rehashed(self):
+        class UserModel(BaseModel):
+            email_index: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
+
+        user1 = UserModel(email_index="test@example.com")
+        first_index = user1.email_index
+
+        # Simulate re-processing by creating a new model with the already-indexed value
+        user2 = UserModel(email_index=first_index)
+        assert user2.email_index == first_index
+
     def test_different_methods_produce_different_outputs(self):
         class UserModelHMAC(BaseModel):
             idx: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
