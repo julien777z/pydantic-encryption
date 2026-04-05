@@ -1,4 +1,3 @@
-import base64
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from enum import StrEnum
