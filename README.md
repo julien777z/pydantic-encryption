@@ -90,51 +90,6 @@ AWS_KMS_DECRYPT_KEY_ARN=arn:aws:kms:...decrypt-key
 
 See [config.py](https://github.com/julien777z/pydantic-encryption/blob/main/pydantic_encryption/config.py) for all environment variables.
 
-## Blind Indexes
-
-Blind indexes enable equality searches on encrypted data by storing a deterministic keyed hash alongside the ciphertext.
-
-### Pydantic Models
-
-```python
-from typing import Annotated
-from pydantic_encryption import BaseModel, BlindIndex, BlindIndexMethod
-
-class User(BaseModel):
-    email_index: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
-```
-
-### Normalization
-
-You can normalize values before hashing to ensure consistent lookups:
-
-```python
-email_index: Annotated[bytes, BlindIndex(
-    BlindIndexMethod.HMAC_SHA256,
-    normalize_to_lowercase=True,
-    strip_whitespace=True,
-)]
-```
-
-Available options:
-
-| Option | Effect |
-|--------|--------|
-| `strip_whitespace` | Strip leading/trailing whitespace, collapse internal whitespace |
-| `strip_non_characters` | Remove all non-letter characters (keep only a-zA-Z) |
-| `strip_non_digits` | Remove all non-digit characters (keep only 0-9) |
-| `normalize_to_lowercase` | Convert to lowercase |
-| `normalize_to_uppercase` | Convert to uppercase |
-
-### Methods
-
-| Method | Description |
-|--------|-------------|
-| `BlindIndexMethod.HMAC_SHA256` | Fast HMAC-SHA256 keyed hash. Standard choice. |
-| `BlindIndexMethod.ARGON2` | Memory-hard Argon2 hash with deterministic salt. Better brute-force resistance. |
-
-**Configuration:** Set `BLIND_INDEX_SECRET_KEY` via environment variable.
-
 ## SQLAlchemy Integration
 
 Install with `pip install "pydantic_encryption[sqlalchemy]"`.
@@ -214,6 +169,51 @@ tags: Mapped[list[str] | None] = mapped_column(SQLAlchemyPGEncryptedArray(), nul
 ```
 
 Each element is individually encrypted. Requires PostgreSQL.
+
+## Blind Indexes
+
+Blind indexes enable equality searches on encrypted data by storing a deterministic keyed hash alongside the ciphertext.
+
+**Configuration:** Set `BLIND_INDEX_SECRET_KEY` via environment variable.
+
+### Pydantic Models
+
+```python
+from typing import Annotated
+from pydantic_encryption import BaseModel, BlindIndex, BlindIndexMethod
+
+class User(BaseModel):
+    email_index: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
+```
+
+### Normalization
+
+You can normalize values before hashing to ensure consistent lookups:
+
+```python
+email_index: Annotated[bytes, BlindIndex(
+    BlindIndexMethod.HMAC_SHA256,
+    normalize_to_lowercase=True,
+    strip_whitespace=True,
+)]
+```
+
+Available options:
+
+| Option | Effect |
+|--------|--------|
+| `strip_whitespace` | Strip leading/trailing whitespace, collapse internal whitespace |
+| `strip_non_characters` | Remove all non-letter characters (keep only a-zA-Z) |
+| `strip_non_digits` | Remove all non-digit characters (keep only 0-9) |
+| `normalize_to_lowercase` | Convert to lowercase |
+| `normalize_to_uppercase` | Convert to uppercase |
+
+### Methods
+
+| Method | Description |
+|--------|-------------|
+| `BlindIndexMethod.HMAC_SHA256` | Fast HMAC-SHA256 keyed hash. Standard choice. |
+| `BlindIndexMethod.ARGON2` | Memory-hard Argon2 hash with deterministic salt. Better brute-force resistance. |
 
 ## Disable Auto Processing
 
