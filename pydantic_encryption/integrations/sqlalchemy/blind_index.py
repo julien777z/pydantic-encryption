@@ -29,6 +29,9 @@ class SQLAlchemyBlindIndexValue(TypeDecorator):
         if strip_non_characters and strip_non_digits:
             raise ValueError("strip_non_characters and strip_non_digits cannot both be True.")
 
+        if normalize_to_lowercase and normalize_to_uppercase:
+            raise ValueError("normalize_to_lowercase and normalize_to_uppercase cannot both be True.")
+
         super().__init__()
         self.method = method
         self.strip_whitespace = strip_whitespace

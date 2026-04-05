@@ -142,6 +142,10 @@ class TestBlindIndexAnnotationConfig:
         with pytest.raises(ValueError, match="strip_non_characters and strip_non_digits cannot both be True"):
             BlindIndex(BlindIndexMethod.HMAC_SHA256, strip_non_characters=True, strip_non_digits=True)
 
+    def test_conflicting_case_options_raises(self):
+        with pytest.raises(ValueError, match="normalize_to_lowercase and normalize_to_uppercase cannot both be True"):
+            BlindIndex(BlindIndexMethod.HMAC_SHA256, normalize_to_lowercase=True, normalize_to_uppercase=True)
+
     def test_already_indexed_value_not_rehashed(self):
         class UserModel(BaseModel):
             email_index: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
