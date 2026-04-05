@@ -1,10 +1,6 @@
 import base64
-import hashlib
-import hmac
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
-from enum import StrEnum
-from typing import Final
 from uuid import UUID
 
 from pydantic_encryption._lazy import require_optional_dependency
@@ -13,30 +9,10 @@ require_optional_dependency("sqlalchemy", "sqlalchemy")
 
 from sqlalchemy.types import ARRAY, LargeBinary, TypeDecorator
 
-from pydantic_encryption.adapters import encryption, hashing
+from pydantic_encryption.adapters import encryption
 from pydantic_encryption.config import settings
-from pydantic_encryption.types import BlindIndexMethod, BlindIndexValue, EncryptedValue, EncryptionMethod, HashedValue
-
-# Type alias for all supported encrypted value types
-EncryptableValue = str | bytes | bool | int | float | Decimal | UUID | date | datetime | time | timedelta
-
-_VERSION_PREFIX: Final[str] = "v1"
-
-
-class _TypePrefix(StrEnum):
-    """Type prefixes for auto-detection of encrypted field types."""
-
-    STR = "str"
-    BYTES = "bytes"
-    BOOL = "bool"
-    INT = "int"
-    FLOAT = "float"
-    DECIMAL = "decimal"
-    UUID = "uuid"
-    DATE = "date"
-    DATETIME = "datetime"
-    TIME = "time"
-    TIMEDELTA = "timedelta"
+from pydantic_encryption.integrations.sqlalchemy._shared import EncryptableValue, _TypePrefix, _VERSION_PREFIX
+from pydantic_encryption.types import EncryptedValue, EncryptionMethod
 
 
 class SQLAlchemyEncryptedValue(TypeDecorator):
@@ -123,6 +99,12 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
         if value is None:
             return None
 
+        if settings.ENCRYPTION_METHOD is None:
+            raise ValueError(
+                "ENCRYPTION_METHOD must be set to use SQLAlchemyEncryptedValue. "
+                "Set it via environment variable or .env file (e.g. ENCRYPTION_METHOD=fernet)."
+            )
+
         serialized_value = self._serialize_value(value)
 
         match settings.ENCRYPTION_METHOD:
@@ -138,6 +120,12 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
     def _process_decrypt_value(self, value: str | bytes | None) -> str | bytes | None:
         if value is None:
             return None
+
+        if settings.ENCRYPTION_METHOD is None:
+            raise ValueError(
+                "ENCRYPTION_METHOD must be set to use SQLAlchemyEncryptedValue. "
+                "Set it via environment variable or .env file (e.g. ENCRYPTION_METHOD=fernet)."
+            )
 
         match settings.ENCRYPTION_METHOD:
             case EncryptionMethod.FERNET:
@@ -226,127 +214,3 @@ class SQLAlchemyPGEncryptedArray(TypeDecorator):
         """Return the Python type this is bound to."""
 
         return list
-
-
-class SQLAlchemyHashed(TypeDecorator):
-    """Type adapter for SQLAlchemy to hash strings using Argon2."""
-
-    impl = LargeBinary
-    cache_ok = True
-
-    def process_bind_param(self, value: str | bytes | None, dialect) -> bytes | None:
-        """Hashes a string before binding it to the database."""
-
-        if value is None:
-            return None
-
-        return hashing.argon2.Argon2Adapter.hash(value)
-
-    def process_literal_param(self, value: str | bytes | None, dialect) -> HashedValue | None:
-        """Hashes a string for literal SQL expressions."""
-
-        if value is None:
-            return None
-
-        processed = hashing.argon2.Argon2Adapter.hash(value)
-
-        return dialect.literal_processor(self.impl)(processed)
-
-    def process_result_value(self, value: str | bytes | None, dialect) -> HashedValue | None:
-        """Returns the hash value as-is from the database, wrapped as a HashedValue."""
-
-        if value is None:
-            return None
-
-        return HashedValue(value)
-
-    @property
-    def python_type(self):
-        """Return the Python type this is bound to (str)."""
-
-        return self.impl.python_type
-
-
-class SQLAlchemyBlindIndexValue(TypeDecorator):
-    """Type adapter for SQLAlchemy to create deterministic blind indexes.
-
-    Blind indexes enable equality searches on encrypted columns by storing a
-    keyed hash of the plaintext alongside the ciphertext. The hash is deterministic
-    (same input always produces the same output) but requires the secret key to compute.
-
-    Supports HMAC-SHA256 and Argon2 hashing methods. Requires
-    BLIND_INDEX_SECRET_KEY to be set in configuration.
-    """
-
-    impl = LargeBinary
-    cache_ok = True
-
-    def __init__(self, method: BlindIndexMethod):
-        super().__init__()
-        self.method = method
-
-    def _get_key_bytes(self) -> bytes:
-        if settings.BLIND_INDEX_SECRET_KEY is None:
-            raise ValueError(
-                "BLIND_INDEX_SECRET_KEY must be set to use SQLAlchemyBlindIndexValue. "
-                "Set it via environment variable or .env file."
-            )
-        return settings.BLIND_INDEX_SECRET_KEY.encode("utf-8")
-
-    def _compute_blind_index(self, value: str | bytes) -> bytes:
-        """Compute a deterministic blind index for the given value."""
-
-        key = self._get_key_bytes()
-
-        if isinstance(value, str):
-            value = value.encode("utf-8")
-
-        match self.method:
-            case BlindIndexMethod.HMAC_SHA256:
-                return hmac.new(key, value, hashlib.sha256).digest()
-            case BlindIndexMethod.ARGON2:
-                from argon2.low_level import Type as Argon2Type
-                from argon2.low_level import hash_secret_raw
-
-                salt = hashlib.sha256(key).digest()[:16]
-                return hash_secret_raw(
-                    secret=value,
-                    salt=salt,
-                    time_cost=3,
-                    memory_cost=65536,
-                    parallelism=1,
-                    hash_len=32,
-                    type=Argon2Type.ID,
-                )
-            case _:
-                raise ValueError(f"Unknown blind index method: {self.method}")
-
-    def process_bind_param(self, value: str | bytes | None, dialect) -> bytes | None:
-        """Computes the blind index before binding to the database."""
-
-        if value is None:
-            return None
-
-        return self._compute_blind_index(value)
-
-    def process_literal_param(self, value: str | bytes | None, dialect) -> bytes | None:
-        """Computes the blind index for literal SQL expressions."""
-
-        if value is None:
-            return None
-
-        return self._compute_blind_index(value)
-
-    def process_result_value(self, value: bytes | None, dialect) -> BlindIndexValue | None:
-        """Returns the blind index value as-is from the database."""
-
-        if value is None:
-            return None
-
-        return BlindIndexValue(value)
-
-    @property
-    def python_type(self):
-        """Return the Python type this is bound to."""
-
-        return self.impl.python_type

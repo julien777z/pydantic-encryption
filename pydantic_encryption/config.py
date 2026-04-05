@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     BLIND_INDEX_SECRET_KEY: Optional[str] = None
 
     # Encryption settings
-    ENCRYPTION_METHOD: EncryptionMethod = EncryptionMethod.FERNET
+    ENCRYPTION_METHOD: EncryptionMethod | None = None
 
     @model_validator(mode="after")
     def validate_aws_kms_keys(self) -> Self:

@@ -73,6 +73,27 @@ class BlindIndexValue(NormalizeToBytes):
     blind_indexed: bool = True
 
 
+class BlindIndex:
+    """Annotation to mark fields for blind indexing."""
+
+    def __init__(
+        self,
+        method: BlindIndexMethod,
+        *,
+        strip_whitespace: bool = False,
+        strip_non_characters: bool = False,
+        strip_non_digits: bool = False,
+        normalize_to_lowercase: bool = False,
+        normalize_to_uppercase: bool = False,
+    ):
+        self.method = method
+        self.strip_whitespace = strip_whitespace
+        self.strip_non_characters = strip_non_characters
+        self.strip_non_digits = strip_non_digits
+        self.normalize_to_lowercase = normalize_to_lowercase
+        self.normalize_to_uppercase = normalize_to_uppercase
+
+
 __all__ = [
     "Encrypt",
     "Decrypt",
@@ -81,6 +102,7 @@ __all__ = [
     "EncryptedValue",
     "DecryptedValue",
     "HashedValue",
+    "BlindIndex",
     "BlindIndexMethod",
     "BlindIndexValue",
     "NormalizeToBytes",

@@ -2,9 +2,10 @@ from typing import Any
 
 from pydantic_super_model import AnnotatedFieldInfo, SuperModel
 
-from pydantic_encryption.adapters import encryption, hashing
+from pydantic_encryption.adapters import blind_index, encryption, hashing
 from pydantic_encryption.config import settings
-from pydantic_encryption.types import Decrypt, Encrypt, EncryptionMethod, Hash
+from pydantic_encryption.normalization import strip_value
+from pydantic_encryption.types import BlindIndex, BlindIndexMethod, Decrypt, Encrypt, EncryptionMethod, Hash
 
 __all__ = ["BaseModel", "SecureModel"]
 
@@ -40,6 +41,12 @@ class SecureModel:
         encrypted_data: dict[str, str] = {}
         encryption_fields = self._get_field_values(self.pending_encryption_fields)
 
+        if settings.ENCRYPTION_METHOD is None:
+            raise ValueError(
+                "ENCRYPTION_METHOD must be set to use Encrypt fields. "
+                "Set it via environment variable or .env file (e.g. ENCRYPTION_METHOD=fernet)."
+            )
+
         match settings.ENCRYPTION_METHOD:
             case EncryptionMethod.EVERVAULT:
                 encrypted_data = encryption.evervault.EvervaultAdapter.encrypt(encryption_fields)
@@ -70,6 +77,12 @@ class SecureModel:
 
         decrypted_data: dict[str, str] = {}
         decryption_fields = self._get_field_values(self.pending_decryption_fields)
+
+        if settings.ENCRYPTION_METHOD is None:
+            raise ValueError(
+                "ENCRYPTION_METHOD must be set to use Decrypt fields. "
+                "Set it via environment variable or .env file (e.g. ENCRYPTION_METHOD=fernet)."
+            )
 
         match settings.ENCRYPTION_METHOD:
             case EncryptionMethod.EVERVAULT:
@@ -105,6 +118,56 @@ class SecureModel:
             hashed = hashing.argon2.Argon2Adapter.hash(value)
             setattr(self, field_name, hashed)
 
+    def blind_index_data(self) -> None:
+        """Compute blind indexes for fields marked with `BlindIndex` annotation."""
+
+        if self._disable:
+            return
+
+        if not self.pending_blind_index_fields:
+            return
+
+        for field_name, annotated_field in self.pending_blind_index_fields.items():
+            if annotated_field.value is None:
+                continue
+
+            annotation = annotated_field.matched_metadata[0]
+            value = annotated_field.value
+
+            # Pydantic may convert str to bytes for bytes-typed fields,
+            # so decode back to str for normalization
+            if isinstance(value, bytes):
+                value = value.decode("utf-8")
+
+            value = strip_value(
+                value,
+                strip_whitespace=annotation.strip_whitespace,
+                strip_non_characters=annotation.strip_non_characters,
+                strip_non_digits=annotation.strip_non_digits,
+                normalize_to_lowercase=annotation.normalize_to_lowercase,
+                normalize_to_uppercase=annotation.normalize_to_uppercase,
+            )
+
+            key = settings.BLIND_INDEX_SECRET_KEY
+            if key is None:
+                raise ValueError(
+                    "BLIND_INDEX_SECRET_KEY must be set to use BlindIndex. "
+                    "Set it via environment variable or .env file."
+                )
+            key_bytes = key.encode("utf-8")
+
+            match annotation.method:
+                case BlindIndexMethod.HMAC_SHA256:
+                    result = blind_index.hmac_sha256.HMACSHA256Adapter.compute_blind_index(value, key_bytes)
+                case BlindIndexMethod.ARGON2:
+                    from pydantic_encryption.adapters.blind_index.argon2 import Argon2BlindIndexAdapter
+
+                    result = Argon2BlindIndexAdapter.compute_blind_index(value, key_bytes)
+                case _:
+                    raise ValueError(f"Unknown blind index method: {annotation.method}")
+
+            setattr(self, field_name, result)
+
     def default_post_init(self) -> None:
         """Post initialization hook. If you make your own BaseModel, you must call this in model_post_init()."""
 
@@ -114,6 +177,9 @@ class SecureModel:
 
             if self.pending_hash_fields:
                 self.hash_data()
+
+            if self.pending_blind_index_fields:
+                self.blind_index_data()
 
             if self.pending_decryption_fields:
                 self.decrypt_data()
@@ -145,6 +211,12 @@ class SecureModel:
         """Get hashable fields from the model."""
 
         return self.get_annotated_fields(Hash)
+
+    @property
+    def pending_blind_index_fields(self) -> dict[str, AnnotatedFieldInfo]:
+        """Get blind index fields from the model."""
+
+        return self.get_annotated_fields(BlindIndex)
 
 
 class BaseModel(SuperModel, SecureModel):

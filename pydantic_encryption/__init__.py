@@ -5,6 +5,7 @@ from pydantic_encryption.adapters.hashing.argon2 import Argon2Adapter
 from pydantic_encryption.config import settings
 from pydantic_encryption.models import BaseModel, SecureModel
 from pydantic_encryption.types import (
+    BlindIndex,
     BlindIndexMethod,
     BlindIndexValue,
     Decrypt,
@@ -23,8 +24,8 @@ if TYPE_CHECKING:
     from pydantic_encryption.integrations.sqlalchemy import (
         SQLAlchemyBlindIndexValue,
         SQLAlchemyEncryptedValue,
-        SQLAlchemyPGEncryptedArray,
         SQLAlchemyHashed,
+        SQLAlchemyPGEncryptedArray,
     )
 
 
@@ -69,6 +70,7 @@ __all__ = [
     "BaseModel",
     "SecureModel",
     # Annotations
+    "BlindIndex",
     "Encrypt",
     "Decrypt",
     "Hash",

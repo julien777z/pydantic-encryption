@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 
-from pydantic_encryption.types import DecryptedValue, EncryptedValue, HashedValue
+from pydantic_encryption.types import BlindIndexValue, DecryptedValue, EncryptedValue, HashedValue
 
 
 class EncryptionAdapter(ABC):
@@ -24,3 +24,12 @@ class HashingAdapter(ABC):
     @abstractmethod
     def hash(cls, value: str | bytes | HashedValue) -> HashedValue:
         """Hash the given value."""
+
+
+class BlindIndexAdapter(ABC):
+    """Abstract base class for blind index adapters."""
+
+    @classmethod
+    @abstractmethod
+    def compute_blind_index(cls, value: str | bytes, key: bytes) -> BlindIndexValue:
+        """Compute a deterministic blind index for the given value."""
