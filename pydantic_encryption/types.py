@@ -86,6 +86,9 @@ class BlindIndex:
         normalize_to_lowercase: bool = False,
         normalize_to_uppercase: bool = False,
     ):
+        if strip_non_characters and strip_non_digits:
+            raise ValueError("strip_non_characters and strip_non_digits cannot both be True.")
+
         self.method = method
         self.strip_whitespace = strip_whitespace
         self.strip_non_characters = strip_non_characters

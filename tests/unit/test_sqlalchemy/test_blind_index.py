@@ -111,6 +111,10 @@ class TestSQLAlchemyBlindIndexValueArgon2:
 class TestSQLAlchemyBlindIndexValueConfig:
     """Test SQLAlchemyBlindIndexValue configuration and edge cases."""
 
+    def test_conflicting_strip_options_raises(self):
+        with pytest.raises(ValueError, match="strip_non_characters and strip_non_digits cannot both be True"):
+            SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256, strip_non_characters=True, strip_non_digits=True)
+
     def test_hmac_method_stores_method(self):
         type_adapter = SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256)
         assert type_adapter.method == BlindIndexMethod.HMAC_SHA256

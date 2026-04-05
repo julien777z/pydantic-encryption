@@ -144,10 +144,7 @@ class SecureModel:
 
             key = settings.BLIND_INDEX_SECRET_KEY
             if key is None:
-                raise ValueError(
-                    "BLIND_INDEX_SECRET_KEY must be set to use BlindIndex. "
-                    "Set it via environment variable or .env file."
-                )
+                raise ValueError("BLIND_INDEX_SECRET_KEY must be set to use BlindIndex.")
             key_bytes = key.encode("utf-8")
 
             match annotation.method:

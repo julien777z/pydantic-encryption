@@ -1,3 +1,5 @@
+import pytest
+
 from pydantic_encryption.normalization import normalize_value
 
 
@@ -68,3 +70,9 @@ class TestCombined:
             strip_non_characters=True,
         )
         assert result == "HelloWorld"
+
+
+class TestConflictingOptions:
+    def test_strip_non_characters_and_strip_non_digits_raises(self):
+        with pytest.raises(ValueError, match="strip_non_characters and strip_non_digits cannot both be True"):
+            normalize_value("test", strip_non_characters=True, strip_non_digits=True)

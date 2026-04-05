@@ -138,6 +138,10 @@ class TestBlindIndexAnnotationConfig:
         # Should not be blind-indexed, original value preserved (pydantic converts str to bytes)
         assert user.email_index == b"test@example.com"
 
+    def test_conflicting_strip_options_raises(self):
+        with pytest.raises(ValueError, match="strip_non_characters and strip_non_digits cannot both be True"):
+            BlindIndex(BlindIndexMethod.HMAC_SHA256, strip_non_characters=True, strip_non_digits=True)
+
     def test_different_methods_produce_different_outputs(self):
         class UserModelHMAC(BaseModel):
             idx: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]

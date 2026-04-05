@@ -12,6 +12,9 @@ def normalize_value(
 ) -> str:
     """Apply stripping and normalization transformations to a value."""
 
+    if strip_non_characters and strip_non_digits:
+        raise ValueError("strip_non_characters and strip_non_digits cannot both be True.")
+
     if strip_whitespace:
         value = re.sub(r"\s+", " ", value.strip())
 

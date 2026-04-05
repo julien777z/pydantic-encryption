@@ -26,6 +26,9 @@ class SQLAlchemyBlindIndexValue(TypeDecorator):
         normalize_to_lowercase: bool = False,
         normalize_to_uppercase: bool = False,
     ):
+        if strip_non_characters and strip_non_digits:
+            raise ValueError("strip_non_characters and strip_non_digits cannot both be True.")
+
         super().__init__()
         self.method = method
         self.strip_whitespace = strip_whitespace
@@ -36,10 +39,7 @@ class SQLAlchemyBlindIndexValue(TypeDecorator):
 
     def _get_key_bytes(self) -> bytes:
         if settings.BLIND_INDEX_SECRET_KEY is None:
-            raise ValueError(
-                "BLIND_INDEX_SECRET_KEY must be set to use SQLAlchemyBlindIndexValue. "
-                "Set it via environment variable or .env file."
-            )
+            raise ValueError("BLIND_INDEX_SECRET_KEY must be set to use SQLAlchemyBlindIndexValue.")
         return settings.BLIND_INDEX_SECRET_KEY.encode("utf-8")
 
     def _normalize_value(self, value: str | bytes) -> str | bytes:
