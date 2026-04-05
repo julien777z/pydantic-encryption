@@ -163,7 +163,7 @@ class SecureModel:
             setattr(self, field_name, result)
 
     def default_post_init(self) -> None:
-        """Post initialization hook. If you make your own BaseModel, you must call this in model_post_init()."""
+        """Post initialization hook for encryption, hashing, and blind indexing."""
 
         if not self._disable:
             if self.pending_encryption_fields:

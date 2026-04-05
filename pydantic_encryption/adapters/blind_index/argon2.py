@@ -9,11 +9,7 @@ class Argon2BlindIndexAdapter(BlindIndexAdapter):
 
     @classmethod
     def compute_blind_index(cls, value: str | bytes, key: bytes) -> BlindIndexValue:
-        """Compute a deterministic Argon2 blind index.
-
-        Uses a fixed salt derived from SHA-256 of the key to ensure
-        deterministic output while preserving Argon2's computational hardness.
-        """
+        """Compute a deterministic Argon2 blind index."""
 
         from argon2.low_level import Type as Argon2Type
         from argon2.low_level import hash_secret_raw

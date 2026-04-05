@@ -10,11 +10,7 @@ def normalize_value(
     normalize_to_lowercase: bool = False,
     normalize_to_uppercase: bool = False,
 ) -> str:
-    """Apply stripping and normalization transformations to a value.
-
-    Stripping options remove characters, normalization options transform case.
-    Applied in order: whitespace → characters → digits → lowercase → uppercase.
-    """
+    """Apply stripping and normalization transformations to a value."""
 
     if strip_whitespace:
         value = re.sub(r"\s+", " ", value.strip())

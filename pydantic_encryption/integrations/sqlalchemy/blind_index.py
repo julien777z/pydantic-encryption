@@ -11,15 +11,7 @@ from pydantic_encryption.types import BlindIndexMethod, BlindIndexValue
 
 
 class SQLAlchemyBlindIndexValue(TypeDecorator):
-    """Type adapter for SQLAlchemy to create deterministic blind indexes.
-
-    Blind indexes enable equality searches on encrypted columns by storing a
-    keyed hash of the plaintext alongside the ciphertext. The hash is deterministic
-    (same input always produces the same output) but requires the secret key to compute.
-
-    Supports HMAC-SHA256 and Argon2 hashing methods. Requires
-    BLIND_INDEX_SECRET_KEY to be set in configuration.
-    """
+    """Type adapter for SQLAlchemy to create deterministic blind indexes."""
 
     impl = LargeBinary
     cache_ok = True
@@ -51,7 +43,7 @@ class SQLAlchemyBlindIndexValue(TypeDecorator):
         return settings.BLIND_INDEX_SECRET_KEY.encode("utf-8")
 
     def _normalize_value(self, value: str | bytes) -> str | bytes:
-        """Apply stripping and normalization to the value before hashing."""
+        """Apply normalization to the value before hashing."""
 
         if isinstance(value, bytes):
             return value

@@ -22,10 +22,7 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
     cache_ok = True
 
     def _serialize_value(self, value: EncryptableValue) -> str:
-        """Serialize a value with version and type prefix for encryption.
-
-        Format: "v1:type:data"
-        """
+        """Serialize a value with version and type prefix for encryption."""
         match value:
             case datetime():
                 type_data = f"{TypePrefix.DATETIME}:{value.isoformat()}"
@@ -53,11 +50,7 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
         return f"{VERSION_PREFIX}:{type_data}"
 
     def _deserialize_value(self, value: str) -> EncryptableValue:
-        """Deserialize a decrypted value based on its version and type prefix.
-
-        Format: "v1:type:data"
-        If no version marker is present, returns the value as a string (legacy format).
-        """
+        """Deserialize a decrypted value based on its version and type prefix."""
         version, _, remainder = value.partition(":")
 
         if not version:
@@ -159,11 +152,7 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
 
 
 class SQLAlchemyPGEncryptedArray(TypeDecorator):
-    """Type adapter for SQLAlchemy to encrypt and decrypt arrays using the specified encryption method.
-
-    Each element in the array is individually encrypted/decrypted. This type uses PostgreSQL's
-    native ARRAY(LargeBinary) column type, so it requires a PostgreSQL backend.
-    """
+    """Type adapter for SQLAlchemy to encrypt and decrypt arrays."""
 
     impl = ARRAY(LargeBinary)
     cache_ok = True
