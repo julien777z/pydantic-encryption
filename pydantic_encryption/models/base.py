@@ -1,6 +1,6 @@
 from typing import Any
 
-from pydantic_super_model import AnnotatedFieldInfo, SuperModel
+from pydantic_super_model import AnnotatedFieldInfo, SuperModelPydanticMixin
 
 from pydantic_encryption.adapters import blind_index, encryption, hashing
 from pydantic_encryption.config import settings
@@ -213,7 +213,7 @@ class SecureModel:
         return self.get_annotated_fields(BlindIndex)
 
 
-class BaseModel(SuperModel, SecureModel):
+class BaseModel(SuperModelPydanticMixin, SecureModel):
     """Base model for encryptable models."""
 
     def get_annotated_fields(self, *annotations: type) -> dict[str, AnnotatedFieldInfo]:
