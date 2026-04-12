@@ -1284,14 +1284,14 @@ yaml = ["pyyaml (>=6.0.1)"]
 
 [[package]]
 name = "pydantic-super-model"
-version = "1.2.0"
-description = "Small Pydantic BaseModel extension for generic introspection and Annotated field lookup"
+version = "2.0.0"
+description = "Lightweight mixin for generic introspection and Annotated field lookup"
 optional = false
 python-versions = "<3.15,>=3.11"
 groups = ["main"]
 files = [
-    {file = "pydantic_super_model-1.2.0-py3-none-any.whl", hash = "sha256:52eed3cb2cd0f895dba6304212f776a81e1942e15f0e2be1f4adf22f0e9bca7a"},
-    {file = "pydantic_super_model-1.2.0.tar.gz", hash = "sha256:5e14cb40965741c0b173f11b8a7f5474461f4f7fed96771ff8416f43cfe67716"},
+    {file = "pydantic_super_model-2.0.0-py3-none-any.whl", hash = "sha256:2284d598d061b7ed473b96704575d749f3b23dfbb4bd78e074af589c6fb67a84"},
+    {file = "pydantic_super_model-2.0.0.tar.gz", hash = "sha256:3bb026160c279c9de1f2e4c36fd677b4f63c6835bce64591a924d96ba3623e60"},
 ]
 
 [package.dependencies]
@@ -1885,4 +1885,4 @@ sqlalchemy = ["sqlalchemy", "sqlmodel"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<3.15"
-content-hash = "d85507014097297292a93cca5e12b46e731af02a8aa56cf1b21df465c0233a7d"
+content-hash = "e42c59611c162b1af4150d5c82353fc21f6f81eb6b089ddc831ae9af432e7ec4"
