@@ -264,3 +264,74 @@ class TestAsyncPostInit:
         decrypt_model = _construct_without_crypto(_DecryptModel, **model.model_dump())
         await decrypt_model.async_post_init()
         assert decrypt_model.data == "secret"
+
+
+class TestAsyncInitNestedModels:
+    """Test async_init with nested SecureModel fields."""
+
+    @pytest.mark.asyncio
+    async def test_async_init_nested_model_encrypts(self):
+        """Nested SecureModel fields have their crypto processed during async_init."""
+
+        class _Address(BaseModel):
+            street: Annotated[bytes, Encrypt]
+
+        class _User(BaseModel):
+            name: str
+            address: _Address
+
+        user = await _User.async_init(name="John", address={"street": "123 Main St"})
+
+        assert user.name == "John"
+        assert getattr(user.address.street, "encrypted", False)
+
+    @pytest.mark.asyncio
+    async def test_async_init_nested_model_hashes(self):
+        """Nested SecureModel fields with Hash annotations are processed."""
+
+        class _Credentials(BaseModel):
+            password: Annotated[str, Hash]
+
+        class _User(BaseModel):
+            name: str
+            credentials: _Credentials
+
+        user = await _User.async_init(name="John", credentials={"password": "secret123"})
+
+        assert user.name == "John"
+        assert getattr(user.credentials.password, "hashed", False)
+
+    @pytest.mark.asyncio
+    async def test_async_init_nested_model_mixed(self):
+        """Parent and nested models both have crypto fields processed."""
+
+        class _Address(BaseModel):
+            street: Annotated[bytes, Encrypt]
+
+        class _User(BaseModel):
+            email: Annotated[bytes, Encrypt]
+            address: _Address
+
+        user = await _User.async_init(email="john@example.com", address={"street": "123 Main St"})
+
+        assert getattr(user.email, "encrypted", False)
+        assert getattr(user.address.street, "encrypted", False)
+
+    @pytest.mark.asyncio
+    async def test_async_init_pre_constructed_nested_model(self):
+        """Pre-constructed nested models (already encrypted) remain valid."""
+
+        class _Address(BaseModel):
+            street: Annotated[bytes, Encrypt]
+
+        class _User(BaseModel):
+            name: str
+            address: _Address
+
+        address = _Address(street="123 Main St")  # sync crypto already ran
+        assert getattr(address.street, "encrypted", False)
+
+        user = await _User.async_init(name="John", address=address)
+
+        assert user.name == "John"
+        assert getattr(user.address.street, "encrypted", False)

@@ -366,6 +366,13 @@ class SecureModel:
         if self._disable:
             return
 
+        # Recurse into nested SecureModel fields first (depth-first),
+        # so nested models are fully processed before the parent.
+        for field_name in getattr(type(self), "model_fields", {}):
+            value = getattr(self, field_name, None)
+            if isinstance(value, SecureModel):
+                await value.async_post_init()
+
         await self.async_encrypt_data()
         await self.async_hash_data()
         await self.async_blind_index_data()
