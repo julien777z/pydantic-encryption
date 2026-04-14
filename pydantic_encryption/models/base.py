@@ -372,6 +372,14 @@ class SecureModel:
             value = getattr(self, field_name, None)
             if isinstance(value, SecureModel):
                 await value.async_post_init()
+            elif isinstance(value, (list, tuple, set, frozenset)):
+                for item in value:
+                    if isinstance(item, SecureModel):
+                        await item.async_post_init()
+            elif isinstance(value, dict):
+                for item in value.values():
+                    if isinstance(item, SecureModel):
+                        await item.async_post_init()
 
         await self.async_encrypt_data()
         await self.async_hash_data()
