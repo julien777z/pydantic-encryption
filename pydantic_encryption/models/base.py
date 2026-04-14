@@ -312,12 +312,8 @@ class SecureModel:
         if not self.pending_blind_index_fields:
             return
 
-        key = settings.BLIND_INDEX_SECRET_KEY
-        if key is None:
-            raise ValueError("BLIND_INDEX_SECRET_KEY must be set to use BlindIndex.")
-        key_bytes = key.encode("utf-8")
-
         tasks: dict[str, Any] = {}
+        key_bytes: bytes | None = None
 
         for field_name, annotated_field in self.pending_blind_index_fields.items():
             if annotated_field.value is None:
@@ -340,6 +336,12 @@ class SecureModel:
                 normalize_to_lowercase=annotation.normalize_to_lowercase,
                 normalize_to_uppercase=annotation.normalize_to_uppercase,
             )
+
+            if key_bytes is None:
+                key = settings.BLIND_INDEX_SECRET_KEY
+                if key is None:
+                    raise ValueError("BLIND_INDEX_SECRET_KEY must be set to use BlindIndex.")
+                key_bytes = key.encode("utf-8")
 
             match annotation.method:
                 case BlindIndexMethod.HMAC_SHA256:

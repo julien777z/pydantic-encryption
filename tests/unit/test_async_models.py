@@ -475,6 +475,20 @@ class TestAsyncBlindIndexData:
         with pytest.raises(ValueError, match="BLIND_INDEX_SECRET_KEY must be set"):
             await model.async_blind_index_data()
 
+    @pytest.mark.asyncio
+    async def test_async_blind_index_optional_none_no_key_succeeds(self, monkeypatch):
+        """Optional blind index fields with None value succeed even without key configured."""
+
+        class _Model(BaseModel):
+            email: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)] | None = None
+
+        model = _construct_without_crypto(_Model)
+        monkeypatch.setattr(settings, "BLIND_INDEX_SECRET_KEY", None)
+
+        # Should not raise — matches sync behavior
+        await model.async_blind_index_data()
+        assert model.email is None
+
 
 class TestAsyncEncryptDataErrors:
     """Test error branches in async encrypt/decrypt methods."""
