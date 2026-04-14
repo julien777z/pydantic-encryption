@@ -378,6 +378,25 @@ class TestAsyncInitNestedModels:
         assert getattr(user.addresses["home"].street, "encrypted", False)
         assert getattr(user.addresses["work"].street, "encrypted", False)
 
+    @pytest.mark.asyncio
+    async def test_async_post_init_disabled_parent_processes_nested_child(self):
+        """A disabled parent still recursively processes non-disabled nested children."""
+
+        class _Address(BaseModel):
+            street: Annotated[bytes, Encrypt]
+
+        class _User(BaseModel, disable=True):
+            name: str
+            address: _Address
+
+        user = _construct_without_crypto(_User, name="John", address={"street": "123 Main St"})
+
+        # Parent is disabled, nested child is not — child should still be processed
+        await user.async_post_init()
+
+        assert user.name == "John"
+        assert getattr(user.address.street, "encrypted", False)
+
 
 @pytest.fixture(autouse=True)
 def set_blind_index_key(monkeypatch):

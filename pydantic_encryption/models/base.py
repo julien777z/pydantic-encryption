@@ -363,11 +363,10 @@ class SecureModel:
     async def async_post_init(self) -> None:
         """Asynchronously run all post-initialization operations."""
 
-        if self._disable:
-            return
-
         # Recurse into nested SecureModel fields first (depth-first),
         # so nested models are fully processed before the parent.
+        # This runs regardless of self._disable so that non-disabled
+        # children nested inside a disabled parent are still processed.
         for field_name in getattr(type(self), "model_fields", {}):
             value = getattr(self, field_name, None)
             if isinstance(value, SecureModel):
@@ -380,6 +379,9 @@ class SecureModel:
                 for item in value.values():
                     if isinstance(item, SecureModel):
                         await item.async_post_init()
+
+        if self._disable:
+            return
 
         await self.async_encrypt_data()
         await self.async_hash_data()
