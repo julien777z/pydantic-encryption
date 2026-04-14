@@ -2,7 +2,9 @@ import pytest
 from typing import Annotated
 
 from pydantic_encryption import BaseModel, Decrypt, Encrypt, Hash
+from pydantic_encryption.config import settings
 from pydantic_encryption.models.base import _skip_sync_crypto
+from pydantic_encryption.types import BlindIndex, BlindIndexMethod
 
 
 def _construct_without_crypto(cls, **data):
@@ -335,3 +337,167 @@ class TestAsyncInitNestedModels:
 
         assert user.name == "John"
         assert getattr(user.address.street, "encrypted", False)
+
+
+@pytest.fixture(autouse=True)
+def set_blind_index_key(monkeypatch):
+    monkeypatch.setattr(settings, "BLIND_INDEX_SECRET_KEY", "test-secret-key-for-async")
+
+
+class TestAsyncBlindIndexData:
+    """Test async_blind_index_data method."""
+
+    @pytest.mark.asyncio
+    async def test_async_blind_index_hmac_sha256(self):
+        class _Model(BaseModel):
+            email: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
+
+        model = _construct_without_crypto(_Model, email="test@example.com")
+        assert not getattr(model.email, "blind_indexed", False)
+
+        await model.async_blind_index_data()
+        assert getattr(model.email, "blind_indexed", False)
+
+    @pytest.mark.asyncio
+    async def test_async_blind_index_argon2(self):
+        class _Model(BaseModel):
+            email: Annotated[bytes, BlindIndex(BlindIndexMethod.ARGON2)]
+
+        model = _construct_without_crypto(_Model, email="test@example.com")
+
+        await model.async_blind_index_data()
+        assert getattr(model.email, "blind_indexed", False)
+
+    @pytest.mark.asyncio
+    async def test_async_blind_index_multiple_fields(self):
+        class _Model(BaseModel):
+            email: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
+            phone: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
+
+        model = _construct_without_crypto(_Model, email="test@example.com", phone="1234567890")
+        await model.async_blind_index_data()
+
+        assert getattr(model.email, "blind_indexed", False)
+        assert getattr(model.phone, "blind_indexed", False)
+
+    @pytest.mark.asyncio
+    async def test_async_blind_index_disabled_is_noop(self):
+        class _Model(BaseModel, disable=True):
+            email: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
+
+        model = _Model(email="test@example.com")
+        await model.async_blind_index_data()
+
+        assert not getattr(model.email, "blind_indexed", False)
+
+    @pytest.mark.asyncio
+    async def test_async_blind_index_deterministic(self):
+        """Async blind index produces same result as sync."""
+
+        class _SyncModel(BaseModel):
+            email: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
+
+        class _AsyncModel(BaseModel):
+            email: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
+
+        sync_model = _SyncModel(email="test@example.com")
+        async_model = await _AsyncModel.async_init(email="test@example.com")
+
+        assert sync_model.email == async_model.email
+
+    @pytest.mark.asyncio
+    async def test_async_blind_index_missing_key_raises(self, monkeypatch):
+        class _Model(BaseModel):
+            email: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
+
+        model = _construct_without_crypto(_Model, email="test@example.com")
+        monkeypatch.setattr(settings, "BLIND_INDEX_SECRET_KEY", None)
+
+        with pytest.raises(ValueError, match="BLIND_INDEX_SECRET_KEY must be set"):
+            await model.async_blind_index_data()
+
+
+class TestAsyncEncryptDataErrors:
+    """Test error branches in async encrypt/decrypt methods."""
+
+    @pytest.mark.asyncio
+    async def test_async_encrypt_data_missing_method_raises(self, monkeypatch):
+        class _Model(BaseModel):
+            secret: Annotated[bytes, Encrypt]
+
+        model = _construct_without_crypto(_Model, secret="plaintext")
+        monkeypatch.setattr(settings, "ENCRYPTION_METHOD", None)
+
+        with pytest.raises(ValueError, match="ENCRYPTION_METHOD must be set"):
+            await model.async_encrypt_data()
+
+    @pytest.mark.asyncio
+    async def test_async_decrypt_data_missing_method_raises(self, monkeypatch):
+        class _EncryptModel(BaseModel):
+            data: Annotated[bytes, Encrypt]
+
+        class _DecryptModel(BaseModel):
+            data: Annotated[bytes, Decrypt]
+
+        encrypted = _EncryptModel(data="secret")
+        decrypt_model = _construct_without_crypto(_DecryptModel, **encrypted.model_dump())
+        monkeypatch.setattr(settings, "ENCRYPTION_METHOD", None)
+
+        with pytest.raises(ValueError, match="ENCRYPTION_METHOD must be set"):
+            await decrypt_model.async_decrypt_data()
+
+    @pytest.mark.asyncio
+    async def test_async_decrypt_data_disabled_is_noop(self):
+        class _Model(BaseModel, disable=True):
+            data: Annotated[bytes, Decrypt]
+
+        model = _Model(data="something")
+        await model.async_decrypt_data()
+
+        assert model.data == b"something"
+
+    @pytest.mark.asyncio
+    async def test_async_hash_data_disabled_is_noop(self):
+        class _Model(BaseModel, disable=True):
+            password: Annotated[str, Hash]
+
+        model = _Model(password="plaintext")
+        await model.async_hash_data()
+
+        assert not getattr(model.password, "hashed", False)
+
+    @pytest.mark.asyncio
+    async def test_async_encrypt_no_pending_fields_is_noop(self):
+        class _Model(BaseModel):
+            name: str
+
+        model = _construct_without_crypto(_Model, name="john")
+        await model.async_encrypt_data()
+        assert model.name == "john"
+
+    @pytest.mark.asyncio
+    async def test_async_decrypt_no_pending_fields_is_noop(self):
+        class _Model(BaseModel):
+            name: str
+
+        model = _construct_without_crypto(_Model, name="john")
+        await model.async_decrypt_data()
+        assert model.name == "john"
+
+    @pytest.mark.asyncio
+    async def test_async_hash_no_pending_fields_is_noop(self):
+        class _Model(BaseModel):
+            name: str
+
+        model = _construct_without_crypto(_Model, name="john")
+        await model.async_hash_data()
+        assert model.name == "john"
+
+    @pytest.mark.asyncio
+    async def test_async_blind_index_no_pending_fields_is_noop(self):
+        class _Model(BaseModel):
+            name: str
+
+        model = _construct_without_crypto(_Model, name="john")
+        await model.async_blind_index_data()
+        assert model.name == "john"
