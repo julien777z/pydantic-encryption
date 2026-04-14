@@ -1,3 +1,4 @@
+import asyncio
 from typing import Any, ClassVar
 
 from pydantic_encryption._lazy import require_optional_dependency
@@ -12,12 +13,12 @@ from aws_cryptographic_material_providers.mpl.config import MaterialProvidersCon
 from aws_cryptographic_material_providers.mpl.models import CreateAwsKmsKeyringInput
 from aws_encryption_sdk import CommitmentPolicy
 
-from pydantic_encryption.adapters.base import EncryptionAdapter
+from pydantic_encryption.adapters.base import AsyncEncryptionAdapter, EncryptionAdapter
 from pydantic_encryption.config import settings
 from pydantic_encryption.types import DecryptedValue, EncryptedValue
 
 
-class AWSAdapter(EncryptionAdapter):
+class AWSAdapter(EncryptionAdapter, AsyncEncryptionAdapter):
     """Adapter for AWS KMS encryption."""
 
     _kms_client: ClassVar[Any | None] = None
@@ -155,3 +156,11 @@ class AWSAdapter(EncryptionAdapter):
         )
 
         return DecryptedValue(plaintext)
+
+    @classmethod
+    async def async_encrypt(cls, plaintext: bytes | str | EncryptedValue) -> EncryptedValue:
+        return await asyncio.to_thread(cls.encrypt, plaintext)
+
+    @classmethod
+    async def async_decrypt(cls, ciphertext: bytes | str | EncryptedValue) -> DecryptedValue:
+        return await asyncio.to_thread(cls.decrypt, ciphertext)

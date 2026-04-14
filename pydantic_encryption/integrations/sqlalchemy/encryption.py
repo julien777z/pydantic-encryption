@@ -103,8 +103,6 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
         match settings.ENCRYPTION_METHOD:
             case EncryptionMethod.FERNET:
                 return encryption.fernet.FernetAdapter.encrypt(serialized_value)
-            case EncryptionMethod.EVERVAULT:
-                return encryption.evervault.EvervaultAdapter.encrypt(serialized_value)
             case EncryptionMethod.AWS:
                 return encryption.aws.AWSAdapter.encrypt(serialized_value)
             case _:
@@ -120,8 +118,6 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
         match settings.ENCRYPTION_METHOD:
             case EncryptionMethod.FERNET:
                 return encryption.fernet.FernetAdapter.decrypt(value)
-            case EncryptionMethod.EVERVAULT:
-                return encryption.evervault.EvervaultAdapter.decrypt(value)
             case EncryptionMethod.AWS:
                 return encryption.aws.AWSAdapter.decrypt(value)
             case _:

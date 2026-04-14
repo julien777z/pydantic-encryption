@@ -16,7 +16,6 @@ class EncryptionMethod(Enum):
     """Enum for encryption methods."""
 
     FERNET = "fernet"
-    EVERVAULT = "evervault"
     AWS = "aws"
 
 

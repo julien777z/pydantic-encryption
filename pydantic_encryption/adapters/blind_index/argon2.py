@@ -1,10 +1,11 @@
+import asyncio
 import hashlib
 
-from pydantic_encryption.adapters.base import BlindIndexAdapter
+from pydantic_encryption.adapters.base import AsyncBlindIndexAdapter, BlindIndexAdapter
 from pydantic_encryption.types import BlindIndexValue
 
 
-class Argon2BlindIndexAdapter(BlindIndexAdapter):
+class Argon2BlindIndexAdapter(BlindIndexAdapter, AsyncBlindIndexAdapter):
     """Blind index adapter using Argon2 with a deterministic salt."""
 
     @classmethod
@@ -32,3 +33,7 @@ class Argon2BlindIndexAdapter(BlindIndexAdapter):
         )
 
         return BlindIndexValue(digest)
+
+    @classmethod
+    async def async_compute_blind_index(cls, value: str | bytes, key: bytes) -> BlindIndexValue:
+        return await asyncio.to_thread(cls.compute_blind_index, value, key)

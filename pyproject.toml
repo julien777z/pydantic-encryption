@@ -27,9 +27,6 @@ aws = [
     "aws-encryption-sdk[mpl]>=4.0.1",
     "boto3>=1.38.8",
 ]
-evervault = [
-    "evervault>=4.4.1",
-]
 sqlalchemy = [
     "sqlalchemy>=2.0.40",
     "sqlmodel>=0.0.24",
@@ -37,7 +34,6 @@ sqlalchemy = [
 all = [
     "aws-encryption-sdk[mpl]>=4.0.1",
     "boto3>=1.38.8",
-    "evervault>=4.4.1",
     "sqlalchemy>=2.0.40",
     "sqlmodel>=0.0.24",
 ]

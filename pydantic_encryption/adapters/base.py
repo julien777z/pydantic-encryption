@@ -17,6 +17,20 @@ class EncryptionAdapter(ABC):
         """Decrypt ciphertext data."""
 
 
+class AsyncEncryptionAdapter(ABC):
+    """Abstract base class for async encryption adapters."""
+
+    @classmethod
+    @abstractmethod
+    async def async_encrypt(cls, plaintext: bytes | str | EncryptedValue) -> EncryptedValue:
+        """Asynchronously encrypt plaintext data."""
+
+    @classmethod
+    @abstractmethod
+    async def async_decrypt(cls, ciphertext: bytes | str | EncryptedValue) -> DecryptedValue:
+        """Asynchronously decrypt ciphertext data."""
+
+
 class HashingAdapter(ABC):
     """Abstract base class for hashing adapters."""
 
@@ -26,6 +40,15 @@ class HashingAdapter(ABC):
         """Hash the given value."""
 
 
+class AsyncHashingAdapter(ABC):
+    """Abstract base class for async hashing adapters."""
+
+    @classmethod
+    @abstractmethod
+    async def async_hash(cls, value: str | bytes | HashedValue) -> HashedValue:
+        """Asynchronously hash the given value."""
+
+
 class BlindIndexAdapter(ABC):
     """Abstract base class for blind index adapters."""
 
@@ -33,3 +56,12 @@ class BlindIndexAdapter(ABC):
     @abstractmethod
     def compute_blind_index(cls, value: str | bytes, key: bytes) -> BlindIndexValue:
         """Compute a deterministic blind index for the given value."""
+
+
+class AsyncBlindIndexAdapter(ABC):
+    """Abstract base class for async blind index adapters."""
+
+    @classmethod
+    @abstractmethod
+    async def async_compute_blind_index(cls, value: str | bytes, key: bytes) -> BlindIndexValue:
+        """Asynchronously compute a deterministic blind index for the given value."""
