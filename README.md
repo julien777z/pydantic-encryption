@@ -1,51 +1,66 @@
-# Encryption and Hashing Models for Pydantic
+# pydantic-secure
 
-Field-level encryption, decryption, hashing, and blind indexing for Pydantic models with SQLAlchemy integration.
+Field-level encryption, hashing, and blind indexing for Pydantic models with SQLAlchemy integration.
 
 ## Installation
 
 ```bash
-pip install pydantic_encryption
+pip install pydantic-secure
 ```
 
 ### Optional extras
 
 ```bash
-pip install "pydantic_encryption[sqlalchemy]"  # SQLAlchemy integration
-pip install "pydantic_encryption[aws]"          # AWS KMS encryption
-pip install "pydantic_encryption[all]"          # All optional dependencies
+pip install "pydantic-secure[sqlalchemy]"  # SQLAlchemy integration
+pip install "pydantic-secure[aws]"         # AWS KMS encryption
+pip install "pydantic-secure[all]"         # All optional dependencies
 ```
 
 ## Quick Start
 
 ```python
 from typing import Annotated
-from pydantic_encryption import BaseModel, Encrypt, Hash
+from pydantic_secure import BaseModel, Encrypted, Hashed
 
 class User(BaseModel):
     name: str
-    address: Annotated[bytes, Encrypt]
-    password: Annotated[bytes, Hash]
+    address: Annotated[bytes, Encrypted]
+    password: Annotated[str, Hashed]
 
-user = User(name="John Doe", address="123456", password="secret123")
+user = User(name="John Doe", address="123 Main St", password="secret123")
 
-print(user.name)      # plaintext
-print(user.address)   # encrypted
-print(user.password)  # hashed
+print(user.name)      # "John Doe"
+print(user.address)   # encrypted bytes
+print(user.password)  # argon2 hash bytes
 ```
 
-Fields marked with `Encrypt` are encrypted and fields marked with `Hash` are hashed during model initialization.
+Fields marked with `Encrypted` are encrypted and fields marked with `Hashed` are hashed during model initialization.
 
-To decrypt, use the `Decrypt` annotation:
+### Decrypting
+
+Call `decrypt_fields()` on the model instance to decrypt all `Encrypted` fields in-place:
 
 ```python
-from pydantic_encryption import Decrypt, BaseModel
+user = User(name="John", address="123 Main St", password="secret")
 
-class UserResponse(BaseModel):
-    address: Annotated[str, Decrypt]
+user.decrypt_fields()
+print(user.address)  # "123 Main St"
+```
 
-user = UserResponse(address=encrypted_bytes)
-print(user.address)  # decrypted
+`decrypt_fields()` returns `self`, so it can be chained.
+
+## Async Support
+
+Use `async_init()` to construct models with async encryption, hashing, and blind indexing:
+
+```python
+user = await User.async_init(name="John", address="123 Main St", password="secret")
+```
+
+Use `async_decrypt_fields()` for async decryption:
+
+```python
+await user.async_decrypt_fields()
 ```
 
 ## Encryption Methods
@@ -55,16 +70,15 @@ Set the encryption method via environment variable:
 ```bash
 ENCRYPTION_METHOD=fernet   # Fernet symmetric encryption (requires ENCRYPTION_KEY)
 ENCRYPTION_METHOD=aws      # AWS KMS (requires AWS_KMS_KEY_ARN, AWS_KMS_REGION, etc.)
-ENCRYPTION_METHOD=evervault # Evervault
 ```
 
-There is no default — you must explicitly set `ENCRYPTION_METHOD` if using `Encrypt`/`Decrypt` fields.
+There is no default — you must explicitly set `ENCRYPTION_METHOD` if using `Encrypted` fields.
 
 ### Fernet Setup
 
 ```bash
 # Generate a key
-openssl rand -base64 32
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 
 # Set environment variables
 ENCRYPTION_METHOD=fernet
@@ -88,22 +102,79 @@ AWS_KMS_ENCRYPT_KEY_ARN=arn:aws:kms:...encrypt-key
 AWS_KMS_DECRYPT_KEY_ARN=arn:aws:kms:...decrypt-key
 ```
 
-See [config.py](https://github.com/julien777z/pydantic-encryption/blob/main/pydantic_encryption/config.py) for all environment variables.
+### Model-Level Config
+
+Override encryption settings per model instead of relying on environment variables:
+
+```python
+from pydantic_secure import BaseModel, Encrypted, EncryptionMethod
+from typing import Annotated
+
+class SpecialUser(BaseModel, encryption_method=EncryptionMethod.FERNET, encryption_key="my-key"):
+    email: Annotated[bytes, Encrypted]
+```
+
+Supported kwargs: `encryption_method`, `encryption_key`, `blind_index_key`. Falls back to env vars if not set.
+
+## Blind Indexes
+
+Blind indexes enable equality searches on encrypted data by storing a deterministic keyed hash alongside the ciphertext.
+
+**Configuration:** Set `BLIND_INDEX_SECRET_KEY` via environment variable.
+
+### Pydantic Models
+
+```python
+from typing import Annotated
+from pydantic_secure import BaseModel, BlindIndex, BlindIndexMethod
+
+class User(BaseModel):
+    email_index: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
+```
+
+### Normalization
+
+Normalize values before hashing to ensure consistent lookups:
+
+```python
+email_index: Annotated[bytes, BlindIndex(
+    BlindIndexMethod.HMAC_SHA256,
+    normalize_to_lowercase=True,
+    strip_whitespace=True,
+)]
+```
+
+Available options:
+
+| Option | Effect |
+|--------|--------|
+| `strip_whitespace` | Strip leading/trailing whitespace, collapse internal whitespace |
+| `strip_non_characters` | Remove all non-letter characters (keep only a-zA-Z) |
+| `strip_non_digits` | Remove all non-digit characters (keep only 0-9) |
+| `normalize_to_lowercase` | Convert to lowercase |
+| `normalize_to_uppercase` | Convert to uppercase |
+
+### Methods
+
+| Method | Description |
+|--------|-------------|
+| `BlindIndexMethod.HMAC_SHA256` | Fast HMAC-SHA256 keyed hash. Standard choice. |
+| `BlindIndexMethod.ARGON2` | Memory-hard Argon2 hash with deterministic salt. Better brute-force resistance. |
 
 ## SQLAlchemy Integration
 
-Install with `pip install "pydantic_encryption[sqlalchemy]"`.
+Install with `pip install "pydantic-secure[sqlalchemy]"`.
 
 ```python
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, Session
 
-from pydantic_encryption.integrations.sqlalchemy import (
+from pydantic_secure import (
     SQLAlchemyEncryptedValue,
     SQLAlchemyHashed,
     SQLAlchemyBlindIndexValue,
+    BlindIndexMethod,
 )
-from pydantic_encryption.types import BlindIndexMethod
 
 
 class Base(DeclarativeBase):
@@ -142,18 +213,6 @@ with Session(engine) as session:
     print(found.email)  # decrypted
 ```
 
-`SQLAlchemyBlindIndexValue` supports the same normalization options as `BlindIndex`:
-
-```python
-blind_index_email: Mapped[bytes] = mapped_column(
-    SQLAlchemyBlindIndexValue(
-        BlindIndexMethod.HMAC_SHA256,
-        normalize_to_lowercase=True,
-        strip_whitespace=True,
-    )
-)
-```
-
 ### Supported Types
 
 `SQLAlchemyEncryptedValue` preserves the Python type of your data:
@@ -163,67 +222,12 @@ blind_index_email: Mapped[bytes] = mapped_column(
 ### Array Support (PostgreSQL)
 
 ```python
-from pydantic_encryption.integrations.sqlalchemy import SQLAlchemyPGEncryptedArray
+from pydantic_secure import SQLAlchemyPGEncryptedArray
 
 tags: Mapped[list[str] | None] = mapped_column(SQLAlchemyPGEncryptedArray(), nullable=True)
 ```
 
 Each element is individually encrypted. Requires PostgreSQL.
-
-## Blind Indexes
-
-Blind indexes enable equality searches on encrypted data by storing a deterministic keyed hash alongside the ciphertext.
-
-**Configuration:** Set `BLIND_INDEX_SECRET_KEY` via environment variable.
-
-### Pydantic Models
-
-```python
-from typing import Annotated
-from pydantic_encryption import BaseModel, BlindIndex, BlindIndexMethod
-
-class User(BaseModel):
-    email_index: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
-```
-
-### Normalization
-
-You can normalize values before hashing to ensure consistent lookups:
-
-```python
-email_index: Annotated[bytes, BlindIndex(
-    BlindIndexMethod.HMAC_SHA256,
-    normalize_to_lowercase=True,
-    strip_whitespace=True,
-)]
-```
-
-Available options:
-
-| Option | Effect |
-|--------|--------|
-| `strip_whitespace` | Strip leading/trailing whitespace, collapse internal whitespace |
-| `strip_non_characters` | Remove all non-letter characters (keep only a-zA-Z) |
-| `strip_non_digits` | Remove all non-digit characters (keep only 0-9) |
-| `normalize_to_lowercase` | Convert to lowercase |
-| `normalize_to_uppercase` | Convert to uppercase |
-
-### Methods
-
-| Method | Description |
-|--------|-------------|
-| `BlindIndexMethod.HMAC_SHA256` | Fast HMAC-SHA256 keyed hash. Standard choice. |
-| `BlindIndexMethod.ARGON2` | Memory-hard Argon2 hash with deterministic salt. Better brute-force resistance. |
-
-## Disable Auto-Processing
-
-```python
-class UserResponse(BaseModel, disable=True):
-    address: Annotated[bytes, Encrypt]
-
-user = UserResponse(address="123 Main St")
-user.encrypt_data()  # manual encryption
-```
 
 ## Custom Encryption or Hashing
 
@@ -231,7 +235,7 @@ Subclass `SecureModel` to implement your own logic:
 
 ```python
 from pydantic import BaseModel as PydanticBaseModel
-from pydantic_encryption import SecureModel
+from pydantic_secure import SecureModel
 
 class MySecureModel(PydanticBaseModel, SecureModel):
     def encrypt_data(self) -> None:
@@ -243,21 +247,9 @@ class MySecureModel(PydanticBaseModel, SecureModel):
         super().model_post_init(context)
 ```
 
-## Generics
-
-```python
-from pydantic_encryption import BaseModel
-
-class MyModel[T](BaseModel):
-    value: T
-
-model = MyModel[str](value="Hello")
-print(model.get_type())  # <class 'str'>
-```
-
 ## Run Tests
 
 ```bash
-poetry install --all-extras
-poetry run pytest -v
+pip install -e ".[dev]"
+pytest -v
 ```
