@@ -22,8 +22,9 @@ def get_encryption_backend(method: EncryptionMethod) -> type:
     if method in _encryption_backends:
         return _encryption_backends[method]
     if method in _encryption_factories:
-        cls = _encryption_factories.pop(method)()
+        cls = _encryption_factories[method]()
         _encryption_backends[method] = cls
+        del _encryption_factories[method]
         return cls
     raise ValueError(f"No encryption backend registered for {method!r}")
 
