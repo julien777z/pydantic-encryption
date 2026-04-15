@@ -12,7 +12,7 @@ from pydantic_secure.types import BlindIndex, BlindIndexValue, Encrypted, Encryp
 
 __all__ = ["BaseModel", "SecureModel"]
 
-_skip_sync_crypto: contextvars.ContextVar[bool] = contextvars.ContextVar("_skip_sync_crypto", default=False)
+_defer_crypto_to_async: contextvars.ContextVar[bool] = contextvars.ContextVar("_defer_crypto_to_async", default=False)
 
 
 class SecureModel:
@@ -247,7 +247,7 @@ class SecureModel:
     def default_post_init(self) -> None:
         """Post initialization hook for encryption, hashing, and blind indexing."""
 
-        if _skip_sync_crypto.get():
+        if _defer_crypto_to_async.get():
             return
 
         self.encrypt_data()
@@ -314,10 +314,10 @@ class BaseModel(SuperModelPydanticMixin, SecureModel):
     async def async_init(cls, /, **data: Any) -> Self:
         """Asynchronously construct a model with async encryption, hashing, and blind indexing."""
 
-        token = _skip_sync_crypto.set(True)
+        token = _defer_crypto_to_async.set(True)
         try:
             instance = cls(**data)
         finally:
-            _skip_sync_crypto.reset(token)
+            _defer_crypto_to_async.reset(token)
         await instance.async_post_init()
         return instance

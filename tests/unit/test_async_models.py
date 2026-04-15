@@ -3,17 +3,17 @@ from typing import Annotated
 
 from pydantic_secure import BaseModel, Encrypted, Hashed
 from pydantic_secure.config import settings
-from pydantic_secure.models.base import _skip_sync_crypto
+from pydantic_secure.models.base import _defer_crypto_to_async
 from pydantic_secure.types import BlindIndex, BlindIndexMethod
 
 
 def _construct_without_crypto(cls, **data):
     """Construct a model instance skipping sync crypto (for testing async methods individually)."""
-    token = _skip_sync_crypto.set(True)
+    token = _defer_crypto_to_async.set(True)
     try:
         return cls(**data)
     finally:
-        _skip_sync_crypto.reset(token)
+        _defer_crypto_to_async.reset(token)
 
 
 class TestAsyncInit:
