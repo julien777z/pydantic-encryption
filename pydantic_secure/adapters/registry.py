@@ -8,7 +8,6 @@ _encryption_backends: dict[EncryptionMethod, type] = {}
 _encryption_factories: dict[EncryptionMethod, Callable[[], type]] = {}
 
 _blind_index_backends: dict[BlindIndexMethod, type] = {}
-_blind_index_factories: dict[BlindIndexMethod, Callable[[], type]] = {}
 
 
 def register_encryption_backend(method: EncryptionMethod, cls: type) -> None:
@@ -33,17 +32,9 @@ def register_blind_index_backend(method: BlindIndexMethod, cls: type) -> None:
     _blind_index_backends[method] = cls
 
 
-def register_blind_index_backend_lazy(method: BlindIndexMethod, factory: Callable[[], type]) -> None:
-    _blind_index_factories[method] = factory
-
-
 def get_blind_index_backend(method: BlindIndexMethod) -> type:
     if method in _blind_index_backends:
         return _blind_index_backends[method]
-    if method in _blind_index_factories:
-        cls = _blind_index_factories.pop(method)()
-        _blind_index_backends[method] = cls
-        return cls
     raise ValueError(f"No blind index backend registered for {method!r}")
 
 
