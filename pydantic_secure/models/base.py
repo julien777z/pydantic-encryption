@@ -254,6 +254,19 @@ class SecureModel:
         self.hash_data()
         self.blind_index_data()
 
+    @staticmethod
+    async def _async_post_init_nested(value: Any) -> None:
+        """Recursively walk containers to find and process nested SecureModel instances."""
+
+        if isinstance(value, SecureModel):
+            await value.async_post_init()
+        elif isinstance(value, dict):
+            for item in value.values():
+                await SecureModel._async_post_init_nested(item)
+        elif isinstance(value, (list, tuple, set, frozenset)):
+            for item in value:
+                await SecureModel._async_post_init_nested(item)
+
     async def async_post_init(self) -> None:
         """Asynchronously run all post-initialization operations."""
 
@@ -261,16 +274,8 @@ class SecureModel:
         # so nested models are fully processed before the parent.
         for field_name in getattr(type(self), "model_fields", {}):
             value = getattr(self, field_name, None)
-            if isinstance(value, SecureModel):
-                await value.async_post_init()
-            elif isinstance(value, (list, tuple, set, frozenset)):
-                for item in value:
-                    if isinstance(item, SecureModel):
-                        await item.async_post_init()
-            elif isinstance(value, dict):
-                for item in value.values():
-                    if isinstance(item, SecureModel):
-                        await item.async_post_init()
+            if value is not None:
+                await self._async_post_init_nested(value)
 
         await self.async_encrypt_data()
         await self.async_hash_data()

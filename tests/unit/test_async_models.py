@@ -352,6 +352,51 @@ class TestAsyncInitNestedModels:
         assert getattr(user.addresses["home"].street, "encrypted", False)
         assert getattr(user.addresses["work"].street, "encrypted", False)
 
+    @pytest.mark.asyncio
+    async def test_async_init_nested_model_in_nested_list(self):
+        """SecureModel instances inside nested lists are recursively processed."""
+
+        class _Address(BaseModel):
+            street: Annotated[bytes, Encrypted]
+
+        class _User(BaseModel):
+            name: str
+            address_groups: list[list[_Address]]
+
+        user = await _User.async_init(
+            name="John",
+            address_groups=[[{"street": "123 Main St"}], [{"street": "456 Oak Ave"}, {"street": "789 Elm St"}]],
+        )
+
+        assert user.name == "John"
+        assert getattr(user.address_groups[0][0].street, "encrypted", False)
+        assert getattr(user.address_groups[1][0].street, "encrypted", False)
+        assert getattr(user.address_groups[1][1].street, "encrypted", False)
+
+    @pytest.mark.asyncio
+    async def test_async_init_nested_model_in_dict_of_lists(self):
+        """SecureModel instances inside dict values that are lists are recursively processed."""
+
+        class _Address(BaseModel):
+            street: Annotated[bytes, Encrypted]
+
+        class _User(BaseModel):
+            name: str
+            addresses: dict[str, list[_Address]]
+
+        user = await _User.async_init(
+            name="John",
+            addresses={
+                "home": [{"street": "123 Main St"}, {"street": "456 Oak Ave"}],
+                "work": [{"street": "789 Elm St"}],
+            },
+        )
+
+        assert user.name == "John"
+        assert getattr(user.addresses["home"][0].street, "encrypted", False)
+        assert getattr(user.addresses["home"][1].street, "encrypted", False)
+        assert getattr(user.addresses["work"][0].street, "encrypted", False)
+
 
 @pytest.fixture(autouse=True)
 def set_blind_index_key(monkeypatch):
