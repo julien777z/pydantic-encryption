@@ -3,7 +3,7 @@ from typing import Optional, Self
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from pydantic_encryption.types import EncryptionMethod
+from pydantic_secure.types import EncryptionMethod
 
 
 class Settings(BaseSettings):

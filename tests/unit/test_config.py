@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from pydantic_encryption.config import Settings
+from pydantic_secure.config import Settings
 
 
 class TestAWSKMSKeyValidation:

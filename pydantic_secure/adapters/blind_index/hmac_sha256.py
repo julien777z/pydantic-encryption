@@ -2,8 +2,8 @@ import asyncio
 import hashlib
 import hmac
 
-from pydantic_encryption.adapters.base import AsyncBlindIndexAdapter, BlindIndexAdapter
-from pydantic_encryption.types import BlindIndexValue
+from pydantic_secure.adapters.base import AsyncBlindIndexAdapter, BlindIndexAdapter
+from pydantic_secure.types import BlindIndexValue
 
 
 class HMACSHA256Adapter(BlindIndexAdapter, AsyncBlindIndexAdapter):

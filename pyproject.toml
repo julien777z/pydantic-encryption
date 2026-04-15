@@ -1,13 +1,13 @@
 [project]
-name = "pydantic_encryption"
-version = "0.5.1"
-description = "Encryption and Hashing Models for Pydantic"
+name = "pydantic_secure"
+version = "0.0.0"
+description = "Field-level encryption, hashing, and blind indexing for Pydantic"
 authors = [
     { name = "Julien Kmec", email = "me@julien.dev" },
 ]
 readme = "README.md"
 packages = [
-    {include = "pydantic_encryption"},
+    {include = "pydantic_secure"},
     {include = "scripts"},
 ]
 requires-python = ">=3.11,<3.15"
@@ -29,13 +29,11 @@ aws = [
 ]
 sqlalchemy = [
     "sqlalchemy>=2.0.40",
-    "sqlmodel>=0.0.24",
 ]
 all = [
     "aws-encryption-sdk[mpl]>=4.0.1",
     "boto3>=1.38.8",
     "sqlalchemy>=2.0.40",
-    "sqlmodel>=0.0.24",
 ]
 dev = [
     "pytest>=8.3.5",

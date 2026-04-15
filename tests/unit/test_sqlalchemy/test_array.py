@@ -2,7 +2,7 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue, SQLAlchemyPGEncryptedArray
+from pydantic_secure.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue, SQLAlchemyPGEncryptedArray
 
 
 class TestSQLAlchemyPGEncryptedArray:

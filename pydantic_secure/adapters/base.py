@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 
-from pydantic_encryption.types import BlindIndexValue, DecryptedValue, EncryptedValue, HashedValue
+from pydantic_secure.types import BlindIndexValue, EncryptedValue, HashedValue
 
 
 class EncryptionAdapter(ABC):
@@ -13,7 +13,7 @@ class EncryptionAdapter(ABC):
 
     @classmethod
     @abstractmethod
-    def decrypt(cls, ciphertext: bytes | str | EncryptedValue) -> DecryptedValue:
+    def decrypt(cls, ciphertext: bytes | str | EncryptedValue) -> str:
         """Decrypt ciphertext data."""
 
 
@@ -27,7 +27,7 @@ class AsyncEncryptionAdapter(ABC):
 
     @classmethod
     @abstractmethod
-    async def async_decrypt(cls, ciphertext: bytes | str | EncryptedValue) -> DecryptedValue:
+    async def async_decrypt(cls, ciphertext: bytes | str | EncryptedValue) -> str:
         """Asynchronously decrypt ciphertext data."""
 
 

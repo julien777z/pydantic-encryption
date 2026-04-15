@@ -1,8 +1,8 @@
 import asyncio
 import hashlib
 
-from pydantic_encryption.adapters.base import AsyncBlindIndexAdapter, BlindIndexAdapter
-from pydantic_encryption.types import BlindIndexValue
+from pydantic_secure.adapters.base import AsyncBlindIndexAdapter, BlindIndexAdapter
+from pydantic_secure.types import BlindIndexValue
 
 
 class Argon2BlindIndexAdapter(BlindIndexAdapter, AsyncBlindIndexAdapter):

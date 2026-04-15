@@ -3,16 +3,16 @@ from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic_encryption._lazy import require_optional_dependency
+from pydantic_secure._lazy import require_optional_dependency
 
 require_optional_dependency("sqlalchemy", "sqlalchemy")
 
 from sqlalchemy.types import ARRAY, LargeBinary, TypeDecorator
 
-from pydantic_encryption.adapters import encryption
-from pydantic_encryption.config import settings
-from pydantic_encryption.integrations.sqlalchemy.shared import EncryptableValue, TypePrefix, VERSION_PREFIX
-from pydantic_encryption.types import EncryptedValue, EncryptionMethod
+from pydantic_secure.adapters import encryption
+from pydantic_secure.config import settings
+from pydantic_secure.integrations.sqlalchemy.shared import EncryptableValue, TypePrefix, VERSION_PREFIX
+from pydantic_secure.types import EncryptedValue, EncryptionMethod
 
 
 class SQLAlchemyEncryptedValue(TypeDecorator):

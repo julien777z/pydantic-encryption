@@ -1,6 +1,6 @@
 import pytest
 
-from pydantic_encryption.normalization import normalize_value
+from pydantic_secure.normalization import normalize_value
 
 
 class TestStripWhitespace:

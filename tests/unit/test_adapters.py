@@ -1,9 +1,9 @@
 import pytest
 
-from pydantic_encryption.adapters.blind_index.hmac_sha256 import HMACSHA256Adapter
-from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
-from pydantic_encryption.adapters.hashing.argon2 import Argon2Adapter
-from pydantic_encryption.types import BlindIndexValue, DecryptedValue, EncryptedValue, HashedValue
+from pydantic_secure.adapters.blind_index.hmac_sha256 import HMACSHA256Adapter
+from pydantic_secure.adapters.encryption.fernet import FernetAdapter
+from pydantic_secure.adapters.hashing.argon2 import Argon2Adapter
+from pydantic_secure.types import BlindIndexValue, EncryptedValue, HashedValue
 
 
 class TestFernetAdapter:
@@ -26,14 +26,13 @@ class TestFernetAdapter:
         assert isinstance(encrypted, EncryptedValue)
         assert encrypted.encrypted is True
 
-    def test_decrypt_returns_decrypted_value(self):
-        """Test decrypting returns DecryptedValue."""
+    def test_decrypt_returns_string(self):
+        """Test decrypting returns plain string."""
         plaintext = "secret data"
         encrypted = FernetAdapter.encrypt(plaintext)
         decrypted = FernetAdapter.decrypt(encrypted)
 
-        assert isinstance(decrypted, DecryptedValue)
-        assert decrypted.encrypted is False
+        assert isinstance(decrypted, str)
         assert decrypted == plaintext
 
     def test_encrypt_decrypt_roundtrip(self):
@@ -51,15 +50,6 @@ class TestFernetAdapter:
         double_encrypted = FernetAdapter.encrypt(encrypted)
 
         assert encrypted == double_encrypted
-
-    def test_decrypt_already_decrypted_returns_same(self):
-        """Test decrypting already decrypted value returns same value."""
-        plaintext = "secret"
-        encrypted = FernetAdapter.encrypt(plaintext)
-        decrypted = FernetAdapter.decrypt(encrypted)
-        double_decrypted = FernetAdapter.decrypt(decrypted)
-
-        assert decrypted == double_decrypted
 
     def test_encrypt_empty_string(self):
         """Test encrypting empty string."""
@@ -182,7 +172,7 @@ class TestArgon2BlindIndexAdapter:
     TEST_KEY = b"test-secret-key"
 
     def test_compute_blind_index_already_indexed_returns_same(self):
-        from pydantic_encryption.adapters.blind_index.argon2 import Argon2BlindIndexAdapter
+        from pydantic_secure.adapters.blind_index.argon2 import Argon2BlindIndexAdapter
 
         result = Argon2BlindIndexAdapter.compute_blind_index("test", self.TEST_KEY)
         double_indexed = Argon2BlindIndexAdapter.compute_blind_index(result, self.TEST_KEY)

@@ -3,8 +3,8 @@ from typing import ClassVar
 
 from argon2 import PasswordHasher
 
-from pydantic_encryption.adapters.base import AsyncHashingAdapter, HashingAdapter
-from pydantic_encryption.types import HashedValue
+from pydantic_secure.adapters.base import AsyncHashingAdapter, HashingAdapter
+from pydantic_secure.types import HashedValue
 
 
 class Argon2Adapter(HashingAdapter, AsyncHashingAdapter):

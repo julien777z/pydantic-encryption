@@ -2,15 +2,15 @@ from typing import Annotated
 
 import pytest
 
-from pydantic_encryption import BaseModel, BlindIndex, BlindIndexMethod
-from pydantic_encryption.types import BlindIndexValue
+from pydantic_secure import BaseModel, BlindIndex, BlindIndexMethod
+from pydantic_secure.types import BlindIndexValue
 
 
 @pytest.fixture(autouse=True)
 def set_blind_index_key(monkeypatch):
     """Set a test blind index secret key for all tests."""
 
-    from pydantic_encryption import config
+    from pydantic_secure import config
 
     monkeypatch.setattr(config.settings, "BLIND_INDEX_SECRET_KEY", "test-secret-key-for-annotation")
 
@@ -111,7 +111,7 @@ class TestBlindIndexAnnotationConfig:
     """Test BlindIndex annotation configuration edge cases."""
 
     def test_missing_secret_key_raises_error(self, monkeypatch):
-        from pydantic_encryption import config
+        from pydantic_secure import config
 
         monkeypatch.setattr(config.settings, "BLIND_INDEX_SECRET_KEY", None)
 
@@ -128,15 +128,6 @@ class TestBlindIndexAnnotationConfig:
         user = UserModel()
 
         assert user.email_index is None
-
-    def test_disabled_model_skips_blind_index(self):
-        class UserModel(BaseModel, disable=True):
-            email_index: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
-
-        user = UserModel(email_index="test@example.com")
-
-        # Should not be blind-indexed, original value preserved (pydantic converts str to bytes)
-        assert user.email_index == b"test@example.com"
 
     def test_conflicting_strip_options_raises(self):
         with pytest.raises(ValueError, match="strip_non_characters and strip_non_digits cannot both be True"):

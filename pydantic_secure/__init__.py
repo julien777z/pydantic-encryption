@@ -1,27 +1,25 @@
 from typing import TYPE_CHECKING
 
-from pydantic_encryption.adapters.base import AsyncBlindIndexAdapter, AsyncEncryptionAdapter, AsyncHashingAdapter
-from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
-from pydantic_encryption.adapters.hashing.argon2 import Argon2Adapter
-from pydantic_encryption.config import settings
-from pydantic_encryption.models import BaseModel, SecureModel
-from pydantic_encryption.types import (
+from pydantic_secure.adapters.base import AsyncBlindIndexAdapter, AsyncEncryptionAdapter, AsyncHashingAdapter
+from pydantic_secure.adapters.encryption.fernet import FernetAdapter
+from pydantic_secure.adapters.hashing.argon2 import Argon2Adapter
+from pydantic_secure.config import settings
+from pydantic_secure.models import BaseModel, SecureModel
+from pydantic_secure.types import (
     BlindIndex,
     BlindIndexMethod,
     BlindIndexValue,
-    Decrypt,
-    DecryptedValue,
-    Encrypt,
+    Encrypted,
     EncryptedValue,
     EncryptionMethod,
-    Hash,
+    Hashed,
     HashedValue,
 )
 
 # Lazy loading for optional dependencies
 if TYPE_CHECKING:
-    from pydantic_encryption.adapters.encryption.aws import AWSAdapter
-    from pydantic_encryption.integrations.sqlalchemy import (
+    from pydantic_secure.adapters.encryption.aws import AWSAdapter
+    from pydantic_secure.integrations.sqlalchemy import (
         SQLAlchemyBlindIndexValue,
         SQLAlchemyEncryptedValue,
         SQLAlchemyHashed,
@@ -31,27 +29,27 @@ if TYPE_CHECKING:
 
 def __getattr__(name: str):
     if name == "SQLAlchemyEncryptedValue":
-        from pydantic_encryption.integrations.sqlalchemy import SQLAlchemyEncryptedValue
+        from pydantic_secure.integrations.sqlalchemy import SQLAlchemyEncryptedValue
 
         return SQLAlchemyEncryptedValue
 
     if name == "SQLAlchemyPGEncryptedArray":
-        from pydantic_encryption.integrations.sqlalchemy import SQLAlchemyPGEncryptedArray
+        from pydantic_secure.integrations.sqlalchemy import SQLAlchemyPGEncryptedArray
 
         return SQLAlchemyPGEncryptedArray
 
     if name == "SQLAlchemyHashed":
-        from pydantic_encryption.integrations.sqlalchemy import SQLAlchemyHashed
+        from pydantic_secure.integrations.sqlalchemy import SQLAlchemyHashed
 
         return SQLAlchemyHashed
 
     if name == "SQLAlchemyBlindIndexValue":
-        from pydantic_encryption.integrations.sqlalchemy import SQLAlchemyBlindIndexValue
+        from pydantic_secure.integrations.sqlalchemy import SQLAlchemyBlindIndexValue
 
         return SQLAlchemyBlindIndexValue
 
     if name == "AWSAdapter":
-        from pydantic_encryption.adapters.encryption.aws import AWSAdapter
+        from pydantic_secure.adapters.encryption.aws import AWSAdapter
 
         return AWSAdapter
 
@@ -66,15 +64,13 @@ __all__ = [
     "SecureModel",
     # Annotations
     "BlindIndex",
-    "Encrypt",
-    "Decrypt",
-    "Hash",
+    "Encrypted",
+    "Hashed",
     # Types
     "BlindIndexMethod",
     "BlindIndexValue",
     "EncryptionMethod",
     "EncryptedValue",
-    "DecryptedValue",
     "HashedValue",
     # Adapters (default)
     "FernetAdapter",

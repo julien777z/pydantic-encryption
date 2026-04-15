@@ -19,7 +19,7 @@ class LazyModule:
             if self._required_extra:
                 raise ImportError(
                     f"Optional dependency not installed. "
-                    f"Install with: pip install pydantic-encryption[{self._required_extra}]"
+                    f"Install with: pip install pydantic-secure[{self._required_extra}]"
                 ) from e
             raise
 
@@ -41,5 +41,5 @@ def require_optional_dependency(module_name: str, extra_name: str) -> ModuleType
     except ImportError as e:
         raise ImportError(
             f"Optional dependency '{module_name}' not installed. "
-            f"Install with: pip install pydantic-encryption[{extra_name}]"
+            f"Install with: pip install pydantic-secure[{extra_name}]"
         ) from e

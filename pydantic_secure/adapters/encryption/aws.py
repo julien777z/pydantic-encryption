@@ -1,7 +1,7 @@
 import asyncio
 from typing import Any, ClassVar
 
-from pydantic_encryption._lazy import require_optional_dependency
+from pydantic_secure._lazy import require_optional_dependency
 
 require_optional_dependency("boto3", "aws")
 require_optional_dependency("aws_encryption_sdk", "aws")
@@ -13,9 +13,9 @@ from aws_cryptographic_material_providers.mpl.config import MaterialProvidersCon
 from aws_cryptographic_material_providers.mpl.models import CreateAwsKmsKeyringInput
 from aws_encryption_sdk import CommitmentPolicy
 
-from pydantic_encryption.adapters.base import AsyncEncryptionAdapter, EncryptionAdapter
-from pydantic_encryption.config import settings
-from pydantic_encryption.types import DecryptedValue, EncryptedValue
+from pydantic_secure.adapters.base import AsyncEncryptionAdapter, EncryptionAdapter
+from pydantic_secure.config import settings
+from pydantic_secure.types import EncryptedValue
 
 
 class AWSAdapter(EncryptionAdapter, AsyncEncryptionAdapter):
@@ -138,10 +138,7 @@ class AWSAdapter(EncryptionAdapter, AsyncEncryptionAdapter):
         return EncryptedValue(ciphertext)
 
     @classmethod
-    def decrypt(cls, ciphertext: bytes | str | EncryptedValue) -> DecryptedValue:
-        if isinstance(ciphertext, DecryptedValue):
-            return ciphertext
-
+    def decrypt(cls, ciphertext: bytes | str | EncryptedValue) -> str:
         if isinstance(ciphertext, str):
             ciphertext_bytes = ciphertext.encode("utf-8")
         else:
@@ -155,12 +152,14 @@ class AWSAdapter(EncryptionAdapter, AsyncEncryptionAdapter):
             keyring=keyring,
         )
 
-        return DecryptedValue(plaintext)
+        if isinstance(plaintext, bytes):
+            return plaintext.decode("utf-8")
+        return plaintext
 
     @classmethod
     async def async_encrypt(cls, plaintext: bytes | str | EncryptedValue) -> EncryptedValue:
         return await asyncio.to_thread(cls.encrypt, plaintext)
 
     @classmethod
-    async def async_decrypt(cls, ciphertext: bytes | str | EncryptedValue) -> DecryptedValue:
+    async def async_decrypt(cls, ciphertext: bytes | str | EncryptedValue) -> str:
         return await asyncio.to_thread(cls.decrypt, ciphertext)
