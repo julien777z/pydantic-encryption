@@ -6,10 +6,6 @@ authors = [
     { name = "Julien Kmec", email = "me@julien.dev" },
 ]
 readme = "README.md"
-packages = [
-    {include = "pydantic_secure"},
-    {include = "scripts"},
-]
 requires-python = ">=3.11,<3.15"
 dependencies = [
     "pydantic>=2.10.6",
@@ -58,6 +54,12 @@ line_length = 110
 
 [project.scripts]
 tests = "scripts.run_tests:main"
+
+[tool.poetry]
+packages = [
+    {include = "pydantic_secure"},
+    {include = "scripts"},
+]
 
 [build-system]
 requires = ["poetry-core", "setuptools"]

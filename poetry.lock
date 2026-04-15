@@ -1380,23 +1380,6 @@ timezone = ["python-dateutil"]
 url = ["furl (>=0.4.1)"]
 
 [[package]]
-name = "sqlmodel"
-version = "0.0.37"
-description = "SQLModel, SQL databases in Python, designed for simplicity, compatibility, and robustness."
-optional = true
-python-versions = ">=3.10"
-groups = ["main"]
-markers = "extra == \"sqlalchemy\" or extra == \"all\""
-files = [
-    {file = "sqlmodel-0.0.37-py3-none-any.whl", hash = "sha256:2137a4045ef3fd66a917a7717ada959a1ceb3630d95e1f6aaab39dd2c0aef278"},
-    {file = "sqlmodel-0.0.37.tar.gz", hash = "sha256:d2c19327175794faf50b1ee31cc966764f55b1dedefc046450bc5741a3d68352"},
-]
-
-[package.dependencies]
-pydantic = ">=2.11.0"
-SQLAlchemy = ">=2.0.14,<2.1.0"
-
-[[package]]
 name = "typing-extensions"
 version = "4.15.0"
 description = "Backported and Experimental Type Hints for Python 3.9+"
@@ -1560,12 +1543,12 @@ files = [
 dev = ["pytest", "setuptools"]
 
 [extras]
-all = ["aws-encryption-sdk", "boto3", "sqlalchemy", "sqlmodel"]
+all = ["aws-encryption-sdk", "boto3", "sqlalchemy"]
 aws = ["aws-encryption-sdk", "boto3"]
 dev = ["coverage", "polyfactory", "psycopg2-binary", "pytest", "pytest-asyncio", "pytest-cov", "pytest-docker", "pytest-env", "pytest-sqlalchemy", "sqlalchemy-utils"]
-sqlalchemy = ["sqlalchemy", "sqlmodel"]
+sqlalchemy = ["sqlalchemy"]
 
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<3.15"
-content-hash = "3f0f6799d9883c9cb88cf968f8cab7cca226c3a60024a2495f02022de99467eb"
+content-hash = "21645d4104822c38ddef6aa2053e604f3a647efd0809205f8c0d9725ddd4bc5d"
