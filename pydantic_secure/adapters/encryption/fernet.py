@@ -12,50 +12,49 @@ from pydantic_secure.types import EncryptedValue, EncryptionMethod
 class FernetAdapter(EncryptionAdapter, AsyncEncryptionAdapter):
     """Adapter for Fernet encryption."""
 
-    _client: ClassVar[Fernet | None] = None
+    _clients: ClassVar[dict[str, Fernet]] = {}
 
     @classmethod
-    def _get_client(cls) -> Fernet:
-        if cls._client is None:
-            if not settings.ENCRYPTION_KEY:
-                raise ValueError("Fernet requires ENCRYPTION_KEY to be set.")
+    def _get_client(cls, key: str | None = None) -> Fernet:
+        if key is None:
+            key = settings.ENCRYPTION_KEY
+        if not key:
+            raise ValueError("Fernet requires ENCRYPTION_KEY to be set.")
 
-            cls._client = Fernet(settings.ENCRYPTION_KEY)
+        if key not in cls._clients:
+            cls._clients[key] = Fernet(key)
 
-        return cls._client
+        return cls._clients[key]
 
     @classmethod
-    def encrypt(cls, plaintext: bytes | str | EncryptedValue) -> EncryptedValue:
+    def encrypt(cls, plaintext: bytes | str | EncryptedValue, *, key: str | None = None) -> EncryptedValue:
         if isinstance(plaintext, EncryptedValue):
             return plaintext
 
         if isinstance(plaintext, str):
             plaintext = plaintext.encode("utf-8")
 
-        client = cls._get_client()
-        encrypted_value = EncryptedValue(client.encrypt(plaintext))
-
-        return encrypted_value
+        client = cls._get_client(key)
+        return EncryptedValue(client.encrypt(plaintext))
 
     @classmethod
-    def decrypt(cls, ciphertext: str | bytes | EncryptedValue) -> str:
+    def decrypt(cls, ciphertext: str | bytes | EncryptedValue, *, key: str | None = None) -> str:
         if isinstance(ciphertext, str):
             ciphertext_bytes = ciphertext.encode("utf-8")
         else:
             ciphertext_bytes = ciphertext
 
-        client = cls._get_client()
-
+        client = cls._get_client(key)
         decrypted_bytes = client.decrypt(ciphertext_bytes)
         return decrypted_bytes.decode("utf-8")
 
     @classmethod
-    async def async_encrypt(cls, plaintext: bytes | str | EncryptedValue) -> EncryptedValue:
-        return await asyncio.to_thread(cls.encrypt, plaintext)
+    async def async_encrypt(cls, plaintext: bytes | str | EncryptedValue, *, key: str | None = None) -> EncryptedValue:
+        return await asyncio.to_thread(cls.encrypt, plaintext, key=key)
 
     @classmethod
-    async def async_decrypt(cls, ciphertext: str | bytes | EncryptedValue) -> str:
-        return await asyncio.to_thread(cls.decrypt, ciphertext)
+    async def async_decrypt(cls, ciphertext: str | bytes | EncryptedValue, *, key: str | None = None) -> str:
+        return await asyncio.to_thread(cls.decrypt, ciphertext, key=key)
 
 
 register_encryption_backend(EncryptionMethod.FERNET, FernetAdapter)

@@ -1,6 +1,6 @@
 import asyncio
 import contextvars
-from typing import Any, Self
+from typing import Any, ClassVar, Self
 
 from pydantic_super_model import AnnotatedFieldInfo, SuperModelPydanticMixin
 
@@ -8,7 +8,7 @@ from pydantic_secure.adapters import hashing
 from pydantic_secure.adapters.registry import get_blind_index_backend, get_encryption_backend
 from pydantic_secure.config import settings
 from pydantic_secure.normalization import normalize_value
-from pydantic_secure.types import BlindIndex, BlindIndexValue, Encrypted, Hashed
+from pydantic_secure.types import BlindIndex, BlindIndexValue, Encrypted, EncryptionMethod, Hashed
 
 __all__ = ["BaseModel", "SecureModel"]
 
@@ -17,6 +17,49 @@ _skip_sync_crypto: contextvars.ContextVar[bool] = contextvars.ContextVar("_skip_
 
 class SecureModel:
     """Base class for encryptable and hashable models."""
+
+    _encryption_method: ClassVar[EncryptionMethod | None] = None
+    _encryption_key: ClassVar[str | None] = None
+    _blind_index_key: ClassVar[str | None] = None
+
+    def __init_subclass__(
+        cls,
+        *,
+        encryption_method: EncryptionMethod | str | None = None,
+        encryption_key: str | None = None,
+        blind_index_key: str | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init_subclass__(**kwargs)
+
+        if encryption_method is not None:
+            if isinstance(encryption_method, str):
+                encryption_method = EncryptionMethod(encryption_method)
+            cls._encryption_method = encryption_method
+
+        if encryption_key is not None:
+            cls._encryption_key = encryption_key
+
+        if blind_index_key is not None:
+            cls._blind_index_key = blind_index_key
+
+    @classmethod
+    def _resolve_encryption_method(cls) -> EncryptionMethod:
+        method = cls._encryption_method or settings.ENCRYPTION_METHOD
+        if method is None:
+            raise ValueError("ENCRYPTION_METHOD must be set to use Encrypted fields.")
+        return method
+
+    @classmethod
+    def _resolve_encryption_key(cls) -> str | None:
+        return cls._encryption_key or settings.ENCRYPTION_KEY
+
+    @classmethod
+    def _resolve_blind_index_key(cls) -> str:
+        key = cls._blind_index_key or settings.BLIND_INDEX_SECRET_KEY
+        if key is None:
+            raise ValueError("BLIND_INDEX_SECRET_KEY must be set to use BlindIndex.")
+        return key
 
     @staticmethod
     def _get_field_values(fields: dict[str, AnnotatedFieldInfo]) -> dict[str, str]:
@@ -35,14 +78,12 @@ class SecureModel:
             return
 
         encryption_fields = self._get_field_values(self.pending_encryption_fields)
-
-        if settings.ENCRYPTION_METHOD is None:
-            raise ValueError("ENCRYPTION_METHOD must be set to use Encrypted fields.")
-
-        backend = get_encryption_backend(settings.ENCRYPTION_METHOD)
+        method = self._resolve_encryption_method()
+        key = self._resolve_encryption_key()
+        backend = get_encryption_backend(method)
 
         for field_name, value in encryption_fields.items():
-            setattr(self, field_name, backend.encrypt(value))
+            setattr(self, field_name, backend.encrypt(value, key=key))
 
     def hash_data(self) -> None:
         """Hash fields marked with `Hashed` annotation."""
@@ -61,6 +102,8 @@ class SecureModel:
 
         if not self.pending_blind_index_fields:
             return
+
+        key_bytes: bytes | None = None
 
         for field_name, annotated_field in self.pending_blind_index_fields.items():
             if annotated_field.value is None:
@@ -86,10 +129,8 @@ class SecureModel:
                 normalize_to_uppercase=annotation.normalize_to_uppercase,
             )
 
-            key = settings.BLIND_INDEX_SECRET_KEY
-            if key is None:
-                raise ValueError("BLIND_INDEX_SECRET_KEY must be set to use BlindIndex.")
-            key_bytes = key.encode("utf-8")
+            if key_bytes is None:
+                key_bytes = self._resolve_blind_index_key().encode("utf-8")
 
             backend = get_blind_index_backend(annotation.method)
             setattr(self, field_name, backend.compute_blind_index(value, key_bytes))
@@ -101,14 +142,12 @@ class SecureModel:
             return self
 
         encryption_fields = self._get_field_values(self.pending_encryption_fields)
-
-        if settings.ENCRYPTION_METHOD is None:
-            raise ValueError("ENCRYPTION_METHOD must be set to use Encrypted fields.")
-
-        backend = get_encryption_backend(settings.ENCRYPTION_METHOD)
+        method = self._resolve_encryption_method()
+        key = self._resolve_encryption_key()
+        backend = get_encryption_backend(method)
 
         for field_name, value in encryption_fields.items():
-            setattr(self, field_name, backend.decrypt(value))
+            setattr(self, field_name, backend.decrypt(value, key=key))
 
         return self
 
@@ -119,12 +158,10 @@ class SecureModel:
             return self
 
         encryption_fields = self._get_field_values(self.pending_encryption_fields)
-
-        if settings.ENCRYPTION_METHOD is None:
-            raise ValueError("ENCRYPTION_METHOD must be set to use Encrypted fields.")
-
-        backend = get_encryption_backend(settings.ENCRYPTION_METHOD)
-        tasks = {name: backend.async_decrypt(val) for name, val in encryption_fields.items()}
+        method = self._resolve_encryption_method()
+        key = self._resolve_encryption_key()
+        backend = get_encryption_backend(method)
+        tasks = {name: backend.async_decrypt(val, key=key) for name, val in encryption_fields.items()}
 
         results = await asyncio.gather(*tasks.values())
         for field_name, value in zip(tasks.keys(), results):
@@ -172,12 +209,10 @@ class SecureModel:
             return
 
         encryption_fields = self._get_field_values(self.pending_encryption_fields)
-
-        if settings.ENCRYPTION_METHOD is None:
-            raise ValueError("ENCRYPTION_METHOD must be set to use Encrypted fields.")
-
-        backend = get_encryption_backend(settings.ENCRYPTION_METHOD)
-        tasks = {name: backend.async_encrypt(val) for name, val in encryption_fields.items()}
+        method = self._resolve_encryption_method()
+        key = self._resolve_encryption_key()
+        backend = get_encryption_backend(method)
+        tasks = {name: backend.async_encrypt(val, key=key) for name, val in encryption_fields.items()}
 
         results = await asyncio.gather(*tasks.values())
         for field_name, value in zip(tasks.keys(), results):
@@ -231,10 +266,7 @@ class SecureModel:
             )
 
             if key_bytes is None:
-                key = settings.BLIND_INDEX_SECRET_KEY
-                if key is None:
-                    raise ValueError("BLIND_INDEX_SECRET_KEY must be set to use BlindIndex.")
-                key_bytes = key.encode("utf-8")
+                key_bytes = self._resolve_blind_index_key().encode("utf-8")
 
             backend = get_blind_index_backend(annotation.method)
             tasks[field_name] = backend.async_compute_blind_index(value, key_bytes)

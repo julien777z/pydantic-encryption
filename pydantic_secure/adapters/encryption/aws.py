@@ -120,7 +120,7 @@ class AWSAdapter(EncryptionAdapter, AsyncEncryptionAdapter):
         return cls._decrypt_keyring
 
     @classmethod
-    def encrypt(cls, plaintext: bytes | str | EncryptedValue) -> EncryptedValue:
+    def encrypt(cls, plaintext: bytes | str | EncryptedValue, *, key: str | None = None) -> EncryptedValue:
         if isinstance(plaintext, EncryptedValue):
             return plaintext
 
@@ -138,7 +138,7 @@ class AWSAdapter(EncryptionAdapter, AsyncEncryptionAdapter):
         return EncryptedValue(ciphertext)
 
     @classmethod
-    def decrypt(cls, ciphertext: bytes | str | EncryptedValue) -> str:
+    def decrypt(cls, ciphertext: bytes | str | EncryptedValue, *, key: str | None = None) -> str:
         if isinstance(ciphertext, str):
             ciphertext_bytes = ciphertext.encode("utf-8")
         else:
@@ -157,9 +157,9 @@ class AWSAdapter(EncryptionAdapter, AsyncEncryptionAdapter):
         return plaintext
 
     @classmethod
-    async def async_encrypt(cls, plaintext: bytes | str | EncryptedValue) -> EncryptedValue:
-        return await asyncio.to_thread(cls.encrypt, plaintext)
+    async def async_encrypt(cls, plaintext: bytes | str | EncryptedValue, *, key: str | None = None) -> EncryptedValue:
+        return await asyncio.to_thread(cls.encrypt, plaintext, key=key)
 
     @classmethod
-    async def async_decrypt(cls, ciphertext: bytes | str | EncryptedValue) -> str:
-        return await asyncio.to_thread(cls.decrypt, ciphertext)
+    async def async_decrypt(cls, ciphertext: bytes | str | EncryptedValue, *, key: str | None = None) -> str:
+        return await asyncio.to_thread(cls.decrypt, ciphertext, key=key)

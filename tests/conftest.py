@@ -20,7 +20,7 @@ def set_default_encryption_method(monkeypatch):
         # Reset cached Fernet client so it picks up new key
         from pydantic_secure.adapters.encryption.fernet import FernetAdapter
 
-        FernetAdapter._client = None
+        FernetAdapter._clients.clear()
 
 
 @pytest.fixture
