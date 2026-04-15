@@ -9,10 +9,10 @@ require_optional_dependency("sqlalchemy", "sqlalchemy")
 
 from sqlalchemy.types import ARRAY, LargeBinary, TypeDecorator
 
-from pydantic_secure.adapters import encryption
+from pydantic_secure.adapters.registry import get_encryption_backend
 from pydantic_secure.config import settings
 from pydantic_secure.integrations.sqlalchemy.shared import EncryptableValue, TypePrefix, VERSION_PREFIX
-from pydantic_secure.types import EncryptedValue, EncryptionMethod
+from pydantic_secure.types import EncryptedValue
 
 
 class SQLAlchemyEncryptedValue(TypeDecorator):
@@ -99,14 +99,8 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
             raise ValueError("ENCRYPTION_METHOD must be set to use SQLAlchemyEncryptedValue.")
 
         serialized_value = self._serialize_value(value)
-
-        match settings.ENCRYPTION_METHOD:
-            case EncryptionMethod.FERNET:
-                return encryption.fernet.FernetAdapter.encrypt(serialized_value)
-            case EncryptionMethod.AWS:
-                return encryption.aws.AWSAdapter.encrypt(serialized_value)
-            case _:
-                raise ValueError(f"Unknown encryption method: {settings.ENCRYPTION_METHOD}")
+        backend = get_encryption_backend(settings.ENCRYPTION_METHOD)
+        return backend.encrypt(serialized_value)
 
     def _process_decrypt_value(self, value: str | bytes | None) -> str | bytes | None:
         if value is None:
@@ -115,13 +109,8 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
         if settings.ENCRYPTION_METHOD is None:
             raise ValueError("ENCRYPTION_METHOD must be set to use SQLAlchemyEncryptedValue.")
 
-        match settings.ENCRYPTION_METHOD:
-            case EncryptionMethod.FERNET:
-                return encryption.fernet.FernetAdapter.decrypt(value)
-            case EncryptionMethod.AWS:
-                return encryption.aws.AWSAdapter.decrypt(value)
-            case _:
-                raise ValueError(f"Unknown encryption method: {settings.ENCRYPTION_METHOD}")
+        backend = get_encryption_backend(settings.ENCRYPTION_METHOD)
+        return backend.decrypt(value)
 
     def process_bind_param(self, value: EncryptableValue | None, dialect) -> bytes | None:
         """Encrypts data before binding it to the database."""

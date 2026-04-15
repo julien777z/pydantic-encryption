@@ -4,8 +4,9 @@ from typing import ClassVar
 from cryptography.fernet import Fernet
 
 from pydantic_secure.adapters.base import AsyncEncryptionAdapter, EncryptionAdapter
+from pydantic_secure.adapters.registry import register_encryption_backend
 from pydantic_secure.config import settings
-from pydantic_secure.types import EncryptedValue
+from pydantic_secure.types import EncryptedValue, EncryptionMethod
 
 
 class FernetAdapter(EncryptionAdapter, AsyncEncryptionAdapter):
@@ -55,3 +56,6 @@ class FernetAdapter(EncryptionAdapter, AsyncEncryptionAdapter):
     @classmethod
     async def async_decrypt(cls, ciphertext: str | bytes | EncryptedValue) -> str:
         return await asyncio.to_thread(cls.decrypt, ciphertext)
+
+
+register_encryption_backend(EncryptionMethod.FERNET, FernetAdapter)

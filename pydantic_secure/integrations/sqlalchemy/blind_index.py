@@ -4,7 +4,7 @@ require_optional_dependency("sqlalchemy", "sqlalchemy")
 
 from sqlalchemy.types import LargeBinary, TypeDecorator
 
-from pydantic_secure.adapters.blind_index.hmac_sha256 import HMACSHA256Adapter
+from pydantic_secure.adapters.registry import get_blind_index_backend
 from pydantic_secure.config import settings
 from pydantic_secure.normalization import normalize_value
 from pydantic_secure.types import BlindIndexMethod, BlindIndexValue
@@ -65,16 +65,8 @@ class SQLAlchemyBlindIndexValue(TypeDecorator):
 
         key = self._get_key_bytes()
         value = self._normalize_value(value)
-
-        match self.method:
-            case BlindIndexMethod.HMAC_SHA256:
-                return HMACSHA256Adapter.compute_blind_index(value, key)
-            case BlindIndexMethod.ARGON2:
-                from pydantic_secure.adapters.blind_index.argon2 import Argon2BlindIndexAdapter
-
-                return Argon2BlindIndexAdapter.compute_blind_index(value, key)
-            case _:
-                raise ValueError(f"Unknown blind index method: {self.method}")
+        backend = get_blind_index_backend(self.method)
+        return backend.compute_blind_index(value, key)
 
     def process_bind_param(self, value: str | bytes | BlindIndexValue | None, dialect) -> bytes | None:
         """Computes the blind index before binding to the database."""

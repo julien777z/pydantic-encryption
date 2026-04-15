@@ -4,10 +4,11 @@ from typing import Any, Self
 
 from pydantic_super_model import AnnotatedFieldInfo, SuperModelPydanticMixin
 
-from pydantic_secure.adapters import blind_index, encryption, hashing
+from pydantic_secure.adapters import hashing
+from pydantic_secure.adapters.registry import get_blind_index_backend, get_encryption_backend
 from pydantic_secure.config import settings
 from pydantic_secure.normalization import normalize_value
-from pydantic_secure.types import BlindIndex, BlindIndexMethod, BlindIndexValue, Encrypted, EncryptionMethod, Hashed
+from pydantic_secure.types import BlindIndex, BlindIndexValue, Encrypted, Hashed
 
 __all__ = ["BaseModel", "SecureModel"]
 
@@ -33,28 +34,15 @@ class SecureModel:
         if not self.pending_encryption_fields:
             return
 
-        encrypted_data: dict[str, str] = {}
         encryption_fields = self._get_field_values(self.pending_encryption_fields)
 
         if settings.ENCRYPTION_METHOD is None:
             raise ValueError("ENCRYPTION_METHOD must be set to use Encrypted fields.")
 
-        match settings.ENCRYPTION_METHOD:
-            case EncryptionMethod.FERNET:
-                encrypted_data = {
-                    field_name: encryption.fernet.FernetAdapter.encrypt(value)
-                    for field_name, value in encryption_fields.items()
-                }
-            case EncryptionMethod.AWS:
-                encrypted_data = {
-                    field_name: encryption.aws.AWSAdapter.encrypt(value)
-                    for field_name, value in encryption_fields.items()
-                }
-            case _:
-                raise ValueError(f"Unknown encryption method: {settings.ENCRYPTION_METHOD}")
+        backend = get_encryption_backend(settings.ENCRYPTION_METHOD)
 
-        for field_name, value in encrypted_data.items():
-            setattr(self, field_name, value)
+        for field_name, value in encryption_fields.items():
+            setattr(self, field_name, backend.encrypt(value))
 
     def hash_data(self) -> None:
         """Hash fields marked with `Hashed` annotation."""
@@ -103,17 +91,8 @@ class SecureModel:
                 raise ValueError("BLIND_INDEX_SECRET_KEY must be set to use BlindIndex.")
             key_bytes = key.encode("utf-8")
 
-            match annotation.method:
-                case BlindIndexMethod.HMAC_SHA256:
-                    result = blind_index.hmac_sha256.HMACSHA256Adapter.compute_blind_index(value, key_bytes)
-                case BlindIndexMethod.ARGON2:
-                    from pydantic_secure.adapters.blind_index.argon2 import Argon2BlindIndexAdapter
-
-                    result = Argon2BlindIndexAdapter.compute_blind_index(value, key_bytes)
-                case _:
-                    raise ValueError(f"Unknown blind index method: {annotation.method}")
-
-            setattr(self, field_name, result)
+            backend = get_blind_index_backend(annotation.method)
+            setattr(self, field_name, backend.compute_blind_index(value, key_bytes))
 
     def decrypt_fields(self) -> Self:
         """Decrypt all Encrypted fields in-place. Returns self for chaining."""
@@ -126,22 +105,10 @@ class SecureModel:
         if settings.ENCRYPTION_METHOD is None:
             raise ValueError("ENCRYPTION_METHOD must be set to use Encrypted fields.")
 
-        match settings.ENCRYPTION_METHOD:
-            case EncryptionMethod.FERNET:
-                decrypted_data = {
-                    field_name: encryption.fernet.FernetAdapter.decrypt(value)
-                    for field_name, value in encryption_fields.items()
-                }
-            case EncryptionMethod.AWS:
-                decrypted_data = {
-                    field_name: encryption.aws.AWSAdapter.decrypt(value)
-                    for field_name, value in encryption_fields.items()
-                }
-            case _:
-                raise ValueError(f"Unknown encryption method: {settings.ENCRYPTION_METHOD}")
+        backend = get_encryption_backend(settings.ENCRYPTION_METHOD)
 
-        for field_name, value in decrypted_data.items():
-            setattr(self, field_name, value)
+        for field_name, value in encryption_fields.items():
+            setattr(self, field_name, backend.decrypt(value))
 
         return self
 
@@ -156,24 +123,11 @@ class SecureModel:
         if settings.ENCRYPTION_METHOD is None:
             raise ValueError("ENCRYPTION_METHOD must be set to use Encrypted fields.")
 
-        match settings.ENCRYPTION_METHOD:
-            case EncryptionMethod.FERNET:
-                tasks = {
-                    name: encryption.fernet.FernetAdapter.async_decrypt(val)
-                    for name, val in encryption_fields.items()
-                }
-            case EncryptionMethod.AWS:
-                tasks = {
-                    name: encryption.aws.AWSAdapter.async_decrypt(val)
-                    for name, val in encryption_fields.items()
-                }
-            case _:
-                raise ValueError(f"Unknown encryption method: {settings.ENCRYPTION_METHOD}")
+        backend = get_encryption_backend(settings.ENCRYPTION_METHOD)
+        tasks = {name: backend.async_decrypt(val) for name, val in encryption_fields.items()}
 
         results = await asyncio.gather(*tasks.values())
-        decrypted_data = dict(zip(tasks.keys(), results))
-
-        for field_name, value in decrypted_data.items():
+        for field_name, value in zip(tasks.keys(), results):
             setattr(self, field_name, value)
 
         return self
@@ -222,28 +176,15 @@ class SecureModel:
         if settings.ENCRYPTION_METHOD is None:
             raise ValueError("ENCRYPTION_METHOD must be set to use Encrypted fields.")
 
-        match settings.ENCRYPTION_METHOD:
-            case EncryptionMethod.FERNET:
-                tasks = {
-                    name: encryption.fernet.FernetAdapter.async_encrypt(val)
-                    for name, val in encryption_fields.items()
-                }
-            case EncryptionMethod.AWS:
-                tasks = {
-                    name: encryption.aws.AWSAdapter.async_encrypt(val)
-                    for name, val in encryption_fields.items()
-                }
-            case _:
-                raise ValueError(f"Unknown encryption method: {settings.ENCRYPTION_METHOD}")
+        backend = get_encryption_backend(settings.ENCRYPTION_METHOD)
+        tasks = {name: backend.async_encrypt(val) for name, val in encryption_fields.items()}
 
         results = await asyncio.gather(*tasks.values())
-        encrypted_data = dict(zip(tasks.keys(), results))
-
-        for field_name, value in encrypted_data.items():
+        for field_name, value in zip(tasks.keys(), results):
             setattr(self, field_name, value)
 
     async def async_hash_data(self) -> None:
-        """Asynchronously hash fields marked with `Hash` annotation."""
+        """Asynchronously hash fields marked with `Hashed` annotation."""
 
         if not self.pending_hash_fields:
             return
@@ -254,9 +195,8 @@ class SecureModel:
             for name, val in hash_fields.items()
         }
         results = await asyncio.gather(*tasks.values())
-        hashed_data = dict(zip(tasks.keys(), results))
 
-        for field_name, value in hashed_data.items():
+        for field_name, value in zip(tasks.keys(), results):
             setattr(self, field_name, value)
 
     async def async_blind_index_data(self) -> None:
@@ -296,23 +236,12 @@ class SecureModel:
                     raise ValueError("BLIND_INDEX_SECRET_KEY must be set to use BlindIndex.")
                 key_bytes = key.encode("utf-8")
 
-            match annotation.method:
-                case BlindIndexMethod.HMAC_SHA256:
-                    tasks[field_name] = blind_index.hmac_sha256.HMACSHA256Adapter.async_compute_blind_index(
-                        value, key_bytes
-                    )
-                case BlindIndexMethod.ARGON2:
-                    from pydantic_secure.adapters.blind_index.argon2 import Argon2BlindIndexAdapter
-
-                    tasks[field_name] = Argon2BlindIndexAdapter.async_compute_blind_index(value, key_bytes)
-                case _:
-                    raise ValueError(f"Unknown blind index method: {annotation.method}")
+            backend = get_blind_index_backend(annotation.method)
+            tasks[field_name] = backend.async_compute_blind_index(value, key_bytes)
 
         if tasks:
             results = await asyncio.gather(*tasks.values())
-            indexed_data = dict(zip(tasks.keys(), results))
-
-            for field_name, value in indexed_data.items():
+            for field_name, value in zip(tasks.keys(), results):
                 setattr(self, field_name, value)
 
     async def async_post_init(self) -> None:

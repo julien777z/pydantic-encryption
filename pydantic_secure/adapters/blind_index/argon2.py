@@ -2,7 +2,8 @@ import asyncio
 import hashlib
 
 from pydantic_secure.adapters.base import AsyncBlindIndexAdapter, BlindIndexAdapter
-from pydantic_secure.types import BlindIndexValue
+from pydantic_secure.adapters.registry import register_blind_index_backend
+from pydantic_secure.types import BlindIndexMethod, BlindIndexValue
 
 
 class Argon2BlindIndexAdapter(BlindIndexAdapter, AsyncBlindIndexAdapter):
@@ -37,3 +38,6 @@ class Argon2BlindIndexAdapter(BlindIndexAdapter, AsyncBlindIndexAdapter):
     @classmethod
     async def async_compute_blind_index(cls, value: str | bytes, key: bytes) -> BlindIndexValue:
         return await asyncio.to_thread(cls.compute_blind_index, value, key)
+
+
+register_blind_index_backend(BlindIndexMethod.ARGON2, Argon2BlindIndexAdapter)
