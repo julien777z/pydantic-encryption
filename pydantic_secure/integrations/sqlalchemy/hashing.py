@@ -8,7 +8,7 @@ from pydantic_secure.adapters import hashing
 from pydantic_secure.types import HashedValue
 
 
-class SQLAlchemyHashed(TypeDecorator):
+class SQLAlchemyHashedValue(TypeDecorator):
     """Type adapter for SQLAlchemy to hash strings using Argon2."""
 
     impl = LargeBinary

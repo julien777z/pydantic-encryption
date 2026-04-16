@@ -8,7 +8,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from pydantic_secure.integrations.sqlalchemy import (
     SQLAlchemyBlindIndexValue,
     SQLAlchemyEncryptedValue,
-    SQLAlchemyHashed,
+    SQLAlchemyHashedValue,
     SQLAlchemyPGEncryptedArray,
 )
 from pydantic_secure.types import BlindIndexMethod
@@ -21,14 +21,14 @@ class Base(DeclarativeBase):
 
 
 class User(Base):
-    """User model. Uses SQLAlchemyEncryptedValue and SQLAlchemyHashed types."""
+    """User model. Uses SQLAlchemyEncryptedValue and SQLAlchemyHashedValue types."""
 
     __tablename__ = "users"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     username: Mapped[str | None] = mapped_column(String, default=None)
     email: Mapped[bytes | None] = mapped_column(SQLAlchemyEncryptedValue(), default=None)
-    password: Mapped[bytes] = mapped_column(SQLAlchemyHashed(), nullable=False)
+    password: Mapped[bytes] = mapped_column(SQLAlchemyHashedValue(), nullable=False)
     birth_date: Mapped[date | None] = mapped_column(SQLAlchemyEncryptedValue(), default=None)
     last_login: Mapped[datetime | None] = mapped_column(SQLAlchemyEncryptedValue(), default=None)
     age: Mapped[int | None] = mapped_column(SQLAlchemyEncryptedValue(), default=None)

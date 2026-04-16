@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from pydantic_secure.integrations.sqlalchemy import (
         SQLAlchemyBlindIndexValue,
         SQLAlchemyEncryptedValue,
-        SQLAlchemyHashed,
+        SQLAlchemyHashedValue,
         SQLAlchemyPGEncryptedArray,
     )
 
@@ -38,10 +38,10 @@ def __getattr__(name: str):
 
         return SQLAlchemyPGEncryptedArray
 
-    if name == "SQLAlchemyHashed":
-        from pydantic_secure.integrations.sqlalchemy import SQLAlchemyHashed
+    if name == "SQLAlchemyHashedValue":
+        from pydantic_secure.integrations.sqlalchemy import SQLAlchemyHashedValue
 
-        return SQLAlchemyHashed
+        return SQLAlchemyHashedValue
 
     if name == "SQLAlchemyBlindIndexValue":
         from pydantic_secure.integrations.sqlalchemy import SQLAlchemyBlindIndexValue
@@ -85,5 +85,5 @@ __all__ = [
     "SQLAlchemyBlindIndexValue",
     "SQLAlchemyEncryptedValue",
     "SQLAlchemyPGEncryptedArray",
-    "SQLAlchemyHashed",
+    "SQLAlchemyHashedValue",
 ]

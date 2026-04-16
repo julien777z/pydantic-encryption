@@ -171,7 +171,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, Session
 
 from pydantic_secure import (
     SQLAlchemyEncryptedValue,
-    SQLAlchemyHashed,
+    SQLAlchemyHashedValue,
     SQLAlchemyBlindIndexValue,
     BlindIndexMethod,
 )
@@ -187,7 +187,7 @@ class User(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     username: Mapped[str]
     email: Mapped[bytes] = mapped_column(SQLAlchemyEncryptedValue())
-    password: Mapped[bytes] = mapped_column(SQLAlchemyHashed())
+    password: Mapped[bytes] = mapped_column(SQLAlchemyHashedValue())
     blind_index_email: Mapped[bytes] = mapped_column(
         SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256)
     )

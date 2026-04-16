@@ -71,7 +71,7 @@ class SecureModel:
             if annotated_field.value is not None
         }
 
-    # -- Collection helpers (shared by sync and async paths) --
+    # Collection helpers (shared by sync and async paths)
 
     def _collect_encryption_fields(self) -> tuple[type, str | None, dict[str, str]] | None:
         """Resolve encryption backend/key and collect field values. Returns None if nothing to do."""
@@ -138,7 +138,7 @@ class SecureModel:
 
         return result or None
 
-    # -- Sync methods --
+    # Sync methods
 
     def encrypt_data(self) -> None:
         """Encrypt data using the specified encryption method."""
@@ -184,7 +184,7 @@ class SecureModel:
 
         return self
 
-    # -- Async methods --
+    # Async methods
 
     async def async_encrypt_data(self) -> None:
         """Asynchronously encrypt data using the specified encryption method."""
@@ -242,7 +242,7 @@ class SecureModel:
 
         return self
 
-    # -- Post-init hooks --
+    # Post-init hooks
 
     def default_post_init(self) -> None:
         """Post initialization hook for encryption, hashing, and blind indexing."""
@@ -281,7 +281,7 @@ class SecureModel:
         await self.async_hash_data()
         await self.async_blind_index_data()
 
-    # -- Field introspection --
+    # Field introspection
 
     @property
     def pending_encryption_fields(self) -> dict[str, AnnotatedFieldInfo]:
