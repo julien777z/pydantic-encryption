@@ -1,5 +1,3 @@
-"""Unit tests for defer_decrypt + async_decrypt_rows bulk helper."""
-
 import asyncio
 from types import SimpleNamespace
 

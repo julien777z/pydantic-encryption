@@ -1,12 +1,3 @@
-"""Bulk async decryption helper for SQLAlchemy rows.
-
-When a column is declared with ``SQLAlchemyEncryptedValue(defer_decrypt=True)``,
-fetched values come back as raw :class:`EncryptedValue` ciphertext. Call
-:func:`async_decrypt_rows` post-fetch to decrypt every (row, column) cell in
-parallel via :func:`asyncio.gather`. For network-bound backends (AWS KMS) this
-collapses N sequential ~50ms roundtrips into a single concurrent burst.
-"""
-
 import asyncio
 from typing import Any, Iterable
 

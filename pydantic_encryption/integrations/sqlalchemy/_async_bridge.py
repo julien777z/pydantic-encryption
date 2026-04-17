@@ -1,14 +1,3 @@
-"""Bridge between SQLAlchemy's sync TypeDecorator and async adapters.
-
-SQLAlchemy's ``AsyncSession`` runs the entire sync result-processing pipeline inside
-a greenlet spawned via ``sqlalchemy.util.greenlet_spawn``. From within that spawn,
-``sqlalchemy.util.await_`` yields back to the event loop while awaiting a coroutine
-— the same mechanism that powers ``AsyncAttrs``. When we aren't inside a greenlet
-spawn (plain sync Session), ``await_`` raises ``MissingGreenlet``.
-
-This is a semi-private SQLAlchemy API. See discussion #10020 on the sqlalchemy repo.
-"""
-
 from typing import Any, Awaitable
 
 try:
