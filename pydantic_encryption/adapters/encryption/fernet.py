@@ -1,15 +1,14 @@
-import asyncio
 from typing import ClassVar
 
 from cryptography.fernet import Fernet
 
-from pydantic_secure.adapters.base import AsyncEncryptionAdapter, EncryptionAdapter
-from pydantic_secure.adapters.registry import register_encryption_backend
-from pydantic_secure.config import settings
-from pydantic_secure.types import EncryptedValue, EncryptionMethod
+from pydantic_encryption.adapters.base import EncryptionAdapter
+from pydantic_encryption.adapters.registry import register_encryption_backend
+from pydantic_encryption.config import settings
+from pydantic_encryption.types import EncryptedValue, EncryptionMethod
 
 
-class FernetAdapter(EncryptionAdapter, AsyncEncryptionAdapter):
+class FernetAdapter(EncryptionAdapter):
     """Adapter for Fernet encryption."""
 
     _clients: ClassVar[dict[str, Fernet]] = {}
@@ -47,14 +46,6 @@ class FernetAdapter(EncryptionAdapter, AsyncEncryptionAdapter):
         client = cls._get_client(key)
         decrypted_bytes = client.decrypt(ciphertext_bytes)
         return decrypted_bytes.decode("utf-8")
-
-    @classmethod
-    async def async_encrypt(cls, plaintext: bytes | str | EncryptedValue, *, key: str | None = None) -> EncryptedValue:
-        return await asyncio.to_thread(cls.encrypt, plaintext, key=key)
-
-    @classmethod
-    async def async_decrypt(cls, ciphertext: str | bytes | EncryptedValue, *, key: str | None = None) -> str:
-        return await asyncio.to_thread(cls.decrypt, ciphertext, key=key)
 
 
 register_encryption_backend(EncryptionMethod.FERNET, FernetAdapter)

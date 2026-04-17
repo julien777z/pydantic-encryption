@@ -1,13 +1,13 @@
-from pydantic_secure._lazy import require_optional_dependency
+from pydantic_encryption._lazy import require_optional_dependency
 
 require_optional_dependency("sqlalchemy", "sqlalchemy")
 
 from sqlalchemy.types import LargeBinary, TypeDecorator
 
-from pydantic_secure.adapters.registry import get_blind_index_backend
-from pydantic_secure.config import settings
-from pydantic_secure.normalization import normalize_value
-from pydantic_secure.types import BlindIndexMethod, BlindIndexValue
+from pydantic_encryption.adapters.registry import get_blind_index_backend
+from pydantic_encryption.config import settings
+from pydantic_encryption.normalization import normalize_value
+from pydantic_encryption.types import BlindIndexMethod, BlindIndexValue
 
 
 class SQLAlchemyBlindIndexValue(TypeDecorator):

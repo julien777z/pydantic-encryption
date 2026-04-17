@@ -2,7 +2,7 @@ from typing import Annotated
 
 from pydantic_super_model import AnnotatedFieldInfo
 
-from pydantic_secure import BaseModel, Encrypted, Hashed
+from pydantic_encryption import BaseModel, Encrypted, Hashed
 
 
 class TestModelEncryption:

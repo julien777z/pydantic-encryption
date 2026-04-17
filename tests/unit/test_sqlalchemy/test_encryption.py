@@ -5,8 +5,8 @@ from uuid import UUID
 
 import pytest
 
-from pydantic_secure.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue
-from pydantic_secure.integrations.sqlalchemy.shared import TypePrefix
+from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue
+from pydantic_encryption.integrations.sqlalchemy.shared import TypePrefix
 
 
 class TestSerializeValue:
@@ -333,21 +333,21 @@ class TestEncryptionIdempotency:
         self.type_adapter = SQLAlchemyEncryptedValue()
 
     def test_process_encrypt_value_already_encrypted_returns_same(self):
-        from pydantic_secure.types import EncryptedValue
+        from pydantic_encryption.types import EncryptedValue
 
         encrypted = self.type_adapter._process_encrypt_value("hello")
         double_encrypted = self.type_adapter._process_encrypt_value(encrypted)
         assert encrypted == double_encrypted
 
     def test_process_bind_param_already_encrypted_returns_same(self):
-        from pydantic_secure.types import EncryptedValue
+        from pydantic_encryption.types import EncryptedValue
 
         encrypted = self.type_adapter.process_bind_param("hello", None)
         double_encrypted = self.type_adapter.process_bind_param(EncryptedValue(encrypted), None)
         assert encrypted == double_encrypted
 
     def test_process_literal_param_already_encrypted_returns_same(self):
-        from pydantic_secure.types import EncryptedValue
+        from pydantic_encryption.types import EncryptedValue
 
         encrypted = self.type_adapter.process_literal_param("hello", None)
         double_encrypted = self.type_adapter.process_literal_param(EncryptedValue(encrypted), None)

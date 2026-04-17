@@ -1,13 +1,12 @@
-import asyncio
 from typing import ClassVar
 
 from argon2 import PasswordHasher
 
-from pydantic_secure.adapters.base import AsyncHashingAdapter, HashingAdapter
-from pydantic_secure.types import HashedValue
+from pydantic_encryption.adapters.base import HashingAdapter
+from pydantic_encryption.types import HashedValue
 
 
-class Argon2Adapter(HashingAdapter, AsyncHashingAdapter):
+class Argon2Adapter(HashingAdapter):
     """Adapter for Argon2 hashing."""
 
     _hasher: ClassVar[PasswordHasher | None] = None
@@ -30,7 +29,3 @@ class Argon2Adapter(HashingAdapter, AsyncHashingAdapter):
         hashed_value = HashedValue(hasher.hash(value))
 
         return hashed_value
-
-    @classmethod
-    async def async_hash(cls, value: str | bytes | HashedValue) -> HashedValue:
-        return await asyncio.to_thread(cls.hash, value)

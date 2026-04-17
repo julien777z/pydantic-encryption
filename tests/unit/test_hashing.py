@@ -1,9 +1,9 @@
-from pydantic_secure.adapters.hashing.argon2 import Argon2Adapter
+from pydantic_encryption.adapters.hashing.argon2 import Argon2Adapter
 from tests.models import User
 
 
 class TestUnitHashing:
-    """Test basic functionality of pydantic-secure hashing."""
+    """Test basic functionality of pydantic-encryption hashing."""
 
     def test_hash_field(self, user: User):
         """Test hashing fields with Hash annotation."""

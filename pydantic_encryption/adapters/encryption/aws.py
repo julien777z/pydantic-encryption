@@ -1,7 +1,6 @@
-import asyncio
 from typing import Any, ClassVar
 
-from pydantic_secure._lazy import require_optional_dependency
+from pydantic_encryption._lazy import require_optional_dependency
 
 require_optional_dependency("boto3", "aws")
 require_optional_dependency("aws_encryption_sdk", "aws")
@@ -13,12 +12,12 @@ from aws_cryptographic_material_providers.mpl.config import MaterialProvidersCon
 from aws_cryptographic_material_providers.mpl.models import CreateAwsKmsKeyringInput
 from aws_encryption_sdk import CommitmentPolicy
 
-from pydantic_secure.adapters.base import AsyncEncryptionAdapter, EncryptionAdapter
-from pydantic_secure.config import settings
-from pydantic_secure.types import EncryptedValue
+from pydantic_encryption.adapters.base import EncryptionAdapter
+from pydantic_encryption.config import settings
+from pydantic_encryption.types import EncryptedValue
 
 
-class AWSAdapter(EncryptionAdapter, AsyncEncryptionAdapter):
+class AWSAdapter(EncryptionAdapter):
     """Adapter for AWS KMS encryption."""
 
     _kms_client: ClassVar[Any | None] = None
@@ -155,11 +154,3 @@ class AWSAdapter(EncryptionAdapter, AsyncEncryptionAdapter):
         if isinstance(plaintext, bytes):
             return plaintext.decode("utf-8")
         return plaintext
-
-    @classmethod
-    async def async_encrypt(cls, plaintext: bytes | str | EncryptedValue, *, key: str | None = None) -> EncryptedValue:
-        return await asyncio.to_thread(cls.encrypt, plaintext, key=key)
-
-    @classmethod
-    async def async_decrypt(cls, ciphertext: bytes | str | EncryptedValue, *, key: str | None = None) -> str:
-        return await asyncio.to_thread(cls.decrypt, ciphertext, key=key)

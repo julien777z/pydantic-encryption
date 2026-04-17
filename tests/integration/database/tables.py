@@ -5,13 +5,13 @@ from decimal import Decimal
 from sqlalchemy import String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-from pydantic_secure.integrations.sqlalchemy import (
+from pydantic_encryption.integrations.sqlalchemy import (
     SQLAlchemyBlindIndexValue,
     SQLAlchemyEncryptedValue,
     SQLAlchemyHashedValue,
     SQLAlchemyPGEncryptedArray,
 )
-from pydantic_secure.types import BlindIndexMethod
+from pydantic_encryption.types import BlindIndexMethod
 
 __all__ = ["Base", "User"]
 

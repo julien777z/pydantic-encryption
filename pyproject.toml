@@ -1,7 +1,7 @@
 [project]
-name = "pydantic_secure"
-version = "0.0.0"
-description = "Field-level encryption, hashing, and blind indexing for Pydantic"
+name = "pydantic_encryption"
+version = "0.6.0"
+description = "Encryption, hashing, and blind indexing for Pydantic"
 authors = [
     { name = "Julien Kmec", email = "me@julien.dev" },
 ]
@@ -57,7 +57,7 @@ tests = "scripts.run_tests:main"
 
 [tool.poetry]
 packages = [
-    {include = "pydantic_secure"},
+    {include = "pydantic_encryption"},
     {include = "scripts"},
 ]
 

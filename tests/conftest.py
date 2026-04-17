@@ -1,7 +1,7 @@
 import pytest
 
-from pydantic_secure.config import settings
-from pydantic_secure.types import EncryptionMethod
+from pydantic_encryption.config import settings
+from pydantic_encryption.types import EncryptionMethod
 from tests.factories import UserFactory
 from tests.models import User
 
@@ -18,7 +18,7 @@ def set_default_encryption_method(monkeypatch):
 
         monkeypatch.setattr(settings, "ENCRYPTION_KEY", Fernet.generate_key().decode())
         # Reset cached Fernet client so it picks up new key
-        from pydantic_secure.adapters.encryption.fernet import FernetAdapter
+        from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
 
         FernetAdapter._clients.clear()
 

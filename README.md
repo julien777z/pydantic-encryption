@@ -1,26 +1,26 @@
-# pydantic-secure
+# pydantic-encryption
 
 Field-level encryption, hashing, and blind indexing for Pydantic models with SQLAlchemy integration.
 
 ## Installation
 
 ```bash
-pip install pydantic-secure
+pip install pydantic-encryption
 ```
 
 ### Optional extras
 
 ```bash
-pip install "pydantic-secure[sqlalchemy]"  # SQLAlchemy integration
-pip install "pydantic-secure[aws]"         # AWS KMS encryption
-pip install "pydantic-secure[all]"         # All optional dependencies
+pip install "pydantic-encryption[sqlalchemy]"  # SQLAlchemy integration
+pip install "pydantic-encryption[aws]"         # AWS KMS encryption
+pip install "pydantic-encryption[all]"         # All optional dependencies
 ```
 
 ## Quick Start
 
 ```python
 from typing import Annotated
-from pydantic_secure import BaseModel, Encrypted, Hashed
+from pydantic_encryption import BaseModel, Encrypted, Hashed
 
 class User(BaseModel):
     name: str
@@ -62,6 +62,8 @@ Use `async_decrypt_fields()` for async decryption:
 ```python
 await user.async_decrypt_fields()
 ```
+
+All phases (encrypt, hash, blind-index) run concurrently via `asyncio.gather`, and nested `BaseModel` instances — including those inside `list`, `tuple`, `dict`, and `set` containers — are processed recursively.
 
 ## Encryption Methods
 
@@ -107,7 +109,7 @@ AWS_KMS_DECRYPT_KEY_ARN=arn:aws:kms:...decrypt-key
 Override encryption settings per model instead of relying on environment variables:
 
 ```python
-from pydantic_secure import BaseModel, Encrypted, EncryptionMethod
+from pydantic_encryption import BaseModel, Encrypted, EncryptionMethod
 from typing import Annotated
 
 class SpecialUser(BaseModel, encryption_method=EncryptionMethod.FERNET, encryption_key="my-key"):
@@ -126,7 +128,7 @@ Blind indexes enable equality searches on encrypted data by storing a determinis
 
 ```python
 from typing import Annotated
-from pydantic_secure import BaseModel, BlindIndex, BlindIndexMethod
+from pydantic_encryption import BaseModel, BlindIndex, BlindIndexMethod
 
 class User(BaseModel):
     email_index: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
@@ -163,13 +165,13 @@ Available options:
 
 ## SQLAlchemy Integration
 
-Install with `pip install "pydantic-secure[sqlalchemy]"`.
+Install with `pip install "pydantic-encryption[sqlalchemy]"`.
 
 ```python
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, Session
 
-from pydantic_secure import (
+from pydantic_encryption import (
     SQLAlchemyEncryptedValue,
     SQLAlchemyHashedValue,
     SQLAlchemyBlindIndexValue,
@@ -222,12 +224,46 @@ with Session(engine) as session:
 ### Array Support (PostgreSQL)
 
 ```python
-from pydantic_secure import SQLAlchemyPGEncryptedArray
+from pydantic_encryption import SQLAlchemyPGEncryptedArray
 
 tags: Mapped[list[str] | None] = mapped_column(SQLAlchemyPGEncryptedArray(), nullable=True)
 ```
 
 Each element is individually encrypted. Requires PostgreSQL.
+
+### Async SQLAlchemy Decryption
+
+SQLAlchemy's `TypeDecorator` is sync by contract — even under `AsyncSession` the result-processing pipeline runs inline. For fast backends (Fernet) this is fine, but a network-bound backend like AWS KMS can spend tens of milliseconds per call, blocking the event loop.
+
+`pydantic-encryption` handles this with a two-tier strategy:
+
+**Tier 1 — automatic, zero code change.** Under `AsyncSession`, decryption transparently uses SQLAlchemy's greenlet bridge (`sqlalchemy.util.await_`) so each decrypt yields the event loop during its network roundtrip. Other tasks on the loop keep progressing.
+
+**Tier 2 — opt-in, real parallelism.** For single fetches with many encrypted cells, pass `defer_decrypt=True` on the column and bulk-decrypt after the fetch. Every cell is decrypted concurrently via `asyncio.gather`, turning N sequential roundtrips into one concurrent burst.
+
+```python
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from pydantic_encryption import async_decrypt_rows, SQLAlchemyEncryptedValue
+
+class User(Base):
+    __tablename__ = "users"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[bytes] = mapped_column(SQLAlchemyEncryptedValue(defer_decrypt=True))
+    secret: Mapped[bytes] = mapped_column(SQLAlchemyEncryptedValue(defer_decrypt=True))
+
+
+async with AsyncSession(engine) as session:
+    users = (await session.execute(select(User).limit(1000))).scalars().all()
+
+    # Before this call, users[i].email is still an EncryptedValue.
+    await async_decrypt_rows(users, User.email, User.secret)
+
+    for u in users:
+        print(u.email)  # decrypted plaintext
+```
+
+`async_decrypt_rows` accepts `InstrumentedAttribute` (e.g. `User.email`) or string column names. Pass `concurrency=N` to cap in-flight decrypts with an `asyncio.Semaphore`.
 
 ## Custom Encryption or Hashing
 
@@ -235,7 +271,7 @@ Subclass `SecureModel` to implement your own logic:
 
 ```python
 from pydantic import BaseModel as PydanticBaseModel
-from pydantic_secure import SecureModel
+from pydantic_encryption import SecureModel
 
 class MySecureModel(PydanticBaseModel, SecureModel):
     def encrypt_data(self) -> None:

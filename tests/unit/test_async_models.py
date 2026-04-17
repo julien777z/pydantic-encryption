@@ -1,10 +1,10 @@
 import pytest
 from typing import Annotated
 
-from pydantic_secure import BaseModel, Encrypted, Hashed
-from pydantic_secure.config import settings
-from pydantic_secure.models.base import _defer_crypto_to_async
-from pydantic_secure.types import BlindIndex, BlindIndexMethod
+from pydantic_encryption import BaseModel, Encrypted, Hashed
+from pydantic_encryption.config import settings
+from pydantic_encryption.models.base import _defer_crypto_to_async
+from pydantic_encryption.types import BlindIndex, BlindIndexMethod
 
 
 def _construct_without_crypto(cls, **data):

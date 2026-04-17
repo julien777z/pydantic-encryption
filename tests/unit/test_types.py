@@ -1,4 +1,4 @@
-from pydantic_secure.types import (
+from pydantic_encryption.types import (
     EncryptedValue,
     HashedValue,
 )

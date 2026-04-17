@@ -10,5 +10,5 @@ def require_optional_dependency(module_name: str, extra_name: str) -> ModuleType
     except ImportError as e:
         raise ImportError(
             f"Optional dependency '{module_name}' not installed. "
-            f"Install with: pip install pydantic-secure[{extra_name}]"
+            f"Install with: pip install pydantic-encryption[{extra_name}]"
         ) from e

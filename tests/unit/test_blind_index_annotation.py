@@ -2,15 +2,15 @@ from typing import Annotated
 
 import pytest
 
-from pydantic_secure import BaseModel, BlindIndex, BlindIndexMethod
-from pydantic_secure.types import BlindIndexValue
+from pydantic_encryption import BaseModel, BlindIndex, BlindIndexMethod
+from pydantic_encryption.types import BlindIndexValue
 
 
 @pytest.fixture(autouse=True)
 def set_blind_index_key(monkeypatch):
     """Set a test blind index secret key for all tests."""
 
-    from pydantic_secure import config
+    from pydantic_encryption import config
 
     monkeypatch.setattr(config.settings, "BLIND_INDEX_SECRET_KEY", "test-secret-key-for-annotation")
 
@@ -111,7 +111,7 @@ class TestBlindIndexAnnotationConfig:
     """Test BlindIndex annotation configuration edge cases."""
 
     def test_missing_secret_key_raises_error(self, monkeypatch):
-        from pydantic_secure import config
+        from pydantic_encryption import config
 
         monkeypatch.setattr(config.settings, "BLIND_INDEX_SECRET_KEY", None)
 

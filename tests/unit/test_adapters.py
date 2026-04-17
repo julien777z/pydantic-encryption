@@ -1,9 +1,9 @@
 import pytest
 
-from pydantic_secure.adapters.blind_index.hmac_sha256 import HMACSHA256Adapter
-from pydantic_secure.adapters.encryption.fernet import FernetAdapter
-from pydantic_secure.adapters.hashing.argon2 import Argon2Adapter
-from pydantic_secure.types import BlindIndexValue, EncryptedValue, HashedValue
+from pydantic_encryption.adapters.blind_index.hmac_sha256 import HMACSHA256Adapter
+from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
+from pydantic_encryption.adapters.hashing.argon2 import Argon2Adapter
+from pydantic_encryption.types import BlindIndexValue, EncryptedValue, HashedValue
 
 
 class TestFernetAdapter:
@@ -172,7 +172,7 @@ class TestArgon2BlindIndexAdapter:
     TEST_KEY = b"test-secret-key"
 
     def test_compute_blind_index_already_indexed_returns_same(self):
-        from pydantic_secure.adapters.blind_index.argon2 import Argon2BlindIndexAdapter
+        from pydantic_encryption.adapters.blind_index.argon2 import Argon2BlindIndexAdapter
 
         result = Argon2BlindIndexAdapter.compute_blind_index("test", self.TEST_KEY)
         double_indexed = Argon2BlindIndexAdapter.compute_blind_index(result, self.TEST_KEY)

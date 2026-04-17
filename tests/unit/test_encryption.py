@@ -1,9 +1,9 @@
-from pydantic_secure.adapters.encryption.fernet import FernetAdapter
+from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
 from tests.models import User
 
 
 class TestUnitEncryptionModel:
-    """Test basic functionality of pydantic-secure with mocked models."""
+    """Test basic functionality of pydantic-encryption with mocked models."""
 
     def test_encrypt_field(self, user: User):
         """Test encrypting fields with Encrypted annotation."""

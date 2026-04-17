@@ -1,11 +1,11 @@
-from pydantic_secure._lazy import require_optional_dependency
+from pydantic_encryption._lazy import require_optional_dependency
 
 require_optional_dependency("sqlalchemy", "sqlalchemy")
 
 from sqlalchemy.types import LargeBinary, TypeDecorator
 
-from pydantic_secure.adapters import hashing
-from pydantic_secure.types import HashedValue
+from pydantic_encryption.adapters import hashing
+from pydantic_encryption.types import HashedValue
 
 
 class SQLAlchemyHashedValue(TypeDecorator):

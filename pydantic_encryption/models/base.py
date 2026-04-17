@@ -4,11 +4,12 @@ from typing import Any, ClassVar, Self
 
 from pydantic_super_model import AnnotatedFieldInfo, SuperModelPydanticMixin
 
-from pydantic_secure.adapters import hashing
-from pydantic_secure.adapters.registry import get_blind_index_backend, get_encryption_backend
-from pydantic_secure.config import settings
-from pydantic_secure.normalization import normalize_value
-from pydantic_secure.types import BlindIndex, BlindIndexValue, Encrypted, EncryptionMethod, Hashed
+from pydantic_encryption.adapters import hashing
+from pydantic_encryption.adapters.base import BlindIndexAdapter, EncryptionAdapter
+from pydantic_encryption.adapters.registry import get_blind_index_backend, get_encryption_backend
+from pydantic_encryption.config import settings
+from pydantic_encryption.normalization import normalize_value
+from pydantic_encryption.types import BlindIndex, BlindIndexValue, Encrypted, EncryptionMethod, Hashed
 
 __all__ = ["BaseModel", "SecureModel"]
 
@@ -62,7 +63,7 @@ class SecureModel:
         return key
 
     @staticmethod
-    def _get_field_values(fields: dict[str, AnnotatedFieldInfo]) -> dict[str, str]:
+    def _get_field_values(fields: dict[str, AnnotatedFieldInfo]) -> dict[str, Any]:
         """Extract raw values from annotated field info objects."""
 
         return {
@@ -73,7 +74,9 @@ class SecureModel:
 
     # Collection helpers (shared by sync and async paths)
 
-    def _collect_encryption_fields(self) -> tuple[type, str | None, dict[str, str]] | None:
+    def _collect_encryption_fields(
+        self,
+    ) -> tuple[type[EncryptionAdapter], str | None, dict[str, Any]] | None:
         """Resolve encryption backend/key and collect field values. Returns None if nothing to do."""
 
         if not self.pending_encryption_fields:
@@ -86,7 +89,7 @@ class SecureModel:
         backend = get_encryption_backend(method)
         return backend, key, fields
 
-    def _collect_hash_fields(self) -> dict[str, str] | None:
+    def _collect_hash_fields(self) -> dict[str, Any] | None:
         """Collect hash field values. Returns None if nothing to do."""
 
         if not self.pending_hash_fields:
@@ -94,7 +97,9 @@ class SecureModel:
         fields = self._get_field_values(self.pending_hash_fields)
         return fields or None
 
-    def _collect_blind_index_tasks(self) -> list[tuple[str, type, str, bytes]] | None:
+    def _collect_blind_index_tasks(
+        self,
+    ) -> list[tuple[str, type[BlindIndexAdapter], str, bytes]] | None:
         """Normalize values and resolve backends for blind index fields.
 
         Returns list of (field_name, backend, normalized_value, key_bytes) or None.
@@ -193,11 +198,10 @@ class SecureModel:
         if collected is None:
             return
         backend, key, fields = collected
-        coros = {name: backend.async_encrypt(val, key=key) for name, val in fields.items()}
-
-        results = await asyncio.gather(*coros.values())
-        for field_name, value in zip(coros.keys(), results):
-            setattr(self, field_name, value)
+        items = [(name, backend.async_encrypt(val, key=key)) for name, val in fields.items()]
+        results = await asyncio.gather(*(coro for _, coro in items))
+        for (name, _), value in zip(items, results):
+            setattr(self, name, value)
 
     async def async_hash_data(self) -> None:
         """Asynchronously hash fields marked with `Hashed` annotation."""
@@ -205,12 +209,10 @@ class SecureModel:
         fields = self._collect_hash_fields()
         if fields is None:
             return
-
-        coros = {name: hashing.argon2.Argon2Adapter.async_hash(val) for name, val in fields.items()}
-        results = await asyncio.gather(*coros.values())
-
-        for field_name, value in zip(coros.keys(), results):
-            setattr(self, field_name, value)
+        items = [(name, hashing.argon2.Argon2Adapter.async_hash(val)) for name, val in fields.items()]
+        results = await asyncio.gather(*(coro for _, coro in items))
+        for (name, _), value in zip(items, results):
+            setattr(self, name, value)
 
     async def async_blind_index_data(self) -> None:
         """Asynchronously compute blind indexes for fields marked with `BlindIndex` annotation."""
@@ -218,14 +220,13 @@ class SecureModel:
         tasks = self._collect_blind_index_tasks()
         if tasks is None:
             return
-
-        coros = {
-            field_name: backend.async_compute_blind_index(value, key_bytes)
-            for field_name, backend, value, key_bytes in tasks
-        }
-        results = await asyncio.gather(*coros.values())
-        for field_name, value in zip(coros.keys(), results):
-            setattr(self, field_name, value)
+        items = [
+            (name, backend.async_compute_blind_index(value, key_bytes))
+            for name, backend, value, key_bytes in tasks
+        ]
+        results = await asyncio.gather(*(coro for _, coro in items))
+        for (name, _), value in zip(items, results):
+            setattr(self, name, value)
 
     async def async_decrypt_fields(self) -> Self:
         """Asynchronously decrypt all Encrypted fields in-place. Returns self for chaining."""
@@ -234,12 +235,10 @@ class SecureModel:
         if collected is None:
             return self
         backend, key, fields = collected
-        coros = {name: backend.async_decrypt(val, key=key) for name, val in fields.items()}
-
-        results = await asyncio.gather(*coros.values())
-        for field_name, value in zip(coros.keys(), results):
-            setattr(self, field_name, value)
-
+        items = [(name, backend.async_decrypt(val, key=key)) for name, val in fields.items()]
+        results = await asyncio.gather(*(coro for _, coro in items))
+        for (name, _), value in zip(items, results):
+            setattr(self, name, value)
         return self
 
     # Post-init hooks
@@ -270,16 +269,17 @@ class SecureModel:
     async def async_post_init(self) -> None:
         """Asynchronously run all post-initialization operations."""
 
-        # Recurse into nested SecureModel fields first (depth-first),
-        # so nested models are fully processed before the parent.
-        for field_name in getattr(type(self), "model_fields", {}):
-            value = getattr(self, field_name, None)
-            if value is not None:
-                await self._async_post_init_nested(value)
-
-        await self.async_encrypt_data()
-        await self.async_hash_data()
-        await self.async_blind_index_data()
+        children = [
+            self._async_post_init_nested(value)
+            for name in getattr(type(self), "model_fields", {})
+            if (value := getattr(self, name, None)) is not None
+        ]
+        await asyncio.gather(
+            *children,
+            self.async_encrypt_data(),
+            self.async_hash_data(),
+            self.async_blind_index_data(),
+        )
 
     # Field introspection
 

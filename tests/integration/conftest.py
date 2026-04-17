@@ -36,7 +36,7 @@ def docker_setup():
 def sqlalchemy_connect_url() -> str:
     """Return the SQLAlchemy connection URL."""
 
-    return "postgresql://admin:admin123@localhost:5432/pydantic_secure"
+    return "postgresql://admin:admin123@localhost:5432/pydantic_encryption"
 
 
 @pytest.fixture(scope="session")

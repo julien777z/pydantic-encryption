@@ -3,23 +3,34 @@ from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic_secure._lazy import require_optional_dependency
+from pydantic_encryption._lazy import require_optional_dependency
 
 require_optional_dependency("sqlalchemy", "sqlalchemy")
 
 from sqlalchemy.types import ARRAY, LargeBinary, TypeDecorator
 
-from pydantic_secure.adapters.registry import get_encryption_backend
-from pydantic_secure.config import settings
-from pydantic_secure.integrations.sqlalchemy.shared import EncryptableValue, TypePrefix, VERSION_PREFIX
-from pydantic_secure.types import EncryptedValue
+from pydantic_encryption.adapters.registry import get_encryption_backend
+from pydantic_encryption.config import settings
+from pydantic_encryption.integrations.sqlalchemy._async_bridge import _SENTINEL, try_await
+from pydantic_encryption.integrations.sqlalchemy.shared import EncryptableValue, TypePrefix, VERSION_PREFIX
+from pydantic_encryption.types import EncryptedValue
 
 
 class SQLAlchemyEncryptedValue(TypeDecorator):
-    """Type adapter for SQLAlchemy to encrypt and decrypt data using the specified encryption method."""
+    """Type adapter for SQLAlchemy to encrypt and decrypt data using the specified encryption method.
+
+    Under ``AsyncSession``, decryption automatically uses SQLAlchemy's greenlet
+    bridge so network-bound backends (e.g. AWS KMS) yield the event loop during
+    decryption. For true parallelism across many rows, pass ``defer_decrypt=True``
+    and use :func:`pydantic_encryption.async_decrypt_rows` post-fetch.
+    """
 
     impl = LargeBinary
     cache_ok = True
+
+    def __init__(self, *args, defer_decrypt: bool = False, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.defer_decrypt = defer_decrypt
 
     def _serialize_value(self, value: EncryptableValue) -> str:
         """Serialize a value with version and type prefix for encryption."""
@@ -110,7 +121,12 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
             raise ValueError("ENCRYPTION_METHOD must be set to use SQLAlchemyEncryptedValue.")
 
         backend = get_encryption_backend(settings.ENCRYPTION_METHOD)
-        return backend.decrypt(value)
+        # Under AsyncSession, yield the event loop during network-bound decrypts.
+        # Falls back to the blocking path when not inside a greenlet spawn.
+        result = try_await(backend.async_decrypt(value))
+        if result is _SENTINEL:
+            return backend.decrypt(value)
+        return result
 
     def process_bind_param(self, value: EncryptableValue | None, dialect) -> bytes | None:
         """Encrypts data before binding it to the database."""
@@ -127,6 +143,9 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
 
         if value is None:
             return None
+
+        if self.defer_decrypt:
+            return EncryptedValue(value) if isinstance(value, bytes) else EncryptedValue(value.encode("utf-8"))
 
         decrypted_value = self._process_decrypt_value(value)
 

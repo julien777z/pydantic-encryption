@@ -1,9 +1,9 @@
 import pytest
 
-from pydantic_secure.adapters.blind_index.hmac_sha256 import HMACSHA256Adapter
-from pydantic_secure.adapters.encryption.fernet import FernetAdapter
-from pydantic_secure.adapters.hashing.argon2 import Argon2Adapter
-from pydantic_secure.types import BlindIndexValue, EncryptedValue, HashedValue
+from pydantic_encryption.adapters.blind_index.hmac_sha256 import HMACSHA256Adapter
+from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
+from pydantic_encryption.adapters.hashing.argon2 import Argon2Adapter
+from pydantic_encryption.types import BlindIndexValue, EncryptedValue, HashedValue
 
 
 class TestAsyncFernetAdapter:
@@ -182,7 +182,7 @@ class TestAsyncArgon2BlindIndexAdapter:
 
     @pytest.mark.asyncio
     async def test_async_compute_blind_index_already_indexed_returns_same(self):
-        from pydantic_secure.adapters.blind_index.argon2 import Argon2BlindIndexAdapter
+        from pydantic_encryption.adapters.blind_index.argon2 import Argon2BlindIndexAdapter
 
         result = await Argon2BlindIndexAdapter.async_compute_blind_index("test", self.TEST_KEY)
         double_indexed = await Argon2BlindIndexAdapter.async_compute_blind_index(result, self.TEST_KEY)
@@ -191,7 +191,7 @@ class TestAsyncArgon2BlindIndexAdapter:
     @pytest.mark.asyncio
     async def test_async_matches_sync(self):
         """Async and sync produce identical blind indexes."""
-        from pydantic_secure.adapters.blind_index.argon2 import Argon2BlindIndexAdapter
+        from pydantic_encryption.adapters.blind_index.argon2 import Argon2BlindIndexAdapter
 
         sync_result = Argon2BlindIndexAdapter.compute_blind_index("test", self.TEST_KEY)
         async_result = await Argon2BlindIndexAdapter.async_compute_blind_index("test", self.TEST_KEY)

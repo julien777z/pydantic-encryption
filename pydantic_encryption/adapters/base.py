@@ -1,10 +1,15 @@
+import asyncio
 from abc import ABC, abstractmethod
 
-from pydantic_secure.types import BlindIndexValue, EncryptedValue, HashedValue
+from pydantic_encryption.types import BlindIndexValue, EncryptedValue, HashedValue
 
 
 class EncryptionAdapter(ABC):
-    """Abstract base class for encryption adapters."""
+    """Abstract base class for encryption adapters.
+
+    Subclasses implement sync `encrypt` and `decrypt`. Async variants default to
+    running the sync method in a thread; override them for natively-async backends.
+    """
 
     @classmethod
     @abstractmethod
@@ -16,19 +21,17 @@ class EncryptionAdapter(ABC):
     def decrypt(cls, ciphertext: bytes | str | EncryptedValue, *, key: str | None = None) -> str:
         """Decrypt ciphertext data."""
 
-
-class AsyncEncryptionAdapter(ABC):
-    """Abstract base class for async encryption adapters."""
+    @classmethod
+    async def async_encrypt(
+        cls, plaintext: bytes | str | EncryptedValue, *, key: str | None = None
+    ) -> EncryptedValue:
+        return await asyncio.to_thread(cls.encrypt, plaintext, key=key)
 
     @classmethod
-    @abstractmethod
-    async def async_encrypt(cls, plaintext: bytes | str | EncryptedValue, *, key: str | None = None) -> EncryptedValue:
-        """Asynchronously encrypt plaintext data."""
-
-    @classmethod
-    @abstractmethod
-    async def async_decrypt(cls, ciphertext: bytes | str | EncryptedValue, *, key: str | None = None) -> str:
-        """Asynchronously decrypt ciphertext data."""
+    async def async_decrypt(
+        cls, ciphertext: bytes | str | EncryptedValue, *, key: str | None = None
+    ) -> str:
+        return await asyncio.to_thread(cls.decrypt, ciphertext, key=key)
 
 
 class HashingAdapter(ABC):
@@ -39,14 +42,9 @@ class HashingAdapter(ABC):
     def hash(cls, value: str | bytes | HashedValue) -> HashedValue:
         """Hash the given value."""
 
-
-class AsyncHashingAdapter(ABC):
-    """Abstract base class for async hashing adapters."""
-
     @classmethod
-    @abstractmethod
     async def async_hash(cls, value: str | bytes | HashedValue) -> HashedValue:
-        """Asynchronously hash the given value."""
+        return await asyncio.to_thread(cls.hash, value)
 
 
 class BlindIndexAdapter(ABC):
@@ -57,11 +55,6 @@ class BlindIndexAdapter(ABC):
     def compute_blind_index(cls, value: str | bytes, key: bytes) -> BlindIndexValue:
         """Compute a deterministic blind index for the given value."""
 
-
-class AsyncBlindIndexAdapter(ABC):
-    """Abstract base class for async blind index adapters."""
-
     @classmethod
-    @abstractmethod
     async def async_compute_blind_index(cls, value: str | bytes, key: bytes) -> BlindIndexValue:
-        """Asynchronously compute a deterministic blind index for the given value."""
+        return await asyncio.to_thread(cls.compute_blind_index, value, key)

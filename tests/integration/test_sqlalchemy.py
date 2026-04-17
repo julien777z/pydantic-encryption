@@ -5,7 +5,7 @@ from typing import Final
 
 from sqlalchemy.orm import Session
 
-from pydantic_secure.types import BlindIndexValue
+from pydantic_encryption.types import BlindIndexValue
 
 from tests.integration.database import User
 
