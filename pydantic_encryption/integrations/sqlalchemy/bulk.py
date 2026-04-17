@@ -51,7 +51,7 @@ async def async_decrypt_rows(
     type_helper = SQLAlchemyEncryptedValue()
     column_names = [_column_name(c) for c in columns]
 
-    semaphore = asyncio.Semaphore(concurrency) if concurrency else None
+    semaphore = asyncio.Semaphore(concurrency) if concurrency is not None else None
 
     async def decrypt_cell(ciphertext: bytes) -> Any:
         if semaphore is not None:
