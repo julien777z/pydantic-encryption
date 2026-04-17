@@ -260,11 +260,9 @@ class SecureModel:
         if isinstance(value, SecureModel):
             await value.async_post_init()
         elif isinstance(value, dict):
-            for item in value.values():
-                await SecureModel._async_post_init_nested(item)
+            await asyncio.gather(*(SecureModel._async_post_init_nested(v) for v in value.values()))
         elif isinstance(value, (list, tuple, set, frozenset)):
-            for item in value:
-                await SecureModel._async_post_init_nested(item)
+            await asyncio.gather(*(SecureModel._async_post_init_nested(v) for v in value))
 
     async def async_post_init(self) -> None:
         """Asynchronously run all post-initialization operations."""
