@@ -1,5 +1,6 @@
 import asyncio
-from typing import Any, Iterable, Self
+from collections.abc import Iterable
+from typing import Any, Self
 
 from pydantic_encryption._lazy import require_optional_dependency
 
@@ -108,7 +109,7 @@ def _collect_encrypted_cells(
     if entities is None:
         return
 
-    if isinstance(entities, (list, tuple, set, frozenset)):
+    if isinstance(entities, Iterable) and not isinstance(entities, (str, bytes, bytearray)):
         items = list(entities)
     else:
         items = [entities]

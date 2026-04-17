@@ -191,6 +191,22 @@ class TestDeferredDecryptMixin:
             assert contractor.first_name == f"First{i}"
             assert contractor.last_name == f"Last{i}"
 
+    def test_decrypt_many_accepts_generator(self):
+        contractors = [
+            _BulkContractor(
+                id=i,
+                first_name=_encrypt_deferred(f"Gen{i}"),
+                last_name=_encrypt_deferred(f"Last{i}"),
+            )
+            for i in range(3)
+        ]
+
+        asyncio.run(_BulkContractor.decrypt_many(c for c in contractors))
+
+        for i, contractor in enumerate(contractors):
+            assert contractor.first_name == f"Gen{i}"
+            assert contractor.last_name == f"Last{i}"
+
     def test_none_column_values_skipped(self):
         contractor = _BulkContractor(id=1, first_name=_encrypt_deferred("Alice"), last_name=None)
 
