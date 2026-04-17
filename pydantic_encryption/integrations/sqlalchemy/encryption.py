@@ -111,7 +111,10 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
 
         serialized_value = self._serialize_value(value)
         backend = get_encryption_backend(settings.ENCRYPTION_METHOD)
-        return backend.encrypt(serialized_value)
+        result = try_await(backend.async_encrypt(serialized_value))
+        if result is _SENTINEL:
+            return backend.encrypt(serialized_value)
+        return result
 
     def _process_decrypt_value(self, value: str | bytes | None) -> str | bytes | None:
         if value is None:
