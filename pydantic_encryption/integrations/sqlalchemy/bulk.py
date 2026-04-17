@@ -5,7 +5,7 @@ from pydantic_encryption._lazy import require_optional_dependency
 
 require_optional_dependency("sqlalchemy", "sqlalchemy")
 
-from sqlalchemy import Select, inspect as sa_inspect
+from sqlalchemy import Select, event, inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 
@@ -132,7 +132,7 @@ def _collect_encrypted_cells(
             if not isinstance(column.type, SQLAlchemyEncryptedValue):
                 continue
 
-            if not column.type.defer_decrypt:
+            if not column.type._deferred:
                 continue
 
             value = state.dict.get(column.key)
@@ -156,8 +156,28 @@ def _collect_encrypted_cells(
                 _collect_encrypted_cells(related, collected, visited)
 
 
+def _mark_encrypted_columns_deferred(mapper, class_) -> None:
+    for column in mapper.columns:
+        if not isinstance(column.type, SQLAlchemyEncryptedValue):
+            continue
+        if column.type._deferred:
+            continue
+        column.type = column.type.copy()
+        column.type._deferred = True
+
+
 class DeferredDecryptMixin:
-    """Mixin that adds async decrypt helpers for deferred SQLAlchemyEncryptedValue columns."""
+    """Mixin that auto-defers SQLAlchemyEncryptedValue columns and adds async decrypt helpers.
+
+    Every ``SQLAlchemyEncryptedValue`` column on a class that inherits this mixin returns
+    ``EncryptedValue(bytes)`` on read instead of plaintext; call ``decrypt()`` /
+    ``decrypt_many()`` / ``scalar_one_or_none()`` / ``scalars_all()`` to decrypt in bulk.
+    ``SQLAlchemyPGEncryptedArray`` columns are not affected and still decrypt inline.
+    """
+
+    def __init_subclass__(cls, **kwargs) -> None:
+        super().__init_subclass__(**kwargs)
+        event.listen(cls, "mapper_configured", _mark_encrypted_columns_deferred)
 
     async def decrypt(self) -> Self:
         """Decrypt deferred encrypted columns on this instance and any loaded relationships."""

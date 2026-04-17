@@ -241,31 +241,28 @@ SQLAlchemy's `TypeDecorator` is sync by contract — even under `AsyncSession` t
 
 **Tier 1 — automatic, zero code change.** Under `AsyncSession`, decryption transparently uses SQLAlchemy's greenlet bridge (`sqlalchemy.util.await_`) so each decrypt yields the event loop during its network roundtrip. Other tasks on the loop keep progressing. The same bridge also wraps Argon2 hashing (`SQLAlchemyHashedValue`) and Argon2 blind-index computation (`SQLAlchemyBlindIndexValue`) so write-side commits don't block either.
 
-**Tier 2 — opt-in, real parallelism.** For single fetches with many encrypted cells, pass `defer_decrypt=True` on the column and bulk-decrypt after the fetch. Every cell is decrypted concurrently via `asyncio.gather`, turning N sequential roundtrips into one concurrent burst.
+**Tier 2 — opt-in, real parallelism.** For single fetches with many encrypted cells, inherit `DeferredDecryptMixin` on the model and every `SQLAlchemyEncryptedValue` column on that class automatically defers decryption — reads return `EncryptedValue(bytes)` instead of plaintext. Bulk-decrypt after the fetch via `async_decrypt_rows` or the mixin helpers (`decrypt()`, `decrypt_many()`, `scalar_one_or_none()`, `scalars_all()`). Every cell is decrypted concurrently via `asyncio.gather`, turning N sequential roundtrips into one concurrent burst.
 
 ```python
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic_encryption import async_decrypt_rows, SQLAlchemyEncryptedValue
+from pydantic_encryption import DeferredDecryptMixin, SQLAlchemyEncryptedValue
 
-class User(Base):
+class User(Base, DeferredDecryptMixin):
     __tablename__ = "users"
     id: Mapped[int] = mapped_column(primary_key=True)
-    email: Mapped[bytes] = mapped_column(SQLAlchemyEncryptedValue(defer_decrypt=True))
-    secret: Mapped[bytes] = mapped_column(SQLAlchemyEncryptedValue(defer_decrypt=True))
+    email: Mapped[bytes] = mapped_column(SQLAlchemyEncryptedValue())
+    secret: Mapped[bytes] = mapped_column(SQLAlchemyEncryptedValue())
 
 
 async with AsyncSession(engine) as session:
-    users = (await session.execute(select(User).limit(1000))).scalars().all()
-
-    # Before this call, users[i].email is still an EncryptedValue.
-    await async_decrypt_rows(users, User.email, User.secret)
+    users = await User.scalars_all(session, select(User).limit(1000))
 
     for u in users:
         print(u.email)  # decrypted plaintext
 ```
 
-`async_decrypt_rows` accepts `InstrumentedAttribute` (e.g. `User.email`) or string column names. Pass `concurrency=N` to cap in-flight decrypts with an `asyncio.Semaphore`.
+`scalar_one_or_none` / `scalars_all` wrap `session.execute(...)` and decrypt in one step. `async_decrypt_rows` is the lower-level primitive — it accepts `InstrumentedAttribute` (e.g. `User.email`) or string column names and takes a `concurrency=N` kwarg to cap in-flight decrypts with an `asyncio.Semaphore`.
 
 ## Custom Encryption or Hashing
 

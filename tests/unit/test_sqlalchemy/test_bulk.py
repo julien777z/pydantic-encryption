@@ -4,34 +4,67 @@ from typing import Any
 
 import pytest
 from sqlalchemy import ForeignKey
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.orm import DeclarativeBase, Mapped, configure_mappers, mapped_column, relationship
 
 from pydantic_encryption.integrations.sqlalchemy import DeferredDecryptMixin, async_decrypt_rows
 from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue
 from pydantic_encryption.types import EncryptedValue
 
 
-class TestDeferDecrypt:
-    """Test that defer_decrypt=True skips decryption on the read path."""
+class _DeferBase(DeclarativeBase):
+    """Isolated declarative base for mixin auto-defer tests."""
 
-    def test_defer_decrypt_returns_encrypted_value(self):
-        adapter = SQLAlchemyEncryptedValue(defer_decrypt=True)
-        ciphertext = adapter.process_bind_param("hello", None)
+
+class _DeferMixed(_DeferBase, DeferredDecryptMixin):
+    """Mapped class that inherits DeferredDecryptMixin."""
+
+    __tablename__ = "_defer_mixed"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    secret: Mapped[str | None] = mapped_column(
+        SQLAlchemyEncryptedValue(), nullable=True, default=None
+    )
+
+
+class _DeferPlain(_DeferBase):
+    """Mapped class that does NOT inherit DeferredDecryptMixin."""
+
+    __tablename__ = "_defer_plain"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    secret: Mapped[str | None] = mapped_column(
+        SQLAlchemyEncryptedValue(), nullable=True, default=None
+    )
+
+
+class TestDeferDecrypt:
+    """Test that DeferredDecryptMixin auto-defers encrypted columns on the read path."""
+
+    @classmethod
+    def setup_class(cls):
+        configure_mappers()
+
+    def test_mixin_column_returns_encrypted_value(self):
+        column_type = _DeferMixed.__table__.c.secret.type
+        assert column_type._deferred is True
+
+        ciphertext = column_type.process_bind_param("hello", None)
         assert ciphertext is not None
 
-        result = adapter.process_result_value(ciphertext, None)
+        result = column_type.process_result_value(ciphertext, None)
         assert isinstance(result, EncryptedValue)
-        # defer_decrypt must NOT return plaintext
         assert result != "hello"
 
-    def test_defer_decrypt_none_passthrough(self):
-        adapter = SQLAlchemyEncryptedValue(defer_decrypt=True)
-        assert adapter.process_result_value(None, None) is None
+    def test_mixin_column_none_passthrough(self):
+        column_type = _DeferMixed.__table__.c.secret.type
+        assert column_type.process_result_value(None, None) is None
 
-    def test_default_decrypt_returns_plaintext(self):
-        adapter = SQLAlchemyEncryptedValue()
-        ciphertext = adapter.process_bind_param("hello", None)
-        result = adapter.process_result_value(ciphertext, None)
+    def test_plain_column_returns_plaintext(self):
+        column_type = _DeferPlain.__table__.c.secret.type
+        assert column_type._deferred is False
+
+        ciphertext = column_type.process_bind_param("hello", None)
+        result = column_type.process_result_value(ciphertext, None)
         assert result == "hello"
 
 
@@ -39,7 +72,7 @@ class TestAsyncDecryptRows:
     """Test the async_decrypt_rows bulk helper."""
 
     def _make_ciphertext(self, value):
-        return SQLAlchemyEncryptedValue(defer_decrypt=False).process_bind_param(value, None)
+        return SQLAlchemyEncryptedValue().process_bind_param(value, None)
 
     def test_async_decrypt_rows_fernet(self):
         # Build 3 fake rows with 2 encrypted columns each.
@@ -108,18 +141,18 @@ class _BulkContractor(_BulkBase, DeferredDecryptMixin):
     id: Mapped[int] = mapped_column(primary_key=True)
     org_id: Mapped[int | None] = mapped_column(ForeignKey("_bulk_test_org.id"), nullable=True, default=None)
     first_name: Mapped[str | None] = mapped_column(
-        SQLAlchemyEncryptedValue(defer_decrypt=True), nullable=True, default=None
+        SQLAlchemyEncryptedValue(), nullable=True, default=None
     )
     last_name: Mapped[str | None] = mapped_column(
-        SQLAlchemyEncryptedValue(defer_decrypt=True), nullable=True, default=None
+        SQLAlchemyEncryptedValue(), nullable=True, default=None
     )
     org: Mapped["_BulkOrg | None"] = relationship(back_populates="contractors")
 
 
 def _encrypt_deferred(value: str) -> bytes:
-    """Encrypt a value using the non-deferred SQLAlchemyEncryptedValue on the write path."""
+    """Encrypt a value using SQLAlchemyEncryptedValue on the write path."""
 
-    return SQLAlchemyEncryptedValue(defer_decrypt=False).process_bind_param(value, None)
+    return SQLAlchemyEncryptedValue().process_bind_param(value, None)
 
 
 class TestDeferredDecryptMixin:

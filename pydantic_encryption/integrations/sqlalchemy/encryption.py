@@ -21,16 +21,17 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
 
     Under ``AsyncSession``, decryption automatically uses SQLAlchemy's greenlet
     bridge so network-bound backends (e.g. AWS KMS) yield the event loop during
-    decryption. For true parallelism across many rows, pass ``defer_decrypt=True``
-    and use :func:`pydantic_encryption.async_decrypt_rows` post-fetch.
+    decryption. For true parallelism across many rows, inherit
+    :class:`pydantic_encryption.DeferredDecryptMixin` on the model and combine
+    with :func:`pydantic_encryption.async_decrypt_rows` post-fetch.
     """
 
     impl = LargeBinary
     cache_ok = True
 
-    def __init__(self, *args, defer_decrypt: bool = False, **kwargs) -> None:
+    def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.defer_decrypt = defer_decrypt
+        self._deferred = False
 
     def _serialize_value(self, value: EncryptableValue) -> str:
         """Serialize a value with version and type prefix for encryption."""
@@ -147,7 +148,7 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
         if value is None:
             return None
 
-        if self.defer_decrypt:
+        if self._deferred:
             return EncryptedValue(value) if isinstance(value, bytes) else EncryptedValue(value.encode("utf-8"))
 
         decrypted_value = self._process_decrypt_value(value)
