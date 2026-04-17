@@ -97,12 +97,14 @@ AWS_KMS_ACCESS_KEY_ID=your_access_key
 AWS_KMS_SECRET_ACCESS_KEY=your_secret_key
 ```
 
-Separate encrypt/decrypt keys are supported for key rotation or read-only scenarios:
+As an alternative to `AWS_KMS_KEY_ARN`, separate encrypt/decrypt keys are supported for key rotation or read-only scenarios:
 
 ```bash
 AWS_KMS_ENCRYPT_KEY_ARN=arn:aws:kms:...encrypt-key
 AWS_KMS_DECRYPT_KEY_ARN=arn:aws:kms:...decrypt-key
 ```
+
+Use one mode or the other — combining `AWS_KMS_KEY_ARN` with either split variant raises a validation error. A decrypt-only key alone is allowed (read-only workloads).
 
 ### Model-Level Config
 
@@ -267,21 +269,18 @@ async with AsyncSession(engine) as session:
 
 ## Custom Encryption or Hashing
 
-Subclass `SecureModel` to implement your own logic:
+Subclass `BaseModel` and override any of `encrypt_data`, `hash_data`, `blind_index_data` (or their async variants) to plug in your own logic. The post-init hook runs automatically:
 
 ```python
-from pydantic import BaseModel as PydanticBaseModel
-from pydantic_encryption import SecureModel
+from pydantic_encryption import BaseModel
 
-class MySecureModel(PydanticBaseModel, SecureModel):
+class MyModel(BaseModel):
     def encrypt_data(self) -> None:
-        # your encryption logic
-        pass
-
-    def model_post_init(self, context, /):
-        self.default_post_init()
-        super().model_post_init(context)
+        # your encryption logic (mutate self in-place)
+        ...
 ```
+
+To implement a new backend instead of replacing the per-model path, subclass one of the adapter ABCs (`EncryptionAdapter`, `HashingAdapter`, `BlindIndexAdapter`) and register it via `register_encryption_backend` / `register_blind_index_backend`. Async variants are inherited by default — override `async_encrypt` / `async_decrypt` only for natively-async backends.
 
 ## Run Tests
 
