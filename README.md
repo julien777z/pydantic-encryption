@@ -237,7 +237,7 @@ SQLAlchemy's `TypeDecorator` is sync by contract — even under `AsyncSession` t
 
 `pydantic-encryption` handles this with a two-tier strategy:
 
-**Tier 1 — automatic, zero code change.** Under `AsyncSession`, decryption transparently uses SQLAlchemy's greenlet bridge (`sqlalchemy.util.await_`) so each decrypt yields the event loop during its network roundtrip. Other tasks on the loop keep progressing.
+**Tier 1 — automatic, zero code change.** Under `AsyncSession`, decryption transparently uses SQLAlchemy's greenlet bridge (`sqlalchemy.util.await_`) so each decrypt yields the event loop during its network roundtrip. Other tasks on the loop keep progressing. The same bridge also wraps Argon2 hashing (`SQLAlchemyHashedValue`) and Argon2 blind-index computation (`SQLAlchemyBlindIndexValue`) so write-side commits don't block either.
 
 **Tier 2 — opt-in, real parallelism.** For single fetches with many encrypted cells, pass `defer_decrypt=True` on the column and bulk-decrypt after the fetch. Every cell is decrypted concurrently via `asyncio.gather`, turning N sequential roundtrips into one concurrent burst.
 

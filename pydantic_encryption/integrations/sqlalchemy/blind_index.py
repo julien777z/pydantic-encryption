@@ -6,12 +6,18 @@ from sqlalchemy.types import LargeBinary, TypeDecorator
 
 from pydantic_encryption.adapters.registry import get_blind_index_backend
 from pydantic_encryption.config import settings
+from pydantic_encryption.integrations.sqlalchemy._async_bridge import _SENTINEL, try_await
 from pydantic_encryption.normalization import normalize_value
 from pydantic_encryption.types import BlindIndexMethod, BlindIndexValue
 
 
 class SQLAlchemyBlindIndexValue(TypeDecorator):
-    """Type adapter for SQLAlchemy to create deterministic blind indexes."""
+    """Type adapter for SQLAlchemy to create deterministic blind indexes.
+
+    The Argon2 blind index backend is memory-hard. Under ``AsyncSession`` we
+    use SQLAlchemy's greenlet bridge so write-side index computation doesn't
+    block the event loop. Falls back to the sync path for plain ``Session``.
+    """
 
     impl = LargeBinary
     cache_ok = True
@@ -66,7 +72,10 @@ class SQLAlchemyBlindIndexValue(TypeDecorator):
         key = self._get_key_bytes()
         value = self._normalize_value(value)
         backend = get_blind_index_backend(self.method)
-        return backend.compute_blind_index(value, key)
+        result = try_await(backend.async_compute_blind_index(value, key))
+        if result is _SENTINEL:
+            return backend.compute_blind_index(value, key)
+        return result
 
     def process_bind_param(self, value: str | bytes | BlindIndexValue | None, dialect) -> bytes | None:
         """Computes the blind index before binding to the database."""
