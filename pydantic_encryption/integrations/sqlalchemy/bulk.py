@@ -1,16 +1,17 @@
 import asyncio
-from typing import Any, Iterable
+from typing import Any, Iterable, Self
 
 from pydantic_encryption._lazy import require_optional_dependency
 
 require_optional_dependency("sqlalchemy", "sqlalchemy")
 
+from sqlalchemy import Select, inspect as sa_inspect
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 
 from pydantic_encryption.adapters.registry import get_encryption_backend
 from pydantic_encryption.config import settings
 from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue
-from pydantic_encryption.types import EncryptedValue
 
 
 def _column_name(column: InstrumentedAttribute | str) -> str:
@@ -47,7 +48,6 @@ async def async_decrypt_rows(
         raise ValueError("ENCRYPTION_METHOD must be set to use async_decrypt_rows.")
 
     backend = get_encryption_backend(settings.ENCRYPTION_METHOD)
-    # Reuse a TypeDecorator instance purely for its deserialization helper.
     type_helper = SQLAlchemyEncryptedValue()
     column_names = [_column_name(c) for c in columns]
 
@@ -80,4 +80,117 @@ async def async_decrypt_rows(
         setattr(row, name, plaintext)
 
 
-__all__ = ["async_decrypt_rows"]
+async def _bulk_decrypt(entities: Any | Iterable[Any] | None) -> None:
+    """Walk entities + loaded relationships and batch-decrypt deferred encrypted cells."""
+
+    collected: dict[tuple[type, str], list[Any]] = {}
+    visited: set[int] = set()
+    _collect_encrypted_cells(entities, collected, visited)
+
+    if not collected:
+        return
+
+    awaitables = [
+        async_decrypt_rows(rows, getattr(cls, column_key))
+        for (cls, column_key), rows in collected.items()
+    ]
+
+    await asyncio.gather(*awaitables)
+
+
+def _collect_encrypted_cells(
+    entities: Any | Iterable[Any] | None,
+    collected: dict[tuple[type, str], list[Any]],
+    visited: set[int],
+) -> None:
+    """Walk entities (and loaded relationships) and group rows by (class, column) for deferred-encrypted cells."""
+
+    if entities is None:
+        return
+
+    if isinstance(entities, (list, tuple, set, frozenset)):
+        items = list(entities)
+    else:
+        items = [entities]
+
+    for entity in items:
+        if entity is None:
+            continue
+
+        entity_id = id(entity)
+        if entity_id in visited:
+            continue
+        visited.add(entity_id)
+
+        state = sa_inspect(entity, raiseerr=False)
+        if state is None or not hasattr(state, "mapper"):
+            continue
+
+        mapper = state.mapper
+
+        for column in mapper.columns:
+            if not isinstance(column.type, SQLAlchemyEncryptedValue):
+                continue
+
+            if not column.type.defer_decrypt:
+                continue
+
+            value = state.dict.get(column.key)
+            if not isinstance(value, (bytes, bytearray)):
+                continue
+
+            collected.setdefault((type(entity), column.key), []).append(entity)
+
+        unloaded = state.unloaded
+        for relationship in mapper.relationships:
+            if relationship.key in unloaded:
+                continue
+
+            related = state.dict.get(relationship.key)
+            if related is None:
+                continue
+
+            if relationship.uselist:
+                _collect_encrypted_cells(list(related), collected, visited)
+            else:
+                _collect_encrypted_cells(related, collected, visited)
+
+
+class DeferredDecryptMixin:
+    """Mixin that adds async decrypt helpers for deferred SQLAlchemyEncryptedValue columns."""
+
+    async def decrypt(self) -> Self:
+        """Decrypt deferred encrypted columns on this instance and any loaded relationships."""
+
+        await _bulk_decrypt(self)
+
+        return self
+
+    @classmethod
+    async def decrypt_many(cls, entities: Any | Iterable[Any] | None) -> None:
+        """Decrypt deferred encrypted columns on the given entities (single, iterable, or None) and any loaded relationships."""
+
+        await _bulk_decrypt(entities)
+
+    @classmethod
+    async def scalar_one_or_none(cls, session: AsyncSession, statement: Select) -> Self | None:
+        """Execute a SELECT and return a single decrypted scalar, or None."""
+
+        entity = (await session.execute(statement)).scalar_one_or_none()
+
+        await _bulk_decrypt(entity)
+
+        return entity
+
+    @classmethod
+    async def scalars_all(cls, session: AsyncSession, statement: Select) -> list[Self]:
+        """Execute a SELECT and return all decrypted scalars as a list."""
+
+        rows = list((await session.execute(statement)).scalars().all())
+
+        await _bulk_decrypt(rows)
+
+        return rows
+
+
+__all__ = ["async_decrypt_rows", "DeferredDecryptMixin"]
