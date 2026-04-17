@@ -6,8 +6,7 @@ from pydantic_encryption._lazy import require_optional_dependency
 
 require_optional_dependency("sqlalchemy", "sqlalchemy")
 
-from sqlalchemy import Select, event, inspect as sa_inspect
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import event, inspect as sa_inspect
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 
 from pydantic_encryption.adapters.registry import get_encryption_backend
@@ -19,6 +18,31 @@ def _column_name(column: InstrumentedAttribute | str) -> str:
     if isinstance(column, str):
         return column
     return column.key
+
+
+def _build_decrypt_cell(
+    concurrency: int | None,
+    caller_name: str,
+):
+    """Build a single decrypt-one-cell coroutine factory shared by the bulk helpers."""
+
+    if settings.ENCRYPTION_METHOD is None:
+        raise ValueError(f"ENCRYPTION_METHOD must be set to use {caller_name}.")
+
+    backend = get_encryption_backend(settings.ENCRYPTION_METHOD)
+    type_helper = SQLAlchemyEncryptedValue()
+    semaphore = asyncio.Semaphore(concurrency) if concurrency is not None else None
+
+    async def decrypt_cell(ciphertext: bytes) -> Any:
+        if semaphore is not None:
+            async with semaphore:
+                plaintext = await backend.async_decrypt(ciphertext)
+        else:
+            plaintext = await backend.async_decrypt(ciphertext)
+
+        return type_helper._deserialize_value(plaintext)
+
+    return decrypt_cell
 
 
 async def async_decrypt_rows(
@@ -45,22 +69,8 @@ async def async_decrypt_rows(
     if not rows:
         return
 
-    if settings.ENCRYPTION_METHOD is None:
-        raise ValueError("ENCRYPTION_METHOD must be set to use async_decrypt_rows.")
-
-    backend = get_encryption_backend(settings.ENCRYPTION_METHOD)
-    type_helper = SQLAlchemyEncryptedValue()
+    decrypt_cell = _build_decrypt_cell(concurrency, "async_decrypt_rows")
     column_names = [_column_name(c) for c in columns]
-
-    semaphore = asyncio.Semaphore(concurrency) if concurrency is not None else None
-
-    async def decrypt_cell(ciphertext: bytes) -> Any:
-        if semaphore is not None:
-            async with semaphore:
-                plaintext = await backend.async_decrypt(ciphertext)
-        else:
-            plaintext = await backend.async_decrypt(ciphertext)
-        return type_helper._deserialize_value(plaintext)
 
     assignments: list[tuple[Any, str]] = []
     coros = []
@@ -79,6 +89,47 @@ async def async_decrypt_rows(
     results = await asyncio.gather(*coros)
     for (row, name), plaintext in zip(assignments, results):
         setattr(row, name, plaintext)
+
+
+async def async_decrypt_values(
+    values: Iterable[Any],
+    *,
+    concurrency: int | None = None,
+) -> list[Any]:
+    """Bulk-decrypt a flat iterable of ciphertexts, preserving ``None`` positions.
+
+    Returned list has the same length as ``values`` with plaintexts substituted
+    for each non-``None`` input. Any cell already holding plaintext (not
+    ``bytes``/``bytearray``) is passed through untouched, matching the read-
+    path convention used by ``async_decrypt_rows``.
+    """
+
+    values_list = list(values)
+    if not values_list:
+        return []
+
+    decrypt_cell = _build_decrypt_cell(concurrency, "async_decrypt_values")
+
+    indexed: list[tuple[int, Any]] = []
+    coros = []
+    for index, value in enumerate(values_list):
+        if value is None:
+            continue
+        if not isinstance(value, (bytes, bytearray)):
+            continue
+        ciphertext = bytes(value) if not isinstance(value, bytes) else value
+        coros.append(decrypt_cell(ciphertext))
+        indexed.append((index, value))
+
+    if not coros:
+        return values_list
+
+    results = await asyncio.gather(*coros)
+    out = list(values_list)
+    for (index, _), plaintext in zip(indexed, results):
+        out[index] = plaintext
+
+    return out
 
 
 async def _bulk_decrypt(entities: Any | Iterable[Any] | None) -> None:
@@ -172,8 +223,8 @@ class DeferredDecryptMixin:
 
     Every ``SQLAlchemyEncryptedValue`` column on a class that inherits this mixin returns
     ``EncryptedValue(bytes)`` on read instead of plaintext; call ``decrypt()`` /
-    ``decrypt_many()`` / ``scalar_one_or_none()`` / ``scalars_all()`` to decrypt in bulk.
-    ``SQLAlchemyPGEncryptedArray`` columns are not affected and still decrypt inline.
+    ``decrypt_many()`` to decrypt in bulk. ``SQLAlchemyPGEncryptedArray`` columns are not
+    affected and still decrypt inline.
     """
 
     def __init_subclass__(cls, **kwargs) -> None:
@@ -193,25 +244,5 @@ class DeferredDecryptMixin:
 
         await _bulk_decrypt(entities)
 
-    @classmethod
-    async def scalar_one_or_none(cls, session: AsyncSession, statement: Select) -> Self | None:
-        """Execute a SELECT and return a single decrypted scalar, or None."""
 
-        entity = (await session.execute(statement)).scalar_one_or_none()
-
-        await _bulk_decrypt(entity)
-
-        return entity
-
-    @classmethod
-    async def scalars_all(cls, session: AsyncSession, statement: Select) -> list[Self]:
-        """Execute a SELECT and return all decrypted scalars as a list."""
-
-        rows = list((await session.execute(statement)).scalars().all())
-
-        await _bulk_decrypt(rows)
-
-        return rows
-
-
-__all__ = ["async_decrypt_rows", "DeferredDecryptMixin"]
+__all__ = ["async_decrypt_rows", "async_decrypt_values", "DeferredDecryptMixin"]

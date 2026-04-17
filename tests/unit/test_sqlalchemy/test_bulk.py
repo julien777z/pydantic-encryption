@@ -1,12 +1,14 @@
 import asyncio
 from types import SimpleNamespace
-from typing import Any
 
-import pytest
 from sqlalchemy import ForeignKey
 from sqlalchemy.orm import DeclarativeBase, Mapped, configure_mappers, mapped_column, relationship
 
-from pydantic_encryption.integrations.sqlalchemy import DeferredDecryptMixin, async_decrypt_rows
+from pydantic_encryption.integrations.sqlalchemy import (
+    DeferredDecryptMixin,
+    async_decrypt_rows,
+    async_decrypt_values,
+)
 from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue
 from pydantic_encryption.types import EncryptedValue
 
@@ -233,71 +235,44 @@ class TestDeferredDecryptMixin:
         assert contractor.last_name is None
 
 
-class TestDeferredDecryptScalarHelpers:
-    """Test the scalar_one_or_none and scalars_all query helpers on DeferredDecryptMixin."""
+class TestAsyncDecryptValues:
+    """Test the async_decrypt_values bulk helper for flat ciphertext iterables."""
 
-    def _make_session_stub(self, returned: Any) -> Any:
-        """Return a minimal async session stub whose execute() returns a fake Result."""
+    def _make_ciphertext(self, value: str) -> bytes:
+        return SQLAlchemyEncryptedValue().process_bind_param(value, None)
 
-        class _Result:
-            def __init__(self, value):
-                self._value = value
+    def test_decrypts_list_of_ciphertexts(self):
+        values = [self._make_ciphertext(f"user-{i}") for i in range(3)]
 
-            def scalar_one_or_none(self):
-                return self._value if not isinstance(self._value, list) else None
+        result = asyncio.run(async_decrypt_values(values))
 
-            def scalars(self):
-                rows = self._value if isinstance(self._value, list) else []
+        assert result == ["user-0", "user-1", "user-2"]
 
-                class _Scalars:
-                    def __init__(self, rows):
-                        self._rows = rows
-
-                    def all(self):
-                        return list(self._rows)
-
-                return _Scalars(rows)
-
-        class _Session:
-            def __init__(self, value):
-                self._value = value
-
-            async def execute(self, _stmt):
-                return _Result(self._value)
-
-        return _Session(returned)
-
-    def test_scalar_one_or_none_decrypts(self):
-        contractor = _BulkContractor(id=1, first_name=_encrypt_deferred("Alice"))
-        session = self._make_session_stub(contractor)
-
-        result = asyncio.run(_BulkContractor.scalar_one_or_none(session, object()))
-
-        assert result is contractor
-        assert contractor.first_name == "Alice"
-
-    def test_scalar_one_or_none_handles_missing(self):
-        session = self._make_session_stub(None)
-
-        result = asyncio.run(_BulkContractor.scalar_one_or_none(session, object()))
-
-        assert result is None
-
-    def test_scalars_all_decrypts(self):
-        contractors = [
-            _BulkContractor(id=i, first_name=_encrypt_deferred(f"First{i}")) for i in range(3)
+    def test_preserves_none_positions(self):
+        values = [
+            self._make_ciphertext("a"),
+            None,
+            self._make_ciphertext("b"),
+            None,
         ]
-        session = self._make_session_stub(contractors)
 
-        result = asyncio.run(_BulkContractor.scalars_all(session, object()))
+        result = asyncio.run(async_decrypt_values(values))
 
-        assert result == contractors
-        for i, c in enumerate(result):
-            assert c.first_name == f"First{i}"
+        assert result == ["a", None, "b", None]
 
-    def test_scalars_all_empty(self):
-        session = self._make_session_stub([])
+    def test_empty_input(self):
+        assert asyncio.run(async_decrypt_values([])) == []
 
-        result = asyncio.run(_BulkContractor.scalars_all(session, object()))
+    def test_passes_through_non_bytes_cells(self):
+        values = [self._make_ciphertext("a"), 42, "plain", None]
 
-        assert result == []
+        result = asyncio.run(async_decrypt_values(values))
+
+        assert result == ["a", 42, "plain", None]
+
+    def test_respects_concurrency(self):
+        values = [self._make_ciphertext(f"v{i}") for i in range(5)]
+
+        result = asyncio.run(async_decrypt_values(values, concurrency=2))
+
+        assert result == [f"v{i}" for i in range(5)]
