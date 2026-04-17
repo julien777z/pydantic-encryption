@@ -26,10 +26,14 @@ def get_encryption_backend(method: EncryptionMethod) -> type:
     with _registry_lock:
         if method in _encryption_backends:
             return _encryption_backends[method]
-        factory = _encryption_factories.pop(method, None)
+        factory = _encryption_factories.get(method)
         if factory is not None:
+            # Invoke first; only remove from factories on success so a failing
+            # factory (e.g. missing optional dep) stays retryable and surfaces
+            # its real ImportError instead of a generic "no backend" ValueError.
             cls = factory()
             _encryption_backends[method] = cls
+            del _encryption_factories[method]
             return cls
     raise ValueError(f"No encryption backend registered for {method!r}")
 
