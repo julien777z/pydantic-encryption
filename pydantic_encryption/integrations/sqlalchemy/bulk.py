@@ -61,7 +61,7 @@ async def async_decrypt_rows(
             plaintext = await backend.async_decrypt(ciphertext)
         return type_helper._deserialize_value(plaintext)
 
-    assignments: list[tuple[Any, str, asyncio.Task[Any] | Any]] = []
+    assignments: list[tuple[Any, str]] = []
     coros = []
     for row in rows:
         for name in column_names:
@@ -70,13 +70,13 @@ async def async_decrypt_rows(
                 continue
             ciphertext = bytes(value) if not isinstance(value, bytes) else value
             coros.append(decrypt_cell(ciphertext))
-            assignments.append((row, name, None))
+            assignments.append((row, name))
 
     if not coros:
         return
 
     results = await asyncio.gather(*coros)
-    for (row, name, _), plaintext in zip(assignments, results):
+    for (row, name), plaintext in zip(assignments, results):
         setattr(row, name, plaintext)
 
 
