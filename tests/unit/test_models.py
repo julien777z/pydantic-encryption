@@ -85,9 +85,9 @@ class TestModelEncryption:
 
 
 class TestModelDecryption:
-    """Test model decryption behavior using decrypt_fields()."""
+    """Test model decryption behavior using decrypt_data()."""
 
-    def test_decrypt_fields(self):
+    def test_decrypt_data(self):
         """Test decrypting fields in-place."""
 
         class _Model(BaseModel):
@@ -98,7 +98,7 @@ class TestModelDecryption:
 
         assert getattr(model.data, "encrypted", False)
 
-        model.decrypt_fields()
+        model.decrypt_data()
 
         assert model.data == original
 
@@ -110,19 +110,19 @@ class TestModelDecryption:
             data2: Annotated[bytes, Encrypted]
 
         model = _Model(data1="secret1", data2="secret2")
-        model.decrypt_fields()
+        model.decrypt_data()
 
         assert model.data1 == "secret1"
         assert model.data2 == "secret2"
 
-    def test_decrypt_fields_returns_self(self):
-        """Test decrypt_fields returns self for chaining."""
+    def test_decrypt_data_returns_self(self):
+        """Test decrypt_data returns self for chaining."""
 
         class _Model(BaseModel):
             data: Annotated[bytes, Encrypted]
 
         model = _Model(data="secret")
-        result = model.decrypt_fields()
+        result = model.decrypt_data()
 
         assert result is model
 
@@ -226,7 +226,7 @@ class TestEdgeCases:
 
         original = "日本語 🔐 العربية"
         model = _Model(data=original)
-        model.decrypt_fields()
+        model.decrypt_data()
 
         assert model.data == original
 
@@ -238,6 +238,6 @@ class TestEdgeCases:
 
         original = "x" * 10000
         model = _Model(data=original)
-        model.decrypt_fields()
+        model.decrypt_data()
 
         assert model.data == original

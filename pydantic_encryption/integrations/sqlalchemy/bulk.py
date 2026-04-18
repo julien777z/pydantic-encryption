@@ -13,6 +13,7 @@ from sqlalchemy.orm.attributes import InstrumentedAttribute, set_committed_value
 from pydantic_encryption.adapters.registry import get_encryption_backend
 from pydantic_encryption.config import settings
 from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue
+from pydantic_encryption.integrations.sqlalchemy.serialization import decode_value
 from pydantic_encryption.types import EncryptedValue
 
 AUTO_DECRYPT_ENABLED_KEY = "__pydantic_encryption_auto_decrypt__"
@@ -35,7 +36,6 @@ def _build_decrypt_cell(
         raise ValueError(f"ENCRYPTION_METHOD must be set to use {caller_name}.")
 
     backend = get_encryption_backend(settings.ENCRYPTION_METHOD)
-    type_helper = SQLAlchemyEncryptedValue()
     semaphore = asyncio.Semaphore(concurrency) if concurrency is not None else None
 
     async def decrypt_cell(ciphertext: bytes) -> Any:
@@ -45,7 +45,7 @@ def _build_decrypt_cell(
         else:
             plaintext = await backend.async_decrypt(ciphertext)
 
-        return type_helper._deserialize_value(plaintext)
+        return decode_value(plaintext)
 
     return decrypt_cell
 

@@ -1,5 +1,7 @@
 from enum import Enum
 
+from pydantic_encryption.normalization import validate_normalization_flags
+
 
 class Encrypted:
     """Annotation to mark fields for encryption."""
@@ -10,50 +12,44 @@ class Hashed:
 
 
 class EncryptionMethod(Enum):
-    """Enum for encryption methods."""
+    """Supported encryption methods."""
 
     FERNET = "fernet"
     AWS = "aws"
 
 
 class BlindIndexMethod(Enum):
-    """Enum for blind index hashing methods."""
+    """Supported blind index hashing methods."""
 
     HMAC_SHA256 = "hmac-sha256"
     ARGON2 = "argon2"
 
 
-class EncryptedValue(bytes):
+class _TaggedBytes(bytes):
+    """Bytes subclass that UTF-8-encodes ``str`` inputs."""
+
+    def __new__(cls, value: str | bytes):
+        if isinstance(value, str):
+            value = value.encode("utf-8")
+        return super().__new__(cls, value)
+
+
+class EncryptedValue(_TaggedBytes):
     """Bytes subclass representing an encrypted value."""
 
     encrypted: bool = True
 
-    def __new__(cls, value: str | bytes):
-        if isinstance(value, str):
-            value = value.encode("utf-8")
-        return super().__new__(cls, value)
 
-
-class HashedValue(bytes):
+class HashedValue(_TaggedBytes):
     """Bytes subclass representing a hashed value."""
 
     hashed: bool = True
 
-    def __new__(cls, value: str | bytes):
-        if isinstance(value, str):
-            value = value.encode("utf-8")
-        return super().__new__(cls, value)
 
-
-class BlindIndexValue(bytes):
+class BlindIndexValue(_TaggedBytes):
     """Bytes subclass representing a blind index value."""
 
     blind_indexed: bool = True
-
-    def __new__(cls, value: str | bytes):
-        if isinstance(value, str):
-            value = value.encode("utf-8")
-        return super().__new__(cls, value)
 
 
 class BlindIndex:
@@ -69,11 +65,12 @@ class BlindIndex:
         normalize_to_lowercase: bool = False,
         normalize_to_uppercase: bool = False,
     ):
-        if strip_non_characters and strip_non_digits:
-            raise ValueError("strip_non_characters and strip_non_digits cannot both be True.")
-
-        if normalize_to_lowercase and normalize_to_uppercase:
-            raise ValueError("normalize_to_lowercase and normalize_to_uppercase cannot both be True.")
+        validate_normalization_flags(
+            strip_non_characters=strip_non_characters,
+            strip_non_digits=strip_non_digits,
+            normalize_to_lowercase=normalize_to_lowercase,
+            normalize_to_uppercase=normalize_to_uppercase,
+        )
 
         self.method = method
         self.strip_whitespace = strip_whitespace

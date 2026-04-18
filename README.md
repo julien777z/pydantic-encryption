@@ -195,21 +195,21 @@ print(user.password)  # argon2 hash bytes
 
 ### Decrypting
 
-Call `decrypt_fields()` to decrypt all `Encrypted` fields in-place. It returns `self`, so it can be chained:
+Call `decrypt_data()` to decrypt all `Encrypted` fields in-place. It returns `self`, so it can be chained:
 
 ```python
 user = User(name="John", address="123 Main St", password="secret")
-user.decrypt_fields()
+user.decrypt_data()
 print(user.address)  # "123 Main St"
 ```
 
 ### Async Support
 
-Use `async_init()` to construct models with async encryption, hashing, and blind indexing, and `async_decrypt_fields()` for async decryption:
+Use `async_init()` to construct models with async encryption, hashing, and blind indexing, and `async_decrypt_data()` for async decryption:
 
 ```python
 user = await User.async_init(name="John", address="123 Main St", password="secret")
-await user.async_decrypt_fields()
+await user.async_decrypt_data()
 ```
 
 All phases (encrypt, hash, blind-index) run concurrently via `asyncio.gather`, and nested `BaseModel` instances — including those inside `list`, `tuple`, `dict`, and `set` containers — are processed recursively.

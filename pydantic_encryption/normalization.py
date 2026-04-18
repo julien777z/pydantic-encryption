@@ -1,6 +1,22 @@
 import re
 
 
+def validate_normalization_flags(
+    *,
+    strip_non_characters: bool,
+    strip_non_digits: bool,
+    normalize_to_lowercase: bool,
+    normalize_to_uppercase: bool,
+) -> None:
+    """Reject mutually exclusive normalization flag combinations."""
+
+    if strip_non_characters and strip_non_digits:
+        raise ValueError("strip_non_characters and strip_non_digits cannot both be True.")
+
+    if normalize_to_lowercase and normalize_to_uppercase:
+        raise ValueError("normalize_to_lowercase and normalize_to_uppercase cannot both be True.")
+
+
 def normalize_value(
     value: str,
     *,
@@ -10,13 +26,14 @@ def normalize_value(
     normalize_to_lowercase: bool = False,
     normalize_to_uppercase: bool = False,
 ) -> str:
-    """Apply stripping and normalization transformations to a value."""
+    """Apply stripping and case normalization to a string value."""
 
-    if strip_non_characters and strip_non_digits:
-        raise ValueError("strip_non_characters and strip_non_digits cannot both be True.")
-
-    if normalize_to_lowercase and normalize_to_uppercase:
-        raise ValueError("normalize_to_lowercase and normalize_to_uppercase cannot both be True.")
+    validate_normalization_flags(
+        strip_non_characters=strip_non_characters,
+        strip_non_digits=strip_non_digits,
+        normalize_to_lowercase=normalize_to_lowercase,
+        normalize_to_uppercase=normalize_to_uppercase,
+    )
 
     if strip_whitespace:
         value = re.sub(r"\s+", " ", value.strip())

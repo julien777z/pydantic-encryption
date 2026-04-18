@@ -1,4 +1,4 @@
-from typing import Any, Awaitable
+from typing import Any, Awaitable, Callable, TypeVar
 
 try:
     from sqlalchemy.util import await_  # type: ignore[attr-defined]  # SA 2.1+
@@ -7,20 +7,28 @@ except ImportError:
 
 from sqlalchemy.exc import MissingGreenlet
 
-_SENTINEL: Any = object()
+T = TypeVar("T")
 
 
-def try_await(coro: Awaitable[Any]) -> Any:
-    """Run ``coro`` inline if we're inside an AsyncSession greenlet spawn.
+def run_async_or_sync(
+    async_fn: Callable[..., Awaitable[T]],
+    sync_fn: Callable[..., T],
+    *args: Any,
+    **kwargs: Any,
+) -> T:
+    """Call ``async_fn`` via SQLAlchemy's greenlet bridge; fall back to ``sync_fn``.
 
-    Returns the awaited result, or ``_SENTINEL`` if not inside a greenlet spawn
-    (caller should fall back to a sync path). The coroutine is always closed on
-    the fallback path to avoid ``RuntimeWarning: coroutine was never awaited``.
+    Inside an ``AsyncSession`` greenlet spawn, ``await_`` suspends the calling
+    frame so the event loop keeps running during slow backends (e.g. AWS KMS).
+    Outside one, ``await_`` raises ``MissingGreenlet`` and we run the plain sync
+    version. The awaited coroutine is always consumed or closed to avoid a
+    ``RuntimeWarning: coroutine was never awaited``.
     """
 
+    coro = async_fn(*args, **kwargs)
     try:
         return await_(coro)
     except MissingGreenlet:
         if hasattr(coro, "close"):
             coro.close()
-        return _SENTINEL
+        return sync_fn(*args, **kwargs)
