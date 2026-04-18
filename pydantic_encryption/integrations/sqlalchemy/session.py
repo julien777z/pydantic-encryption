@@ -13,7 +13,7 @@ from pydantic_encryption.integrations.sqlalchemy.bulk import (
 
 
 class AutoDecryptAsyncSession(AsyncSession):
-    """AsyncSession that batch-decrypts deferred DeferredDecryptMixin rows after each execute().
+    """AsyncSession that batch-decrypts deferred DeferredDecryptMixin rows after each load.
 
     Streaming queries (``stream``, ``stream_scalars``) bypass auto-decrypt — call
     ``Model.decrypt_many(batch)`` per chunk or materialize the result with ``.all()``.
@@ -27,6 +27,26 @@ class AutoDecryptAsyncSession(AsyncSession):
         """Run the query, then batch-decrypt every DeferredDecryptMixin row populated by it."""
 
         result = await super().execute(statement, *args, **kwargs)
+        await self._drain_pending_decrypt()
+        return result
+
+    async def get(self, *args, **kwargs):
+        """Load by primary key, then batch-decrypt the populated row."""
+
+        result = await super().get(*args, **kwargs)
+        await self._drain_pending_decrypt()
+        return result
+
+    async def refresh(self, *args, **kwargs) -> None:
+        """Refresh attributes from the DB, then batch-decrypt the repopulated row."""
+
+        await super().refresh(*args, **kwargs)
+        await self._drain_pending_decrypt()
+
+    async def merge(self, *args, **kwargs):
+        """Merge state into the session, then batch-decrypt any rows loaded as a side effect."""
+
+        result = await super().merge(*args, **kwargs)
         await self._drain_pending_decrypt()
         return result
 

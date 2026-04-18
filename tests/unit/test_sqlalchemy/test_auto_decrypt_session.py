@@ -157,6 +157,62 @@ class TestAutoDecryptAsyncSession:
         assert result is sentinel_result
         assert user.email == "a@x.com"
 
+    def test_get_drains_after_super_get(self):
+        session = AutoDecryptAsyncSession(bind=None)
+        user = _AutoDecryptUser(id=1, email=_wrap("a@x.com"))
+        bucket: dict[type, list[Any]] = defaultdict(list)
+        bucket[_AutoDecryptUser].append(user)
+        session.info[PENDING_DECRYPT_KEY] = bucket
+
+        async def fake_super_get(*args, **kwargs):
+            return user
+
+        session.__class__.__bases__[0].get = AsyncMock(side_effect=fake_super_get)
+        try:
+            result = asyncio.run(session.get(_AutoDecryptUser, 1))
+        finally:
+            del session.__class__.__bases__[0].get
+
+        assert result is user
+        assert user.email == "a@x.com"
+
+    def test_refresh_drains_after_super_refresh(self):
+        session = AutoDecryptAsyncSession(bind=None)
+        user = _AutoDecryptUser(id=1, email=_wrap("a@x.com"))
+        bucket: dict[type, list[Any]] = defaultdict(list)
+        bucket[_AutoDecryptUser].append(user)
+        session.info[PENDING_DECRYPT_KEY] = bucket
+
+        async def fake_super_refresh(*args, **kwargs):
+            return None
+
+        session.__class__.__bases__[0].refresh = AsyncMock(side_effect=fake_super_refresh)
+        try:
+            asyncio.run(session.refresh(user))
+        finally:
+            del session.__class__.__bases__[0].refresh
+
+        assert user.email == "a@x.com"
+
+    def test_merge_drains_after_super_merge(self):
+        session = AutoDecryptAsyncSession(bind=None)
+        user = _AutoDecryptUser(id=1, email=_wrap("a@x.com"))
+        bucket: dict[type, list[Any]] = defaultdict(list)
+        bucket[_AutoDecryptUser].append(user)
+        session.info[PENDING_DECRYPT_KEY] = bucket
+
+        async def fake_super_merge(*args, **kwargs):
+            return user
+
+        session.__class__.__bases__[0].merge = AsyncMock(side_effect=fake_super_merge)
+        try:
+            result = asyncio.run(session.merge(user))
+        finally:
+            del session.__class__.__bases__[0].merge
+
+        assert result is user
+        assert user.email == "a@x.com"
+
 
 class TestBytesColumnIdempotency:
     """Regression test: BYTES-typed columns must not double-decrypt under repeated load events."""
