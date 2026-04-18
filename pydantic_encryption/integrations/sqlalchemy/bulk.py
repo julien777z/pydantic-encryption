@@ -236,6 +236,8 @@ def _mark_encrypted_columns_deferred(mapper, class_) -> None:
 def _on_orm_load(instance: Any, context: Any) -> None:
     """Collect freshly loaded DeferredDecryptMixin instances into the session's pending bucket."""
 
+    if context is None:
+        return
     session = context.session
     if session is None or not session.info.get(AUTO_DECRYPT_ENABLED_KEY):
         return

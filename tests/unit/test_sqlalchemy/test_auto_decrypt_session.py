@@ -89,6 +89,9 @@ class TestOnOrmLoadListener:
 
         _on_orm_load(_AutoDecryptUser(id=1), context)  # no exception
 
+    def test_noop_when_context_is_none(self):
+        _on_orm_load(_AutoDecryptUser(id=1), None)  # no exception
+
     def test_groups_by_class(self):
         session = SimpleNamespace(info={AUTO_DECRYPT_ENABLED_KEY: True})
         context = SimpleNamespace(session=session)
