@@ -243,6 +243,12 @@ def _on_orm_load(instance: Any, context: Any) -> None:
     bucket[type(instance)].append(instance)
 
 
+def _on_orm_refresh(instance: Any, context: Any, attrs: Any) -> None:
+    """Collect refreshed DeferredDecryptMixin instances into the session's pending bucket."""
+
+    _on_orm_load(instance, context)
+
+
 class DeferredDecryptMixin:
     """Mixin that auto-defers SQLAlchemyEncryptedValue columns and adds async decrypt helpers.
 
@@ -259,6 +265,7 @@ class DeferredDecryptMixin:
         super().__init_subclass__(**kwargs)
         event.listen(cls, "mapper_configured", _mark_encrypted_columns_deferred)
         event.listen(cls, "load", _on_orm_load)
+        event.listen(cls, "refresh", _on_orm_refresh)
 
     async def decrypt(self) -> Self:
         """Decrypt deferred encrypted columns on this instance and any loaded relationships."""
