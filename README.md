@@ -241,12 +241,18 @@ SQLAlchemy's `TypeDecorator` is sync by contract — even under `AsyncSession` t
 
 **Tier 1 — automatic, zero code change.** Under `AsyncSession`, decryption transparently uses SQLAlchemy's greenlet bridge (`sqlalchemy.util.await_`) so each decrypt yields the event loop during its network roundtrip. Other tasks on the loop keep progressing. The same bridge also wraps Argon2 hashing (`SQLAlchemyHashedValue`) and Argon2 blind-index computation (`SQLAlchemyBlindIndexValue`) so write-side commits don't block either.
 
-**Tier 2 — opt-in, real parallelism.** For single fetches with many encrypted cells, inherit `DeferredDecryptMixin` on the model and every `SQLAlchemyEncryptedValue` column on that class automatically defers decryption — reads return `EncryptedValue(bytes)` instead of plaintext. Bulk-decrypt after the fetch via `async_decrypt_rows` or the mixin helpers (`decrypt()`, `decrypt_many()`, `scalar_one_or_none()`, `scalars_all()`). Every cell is decrypted concurrently via `asyncio.gather`, turning N sequential roundtrips into one concurrent burst.
+**Tier 2 — real parallelism via deferred decryption.** For single fetches with many encrypted cells, inherit `DeferredDecryptMixin` on the model and every `SQLAlchemyEncryptedValue` column on that class automatically defers decryption — reads return `EncryptedValue(bytes)` instead of plaintext. Then batch-decrypt all cells concurrently via `asyncio.gather`, turning N sequential roundtrips into one concurrent burst.
+
+The recommended way to drive Tier 2 is `AutoDecryptAsyncSession`: swap it in for `AsyncSession` at the session-factory boundary and every `execute` / `get` / `refresh` / `merge` call automatically batch-decrypts the rows it loaded before returning. Application code keeps writing normal `select(Model)` / `session.get(Model, pk)` — no per-call-site decrypt is needed.
 
 ```python
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic_encryption import DeferredDecryptMixin, SQLAlchemyEncryptedValue
+from sqlalchemy.ext.asyncio import async_sessionmaker
+from pydantic_encryption import (
+    AutoDecryptAsyncSession,
+    DeferredDecryptMixin,
+    SQLAlchemyEncryptedValue,
+)
 
 class User(Base, DeferredDecryptMixin):
     __tablename__ = "users"
@@ -255,14 +261,24 @@ class User(Base, DeferredDecryptMixin):
     secret: Mapped[bytes] = mapped_column(SQLAlchemyEncryptedValue())
 
 
-async with AsyncSession(engine) as session:
-    users = await User.scalars_all(session, select(User).limit(1000))
+Session = async_sessionmaker(engine, class_=AutoDecryptAsyncSession, expire_on_commit=False)
+
+async with Session() as session:
+    result = await session.execute(select(User).limit(1000))
+    users = result.scalars().all()
 
     for u in users:
-        print(u.email)  # decrypted plaintext
+        print(u.email)  # already decrypted
 ```
 
-`scalar_one_or_none` / `scalars_all` wrap `session.execute(...)` and decrypt in one step. `async_decrypt_rows` is the lower-level primitive — it accepts `InstrumentedAttribute` (e.g. `User.email`) or string column names and takes a `concurrency=N` kwarg to cap in-flight decrypts with an `asyncio.Semaphore`.
+Streaming queries (`session.stream` / `session.stream_scalars`) bypass the drain because they yield rows incrementally — call `Model.decrypt_many(batch)` per chunk or materialize with `.all()`.
+
+**Manual escape hatches.** Under a vanilla `AsyncSession` (or for rows loaded outside a tracked `execute` path) you can still decrypt explicitly:
+
+- `await instance.decrypt()` — decrypt one mixin instance.
+- `await Model.decrypt_many(instances)` — decrypt a batch of one class.
+- `async_decrypt_rows(rows, User.email, User.secret, concurrency=N)` — lower-level primitive; accepts `InstrumentedAttribute` or string column names and caps in-flight decrypts with an `asyncio.Semaphore` when `concurrency` is set.
+- `async_decrypt_values(ciphertexts, concurrency=N)` — decrypt a flat iterable of ciphertexts (e.g. values returned by a raw-column `select`), preserving `None` positions.
 
 ## Custom Encryption or Hashing
 
