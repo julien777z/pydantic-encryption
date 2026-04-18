@@ -21,10 +21,10 @@ class TestUnitEncryptionModel:
         assert user.address == old_address
 
     def test_decrypt_field(self, user: User):
-        """Test decrypting fields with decrypt_fields()."""
+        """Test decrypting fields with decrypt_data()."""
 
         original_username = user.username
-        user.decrypt_fields()
+        user.decrypt_data()
 
         assert user.username == original_username
         assert not getattr(user.address, "encrypted", False)

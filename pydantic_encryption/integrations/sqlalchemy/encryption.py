@@ -1,8 +1,3 @@
-import base64
-from datetime import date, datetime, time, timedelta
-from decimal import Decimal
-from uuid import UUID
-
 from pydantic_encryption._lazy import require_optional_dependency
 
 require_optional_dependency("sqlalchemy", "sqlalchemy")
@@ -11,19 +6,22 @@ from sqlalchemy.types import ARRAY, LargeBinary, TypeDecorator
 
 from pydantic_encryption.adapters.registry import get_encryption_backend
 from pydantic_encryption.config import settings
-from pydantic_encryption.integrations.sqlalchemy._async_bridge import _SENTINEL, try_await
-from pydantic_encryption.integrations.sqlalchemy.shared import EncryptableValue, TypePrefix, VERSION_PREFIX
+from pydantic_encryption.integrations.sqlalchemy._async_bridge import run_async_or_sync
+from pydantic_encryption.integrations.sqlalchemy.serialization import (
+    EncryptableValue,
+    decode_value,
+    encode_value,
+)
 from pydantic_encryption.types import EncryptedValue
 
 
 class SQLAlchemyEncryptedValue(TypeDecorator):
-    """Type adapter for SQLAlchemy to encrypt and decrypt data using the specified encryption method.
+    """SQLAlchemy column type that encrypts on write and decrypts on read.
 
-    Under ``AsyncSession``, decryption automatically uses SQLAlchemy's greenlet
-    bridge so network-bound backends (e.g. AWS KMS) yield the event loop during
-    decryption. For true parallelism across many rows, inherit
-    :class:`pydantic_encryption.DeferredDecryptMixin` on the model and combine
-    with :func:`pydantic_encryption.async_decrypt_rows` post-fetch.
+    Under ``AsyncSession``, encryption and decryption use SQLAlchemy's greenlet
+    bridge so network-bound backends (e.g. AWS KMS) yield the event loop. For
+    true parallelism across many rows, inherit :class:`DeferredDecryptMixin`
+    and combine with :func:`async_decrypt_rows` post-fetch.
     """
 
     impl = LargeBinary
@@ -33,74 +31,9 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
         super().__init__(*args, **kwargs)
         self._deferred = False
 
-    def _serialize_value(self, value: EncryptableValue) -> str:
-        """Serialize a value with version and type prefix for encryption."""
-        match value:
-            case datetime():
-                type_data = f"{TypePrefix.DATETIME}:{value.isoformat()}"
-            case date():
-                type_data = f"{TypePrefix.DATE}:{value.isoformat()}"
-            case time():
-                type_data = f"{TypePrefix.TIME}:{value.isoformat()}"
-            case timedelta():
-                type_data = f"{TypePrefix.TIMEDELTA}:{value.days},{value.seconds},{value.microseconds}"
-            case bytes():
-                type_data = f"{TypePrefix.BYTES}:{base64.b64encode(value).decode('ascii')}"
-            case bool():
-                type_data = f"{TypePrefix.BOOL}:{str(value).lower()}"
-            case int():
-                type_data = f"{TypePrefix.INT}:{value}"
-            case float():
-                type_data = f"{TypePrefix.FLOAT}:{value!r}"
-            case Decimal():
-                type_data = f"{TypePrefix.DECIMAL}:{value}"
-            case UUID():
-                type_data = f"{TypePrefix.UUID}:{value}"
-            case _:
-                type_data = f"{TypePrefix.STR}:{value}"
+    def _encrypt_cell(self, value: EncryptableValue | EncryptedValue | None) -> EncryptedValue | None:
+        """Encode + encrypt a single value, passing pre-encrypted values through."""
 
-        return f"{VERSION_PREFIX}:{type_data}"
-
-    def _deserialize_value(self, value: str) -> EncryptableValue:
-        """Deserialize a decrypted value based on its version and type prefix."""
-        version, _, remainder = value.partition(":")
-
-        if not version:
-            return value
-
-        if version != VERSION_PREFIX:
-            raise RuntimeError("Unknown version")
-
-        type_prefix, _, data = remainder.partition(":")
-
-        match type_prefix:
-            case TypePrefix.DATETIME:
-                return datetime.fromisoformat(data)
-            case TypePrefix.DATE:
-                return date.fromisoformat(data)
-            case TypePrefix.TIME:
-                return time.fromisoformat(data)
-            case TypePrefix.TIMEDELTA:
-                parts = data.split(",")
-                return timedelta(days=int(parts[0]), seconds=int(parts[1]), microseconds=int(parts[2]))
-            case TypePrefix.BYTES:
-                return base64.b64decode(data)
-            case TypePrefix.BOOL:
-                return data == "true"
-            case TypePrefix.INT:
-                return int(data)
-            case TypePrefix.FLOAT:
-                return float(data)
-            case TypePrefix.DECIMAL:
-                return Decimal(data)
-            case TypePrefix.UUID:
-                return UUID(data)
-            case TypePrefix.STR:
-                return data
-            case _:
-                return data
-
-    def _process_encrypt_value(self, value: EncryptableValue | EncryptedValue | None) -> EncryptedValue | None:
         if value is None:
             return None
 
@@ -110,14 +43,14 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
         if settings.ENCRYPTION_METHOD is None:
             raise ValueError("ENCRYPTION_METHOD must be set to use SQLAlchemyEncryptedValue.")
 
-        serialized_value = self._serialize_value(value)
         backend = get_encryption_backend(settings.ENCRYPTION_METHOD)
-        result = try_await(backend.async_encrypt(serialized_value))
-        if result is _SENTINEL:
-            return backend.encrypt(serialized_value)
-        return result
+        serialized = encode_value(value)
 
-    def _process_decrypt_value(self, value: str | bytes | None) -> str | bytes | None:
+        return run_async_or_sync(backend.async_encrypt, backend.encrypt, serialized)
+
+    def _decrypt_cell(self, value: str | bytes | None) -> str | bytes | None:
+        """Decrypt a single ciphertext; callers are responsible for decoding."""
+
         if value is None:
             return None
 
@@ -125,86 +58,76 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
             raise ValueError("ENCRYPTION_METHOD must be set to use SQLAlchemyEncryptedValue.")
 
         backend = get_encryption_backend(settings.ENCRYPTION_METHOD)
-        # Under AsyncSession, yield the event loop during network-bound decrypts.
-        # Falls back to the blocking path when not inside a greenlet spawn.
-        result = try_await(backend.async_decrypt(value))
-        if result is _SENTINEL:
-            return backend.decrypt(value)
-        return result
+
+        return run_async_or_sync(backend.async_decrypt, backend.decrypt, value)
 
     def process_bind_param(self, value: EncryptableValue | None, dialect) -> bytes | None:
-        """Encrypts data before binding it to the database."""
+        """Encrypt a value before binding it to the database."""
 
-        return self._process_encrypt_value(value)
+        return self._encrypt_cell(value)
 
     def process_literal_param(self, value: EncryptableValue | None, dialect) -> bytes | None:
-        """Encrypts data for literal SQL expressions."""
+        """Encrypt a value for literal SQL expressions."""
 
-        return self._process_encrypt_value(value)
+        return self._encrypt_cell(value)
 
     def process_result_value(self, value: str | bytes | None, dialect) -> EncryptableValue | None:
-        """Decrypts data after retrieving it from the database."""
+        """Decrypt a value after retrieving it from the database."""
 
         if value is None:
             return None
 
         if self._deferred:
-            return EncryptedValue(value) if isinstance(value, bytes) else EncryptedValue(value.encode("utf-8"))
+            return EncryptedValue(value)
 
-        decrypted_value = self._process_decrypt_value(value)
-
-        return self._deserialize_value(decrypted_value)
+        return decode_value(self._decrypt_cell(value))
 
     @property
     def python_type(self):
-        """Return the Python type this is bound to."""
+        """Return the Python type this column is bound to."""
 
         return self.impl.python_type
 
 
 class SQLAlchemyPGEncryptedArray(TypeDecorator):
-    """Type adapter for SQLAlchemy to encrypt and decrypt arrays."""
+    """SQLAlchemy column type that encrypts each element of a PostgreSQL array."""
 
     impl = ARRAY(LargeBinary)
     cache_ok = True
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._element_type = SQLAlchemyEncryptedValue()
 
     def process_bind_param(self, value: list[EncryptableValue] | None, dialect) -> list[bytes] | None:
-        """Encrypts each element in the array before binding to the database."""
+        """Encrypt each element before binding to the database."""
 
         if value is None:
             return None
 
-        return [self._element_type._process_encrypt_value(element) for element in value]
+        return [self._element_type._encrypt_cell(element) for element in value]
 
     def process_literal_param(self, value: list[EncryptableValue] | None, dialect) -> list[bytes] | None:
-        """Encrypts each element in the array for literal SQL expressions."""
+        """Encrypt each element for literal SQL expressions."""
 
         if value is None:
             return None
 
-        return [self._element_type._process_encrypt_value(element) for element in value]
+        return [self._element_type._encrypt_cell(element) for element in value]
 
     def process_result_value(self, value: list[bytes] | None, dialect) -> list[EncryptableValue] | None:
-        """Decrypts each element in the array after retrieving from the database."""
+        """Decrypt each element after retrieving the array from the database."""
 
         if value is None:
             return None
 
-        result = []
-        for element in value:
-            if element is None:
-                result.append(None)
-            else:
-                decrypted = self._element_type._process_decrypt_value(element)
-                result.append(self._element_type._deserialize_value(decrypted))
-        return result
+        return [
+            None if element is None else decode_value(self._element_type._decrypt_cell(element))
+            for element in value
+        ]
 
     @property
     def python_type(self):
-        """Return the Python type this is bound to."""
+        """Return the Python type this column is bound to."""
 
         return list

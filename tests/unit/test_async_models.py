@@ -83,7 +83,7 @@ class TestAsyncInit:
 
     @pytest.mark.asyncio
     async def test_async_init_decryptable(self):
-        """async_init encrypted values can be decrypted with async_decrypt_fields."""
+        """async_init encrypted values can be decrypted with async_decrypt_data."""
 
         class _Model(BaseModel):
             data: Annotated[bytes, Encrypted]
@@ -93,7 +93,7 @@ class TestAsyncInit:
 
         assert getattr(model.data, "encrypted", False)
 
-        await model.async_decrypt_fields()
+        await model.async_decrypt_data()
         assert model.data == original
 
     @pytest.mark.asyncio
@@ -148,37 +148,37 @@ class TestAsyncEncryptData:
         assert getattr(model.field2, "encrypted", False)
 
 
-class TestAsyncDecryptFields:
-    """Test async_decrypt_fields method."""
+class TestAsyncDecryptData:
+    """Test async_decrypt_data method."""
 
     @pytest.mark.asyncio
-    async def test_async_decrypt_fields(self):
+    async def test_async_decrypt_data(self):
         class _Model(BaseModel):
             data: Annotated[bytes, Encrypted]
 
         model = _Model(data="secret data")
-        await model.async_decrypt_fields()
+        await model.async_decrypt_data()
         assert model.data == "secret data"
 
     @pytest.mark.asyncio
-    async def test_async_decrypt_fields_multiple(self):
+    async def test_async_decrypt_data_multiple(self):
         class _Model(BaseModel):
             data1: Annotated[bytes, Encrypted]
             data2: Annotated[bytes, Encrypted]
 
         model = _Model(data1="secret1", data2="secret2")
-        await model.async_decrypt_fields()
+        await model.async_decrypt_data()
 
         assert model.data1 == "secret1"
         assert model.data2 == "secret2"
 
     @pytest.mark.asyncio
-    async def test_async_decrypt_fields_returns_self(self):
+    async def test_async_decrypt_data_returns_self(self):
         class _Model(BaseModel):
             data: Annotated[bytes, Encrypted]
 
         model = _Model(data="secret")
-        result = await model.async_decrypt_fields()
+        result = await model.async_decrypt_data()
         assert result is model
 
 
@@ -229,7 +229,7 @@ class TestAsyncPostInit:
 
     @pytest.mark.asyncio
     async def test_async_post_init_then_decrypt(self):
-        """async_post_init encrypts, then async_decrypt_fields decrypts."""
+        """async_post_init encrypts, then async_decrypt_data decrypts."""
 
         class _Model(BaseModel):
             data: Annotated[bytes, Encrypted]
@@ -238,7 +238,7 @@ class TestAsyncPostInit:
         await model.async_post_init()
         assert getattr(model.data, "encrypted", False)
 
-        await model.async_decrypt_fields()
+        await model.async_decrypt_data()
         assert model.data == "secret"
 
 
@@ -495,7 +495,7 @@ class TestAsyncEncryptDataErrors:
             await model.async_encrypt_data()
 
     @pytest.mark.asyncio
-    async def test_async_decrypt_fields_missing_method_raises(self, monkeypatch):
+    async def test_async_decrypt_data_missing_method_raises(self, monkeypatch):
         class _Model(BaseModel):
             data: Annotated[bytes, Encrypted]
 
@@ -503,7 +503,7 @@ class TestAsyncEncryptDataErrors:
         monkeypatch.setattr(settings, "ENCRYPTION_METHOD", None)
 
         with pytest.raises(ValueError, match="ENCRYPTION_METHOD must be set"):
-            await model.async_decrypt_fields()
+            await model.async_decrypt_data()
 
     @pytest.mark.asyncio
     async def test_async_encrypt_no_pending_fields_is_noop(self):
@@ -520,7 +520,7 @@ class TestAsyncEncryptDataErrors:
             name: str
 
         model = _construct_without_crypto(_Model, name="john")
-        result = await model.async_decrypt_fields()
+        result = await model.async_decrypt_data()
         assert model.name == "john"
         assert result is model
 

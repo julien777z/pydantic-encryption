@@ -1,4 +1,4 @@
-from typing import Optional, Self
+from typing import Self
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -7,23 +7,19 @@ from pydantic_encryption.types import EncryptionMethod
 
 
 class Settings(BaseSettings):
-    """Settings for the package."""
+    """Environment-driven configuration for the package."""
 
-    # Fernet settings
-    ENCRYPTION_KEY: Optional[str] = None
+    ENCRYPTION_KEY: str | None = None
 
-    # AWS KMS settings
-    AWS_KMS_KEY_ARN: Optional[str] = None
-    AWS_KMS_ENCRYPT_KEY_ARN: Optional[str] = None
-    AWS_KMS_DECRYPT_KEY_ARN: Optional[str] = None
-    AWS_KMS_REGION: Optional[str] = None
-    AWS_KMS_ACCESS_KEY_ID: Optional[str] = None
-    AWS_KMS_SECRET_ACCESS_KEY: Optional[str] = None
+    AWS_KMS_KEY_ARN: str | None = None
+    AWS_KMS_ENCRYPT_KEY_ARN: str | None = None
+    AWS_KMS_DECRYPT_KEY_ARN: str | None = None
+    AWS_KMS_REGION: str | None = None
+    AWS_KMS_ACCESS_KEY_ID: str | None = None
+    AWS_KMS_SECRET_ACCESS_KEY: str | None = None
 
-    # Blind index settings
-    BLIND_INDEX_SECRET_KEY: Optional[str] = None
+    BLIND_INDEX_SECRET_KEY: str | None = None
 
-    # Encryption settings
     ENCRYPTION_METHOD: EncryptionMethod | None = None
 
     @model_validator(mode="after")
