@@ -25,7 +25,7 @@ if TYPE_CHECKING:
         SQLAlchemyHashedValue,
         SQLAlchemyPGEncryptedArray,
     )
-    from pydantic_encryption.integrations.sqlalchemy.bulk import async_decrypt_rows
+    from pydantic_encryption.integrations.sqlalchemy.bulk import DeferredDecryptMixin, async_decrypt_rows
 
 
 def __getattr__(name: str):
@@ -58,6 +58,11 @@ def __getattr__(name: str):
         from pydantic_encryption.integrations.sqlalchemy.bulk import async_decrypt_rows
 
         return async_decrypt_rows
+
+    if name == "DeferredDecryptMixin":
+        from pydantic_encryption.integrations.sqlalchemy.bulk import DeferredDecryptMixin
+
+        return DeferredDecryptMixin
 
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
@@ -93,4 +98,5 @@ __all__ = [
     "SQLAlchemyPGEncryptedArray",
     "SQLAlchemyHashedValue",
     "async_decrypt_rows",
+    "DeferredDecryptMixin",
 ]
