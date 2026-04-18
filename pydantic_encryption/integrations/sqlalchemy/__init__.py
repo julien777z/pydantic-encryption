@@ -6,8 +6,10 @@ from pydantic_encryption.integrations.sqlalchemy.bulk import (
 )
 from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue, SQLAlchemyPGEncryptedArray
 from pydantic_encryption.integrations.sqlalchemy.hashing import SQLAlchemyHashedValue
+from pydantic_encryption.integrations.sqlalchemy.session import AutoDecryptAsyncSession
 
 __all__ = [
+    "AutoDecryptAsyncSession",
     "DeferredDecryptMixin",
     "SQLAlchemyBlindIndexValue",
     "SQLAlchemyEncryptedValue",

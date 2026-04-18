@@ -1,4 +1,5 @@
 import asyncio
+from collections import defaultdict
 from collections.abc import Iterable
 from typing import Any, Self
 
@@ -7,11 +8,15 @@ from pydantic_encryption._lazy import require_optional_dependency
 require_optional_dependency("sqlalchemy", "sqlalchemy")
 
 from sqlalchemy import event, inspect as sa_inspect
-from sqlalchemy.orm.attributes import InstrumentedAttribute
+from sqlalchemy.orm.attributes import InstrumentedAttribute, set_committed_value
 
 from pydantic_encryption.adapters.registry import get_encryption_backend
 from pydantic_encryption.config import settings
 from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue
+from pydantic_encryption.types import EncryptedValue
+
+AUTO_DECRYPT_ENABLED_KEY = "__pydantic_encryption_auto_decrypt__"
+PENDING_DECRYPT_KEY = "__pydantic_encryption_pending_decrypt__"
 
 
 def _column_name(column: InstrumentedAttribute | str) -> str:
@@ -88,7 +93,17 @@ async def async_decrypt_rows(
 
     results = await asyncio.gather(*coros)
     for (row, name), plaintext in zip(assignments, results):
+        _set_decrypted(row, name, plaintext)
+
+
+def _set_decrypted(row: Any, name: str, plaintext: Any) -> None:
+    """Set a decrypted value on a row without marking the column as dirty for the next flush."""
+
+    state = sa_inspect(row, raiseerr=False)
+    if state is None or not hasattr(state, "mapper"):
         setattr(row, name, plaintext)
+        return
+    set_committed_value(row, name, plaintext)
 
 
 async def async_decrypt_values(
@@ -188,7 +203,7 @@ def _collect_encrypted_cells(
                 continue
 
             value = state.dict.get(column.key)
-            if not isinstance(value, (bytes, bytearray)):
+            if not isinstance(value, EncryptedValue):
                 continue
 
             collected.setdefault((type(entity), column.key), []).append(entity)
@@ -218,6 +233,16 @@ def _mark_encrypted_columns_deferred(mapper, class_) -> None:
         column.type._deferred = True
 
 
+def _on_orm_load(instance: Any, context: Any) -> None:
+    """Collect freshly loaded DeferredDecryptMixin instances into the session's pending bucket."""
+
+    session = context.session
+    if session is None or not session.info.get(AUTO_DECRYPT_ENABLED_KEY):
+        return
+    bucket: dict[type, list[Any]] = session.info.setdefault(PENDING_DECRYPT_KEY, defaultdict(list))
+    bucket[type(instance)].append(instance)
+
+
 class DeferredDecryptMixin:
     """Mixin that auto-defers SQLAlchemyEncryptedValue columns and adds async decrypt helpers.
 
@@ -225,11 +250,15 @@ class DeferredDecryptMixin:
     ``EncryptedValue(bytes)`` on read instead of plaintext; call ``decrypt()`` /
     ``decrypt_many()`` to decrypt in bulk. ``SQLAlchemyPGEncryptedArray`` columns are not
     affected and still decrypt inline.
+
+    When loaded through :class:`AutoDecryptAsyncSession`, instances are batch-decrypted
+    automatically after each ``execute()`` and the explicit decrypt calls are unnecessary.
     """
 
     def __init_subclass__(cls, **kwargs) -> None:
         super().__init_subclass__(**kwargs)
         event.listen(cls, "mapper_configured", _mark_encrypted_columns_deferred)
+        event.listen(cls, "load", _on_orm_load)
 
     async def decrypt(self) -> Self:
         """Decrypt deferred encrypted columns on this instance and any loaded relationships."""
