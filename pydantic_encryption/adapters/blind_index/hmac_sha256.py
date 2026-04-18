@@ -2,7 +2,8 @@ import hashlib
 import hmac
 
 from pydantic_encryption.adapters.base import BlindIndexAdapter
-from pydantic_encryption.types import BlindIndexValue
+from pydantic_encryption.adapters.registry import register_blind_index_backend
+from pydantic_encryption.types import BlindIndexMethod, BlindIndexValue
 
 
 class HMACSHA256Adapter(BlindIndexAdapter):
@@ -21,3 +22,6 @@ class HMACSHA256Adapter(BlindIndexAdapter):
         digest = hmac.new(key, value, hashlib.sha256).digest()
 
         return BlindIndexValue(digest)
+
+
+register_blind_index_backend(BlindIndexMethod.HMAC_SHA256, HMACSHA256Adapter)

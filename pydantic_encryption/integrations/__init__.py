@@ -1,8 +1,15 @@
-from pydantic_encryption._lazy import LazyModule
+from typing import TYPE_CHECKING
 
-sqlalchemy = LazyModule(
-    "pydantic_encryption.integrations.sqlalchemy",
-    required_extra="sqlalchemy",
-)
+if TYPE_CHECKING:
+    from pydantic_encryption.integrations import sqlalchemy
 
 __all__ = ["sqlalchemy"]
+
+
+def __getattr__(name: str):
+    if name == "sqlalchemy":
+        from pydantic_encryption.integrations import sqlalchemy
+
+        return sqlalchemy
+
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

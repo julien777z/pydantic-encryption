@@ -9,17 +9,29 @@ require_optional_dependency("sqlalchemy", "sqlalchemy")
 
 from sqlalchemy.types import ARRAY, LargeBinary, TypeDecorator
 
-from pydantic_encryption.adapters import encryption
+from pydantic_encryption.adapters.registry import get_encryption_backend
 from pydantic_encryption.config import settings
+from pydantic_encryption.integrations.sqlalchemy._async_bridge import _SENTINEL, try_await
 from pydantic_encryption.integrations.sqlalchemy.shared import EncryptableValue, TypePrefix, VERSION_PREFIX
-from pydantic_encryption.types import EncryptedValue, EncryptionMethod
+from pydantic_encryption.types import EncryptedValue
 
 
 class SQLAlchemyEncryptedValue(TypeDecorator):
-    """Type adapter for SQLAlchemy to encrypt and decrypt data using the specified encryption method."""
+    """Type adapter for SQLAlchemy to encrypt and decrypt data using the specified encryption method.
+
+    Under ``AsyncSession``, decryption automatically uses SQLAlchemy's greenlet
+    bridge so network-bound backends (e.g. AWS KMS) yield the event loop during
+    decryption. For true parallelism across many rows, inherit
+    :class:`pydantic_encryption.DeferredDecryptMixin` on the model and combine
+    with :func:`pydantic_encryption.async_decrypt_rows` post-fetch.
+    """
 
     impl = LargeBinary
     cache_ok = True
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._deferred = False
 
     def _serialize_value(self, value: EncryptableValue) -> str:
         """Serialize a value with version and type prefix for encryption."""
@@ -99,16 +111,11 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
             raise ValueError("ENCRYPTION_METHOD must be set to use SQLAlchemyEncryptedValue.")
 
         serialized_value = self._serialize_value(value)
-
-        match settings.ENCRYPTION_METHOD:
-            case EncryptionMethod.FERNET:
-                return encryption.fernet.FernetAdapter.encrypt(serialized_value)
-            case EncryptionMethod.EVERVAULT:
-                return encryption.evervault.EvervaultAdapter.encrypt(serialized_value)
-            case EncryptionMethod.AWS:
-                return encryption.aws.AWSAdapter.encrypt(serialized_value)
-            case _:
-                raise ValueError(f"Unknown encryption method: {settings.ENCRYPTION_METHOD}")
+        backend = get_encryption_backend(settings.ENCRYPTION_METHOD)
+        result = try_await(backend.async_encrypt(serialized_value))
+        if result is _SENTINEL:
+            return backend.encrypt(serialized_value)
+        return result
 
     def _process_decrypt_value(self, value: str | bytes | None) -> str | bytes | None:
         if value is None:
@@ -117,15 +124,13 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
         if settings.ENCRYPTION_METHOD is None:
             raise ValueError("ENCRYPTION_METHOD must be set to use SQLAlchemyEncryptedValue.")
 
-        match settings.ENCRYPTION_METHOD:
-            case EncryptionMethod.FERNET:
-                return encryption.fernet.FernetAdapter.decrypt(value)
-            case EncryptionMethod.EVERVAULT:
-                return encryption.evervault.EvervaultAdapter.decrypt(value)
-            case EncryptionMethod.AWS:
-                return encryption.aws.AWSAdapter.decrypt(value)
-            case _:
-                raise ValueError(f"Unknown encryption method: {settings.ENCRYPTION_METHOD}")
+        backend = get_encryption_backend(settings.ENCRYPTION_METHOD)
+        # Under AsyncSession, yield the event loop during network-bound decrypts.
+        # Falls back to the blocking path when not inside a greenlet spawn.
+        result = try_await(backend.async_decrypt(value))
+        if result is _SENTINEL:
+            return backend.decrypt(value)
+        return result
 
     def process_bind_param(self, value: EncryptableValue | None, dialect) -> bytes | None:
         """Encrypts data before binding it to the database."""
@@ -142,6 +147,9 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
 
         if value is None:
             return None
+
+        if self._deferred:
+            return EncryptedValue(value) if isinstance(value, bytes) else EncryptedValue(value.encode("utf-8"))
 
         decrypted_value = self._process_decrypt_value(value)
 

@@ -1,26 +1,69 @@
-from typing import Any
+import asyncio
+import contextvars
+from typing import Any, ClassVar, Self
 
 from pydantic_super_model import AnnotatedFieldInfo, SuperModelPydanticMixin
 
-from pydantic_encryption.adapters import blind_index, encryption, hashing
+from pydantic_encryption.adapters import hashing
+from pydantic_encryption.adapters.base import BlindIndexAdapter, EncryptionAdapter
+from pydantic_encryption.adapters.registry import get_blind_index_backend, get_encryption_backend
 from pydantic_encryption.config import settings
 from pydantic_encryption.normalization import normalize_value
-from pydantic_encryption.types import BlindIndex, BlindIndexMethod, BlindIndexValue, Decrypt, Encrypt, EncryptionMethod, Hash
+from pydantic_encryption.types import BlindIndex, BlindIndexValue, Encrypted, EncryptionMethod, Hashed
 
 __all__ = ["BaseModel", "SecureModel"]
+
+_defer_crypto_to_async: contextvars.ContextVar[bool] = contextvars.ContextVar("_defer_crypto_to_async", default=False)
 
 
 class SecureModel:
     """Base class for encryptable and hashable models."""
 
-    _disable: bool | None = None
+    _encryption_method: ClassVar[EncryptionMethod | None] = None
+    _encryption_key: ClassVar[str | None] = None
+    _blind_index_key: ClassVar[str | None] = None
 
-    def __init_subclass__(cls, *, disable: bool = False, **kwargs) -> None:
-        cls._disable = disable
+    def __init_subclass__(
+        cls,
+        *,
+        encryption_method: EncryptionMethod | str | None = None,
+        encryption_key: str | None = None,
+        blind_index_key: str | None = None,
+        **kwargs: Any,
+    ) -> None:
         super().__init_subclass__(**kwargs)
 
+        if encryption_method is not None:
+            if isinstance(encryption_method, str):
+                encryption_method = EncryptionMethod(encryption_method)
+            cls._encryption_method = encryption_method
+
+        if encryption_key is not None:
+            cls._encryption_key = encryption_key
+
+        if blind_index_key is not None:
+            cls._blind_index_key = blind_index_key
+
+    @classmethod
+    def _resolve_encryption_method(cls) -> EncryptionMethod:
+        method = cls._encryption_method or settings.ENCRYPTION_METHOD
+        if method is None:
+            raise ValueError("ENCRYPTION_METHOD must be set to use Encrypted fields.")
+        return method
+
+    @classmethod
+    def _resolve_encryption_key(cls) -> str | None:
+        return cls._encryption_key or settings.ENCRYPTION_KEY
+
+    @classmethod
+    def _resolve_blind_index_key(cls) -> str:
+        key = cls._blind_index_key or settings.BLIND_INDEX_SECRET_KEY
+        if key is None:
+            raise ValueError("BLIND_INDEX_SECRET_KEY must be set to use BlindIndex.")
+        return key
+
     @staticmethod
-    def _get_field_values(fields: dict[str, AnnotatedFieldInfo]) -> dict[str, str]:
+    def _get_field_values(fields: dict[str, AnnotatedFieldInfo]) -> dict[str, Any]:
         """Extract raw values from annotated field info objects."""
 
         return {
@@ -29,97 +72,44 @@ class SecureModel:
             if annotated_field.value is not None
         }
 
-    def encrypt_data(self) -> None:
-        """Encrypt data using the specified encryption method."""
+    # Collection helpers (shared by sync and async paths)
 
-        if self._disable:
-            return
+    def _collect_encryption_fields(
+        self,
+    ) -> tuple[type[EncryptionAdapter], str | None, dict[str, Any]] | None:
+        """Resolve encryption backend/key and collect field values. Returns None if nothing to do."""
 
         if not self.pending_encryption_fields:
-            return
+            return None
+        fields = self._get_field_values(self.pending_encryption_fields)
+        if not fields:
+            return None
+        method = self._resolve_encryption_method()
+        key = self._resolve_encryption_key()
+        backend = get_encryption_backend(method)
+        return backend, key, fields
 
-        encrypted_data: dict[str, str] = {}
-        encryption_fields = self._get_field_values(self.pending_encryption_fields)
-
-        if settings.ENCRYPTION_METHOD is None:
-            raise ValueError("ENCRYPTION_METHOD must be set to use Encrypt fields.")
-
-        match settings.ENCRYPTION_METHOD:
-            case EncryptionMethod.EVERVAULT:
-                encrypted_data = encryption.evervault.EvervaultAdapter.encrypt(encryption_fields)
-            case EncryptionMethod.FERNET:
-                encrypted_data = {
-                    field_name: encryption.fernet.FernetAdapter.encrypt(value)
-                    for field_name, value in encryption_fields.items()
-                }
-            case EncryptionMethod.AWS:
-                encrypted_data = {
-                    field_name: encryption.aws.AWSAdapter.encrypt(value)
-                    for field_name, value in encryption_fields.items()
-                }
-            case _:
-                raise ValueError(f"Unknown encryption method: {settings.ENCRYPTION_METHOD}")
-
-        for field_name, value in encrypted_data.items():
-            setattr(self, field_name, value)
-
-    def decrypt_data(self) -> None:
-        """Decrypt data using the specified encryption method."""
-
-        if self._disable:
-            return
-
-        if not self.pending_decryption_fields:
-            return
-
-        decrypted_data: dict[str, str] = {}
-        decryption_fields = self._get_field_values(self.pending_decryption_fields)
-
-        if settings.ENCRYPTION_METHOD is None:
-            raise ValueError("ENCRYPTION_METHOD must be set to use Decrypt fields.")
-
-        match settings.ENCRYPTION_METHOD:
-            case EncryptionMethod.EVERVAULT:
-                decrypted_data = encryption.evervault.EvervaultAdapter.decrypt(decryption_fields)
-            case EncryptionMethod.FERNET:
-                decrypted_data = {
-                    field_name: encryption.fernet.FernetAdapter.decrypt(value)
-                    for field_name, value in decryption_fields.items()
-                }
-            case EncryptionMethod.AWS:
-                decrypted_data = {
-                    field_name: encryption.aws.AWSAdapter.decrypt(value)
-                    for field_name, value in decryption_fields.items()
-                }
-            case _:
-                raise ValueError(f"Unknown encryption method: {settings.ENCRYPTION_METHOD}")
-
-        for field_name, value in decrypted_data.items():
-            setattr(self, field_name, value)
-
-    def hash_data(self) -> None:
-        """Hash fields marked with `Hash` annotation."""
-
-        if self._disable:
-            return
+    def _collect_hash_fields(self) -> dict[str, Any] | None:
+        """Collect hash field values. Returns None if nothing to do."""
 
         if not self.pending_hash_fields:
-            return
+            return None
+        fields = self._get_field_values(self.pending_hash_fields)
+        return fields or None
 
-        hash_fields = self._get_field_values(self.pending_hash_fields)
+    def _collect_blind_index_tasks(
+        self,
+    ) -> list[tuple[str, type[BlindIndexAdapter], str, bytes]] | None:
+        """Normalize values and resolve backends for blind index fields.
 
-        for field_name, value in hash_fields.items():
-            hashed = hashing.argon2.Argon2Adapter.hash(value)
-            setattr(self, field_name, hashed)
-
-    def blind_index_data(self) -> None:
-        """Compute blind indexes for fields marked with `BlindIndex` annotation."""
-
-        if self._disable:
-            return
+        Returns list of (field_name, backend, normalized_value, key_bytes) or None.
+        """
 
         if not self.pending_blind_index_fields:
-            return
+            return None
+
+        result = []
+        key_bytes: bytes | None = None
 
         for field_name, annotated_field in self.pending_blind_index_fields.items():
             if annotated_field.value is None:
@@ -145,66 +135,163 @@ class SecureModel:
                 normalize_to_uppercase=annotation.normalize_to_uppercase,
             )
 
-            key = settings.BLIND_INDEX_SECRET_KEY
-            if key is None:
-                raise ValueError("BLIND_INDEX_SECRET_KEY must be set to use BlindIndex.")
-            key_bytes = key.encode("utf-8")
+            if key_bytes is None:
+                key_bytes = self._resolve_blind_index_key().encode("utf-8")
 
-            match annotation.method:
-                case BlindIndexMethod.HMAC_SHA256:
-                    result = blind_index.hmac_sha256.HMACSHA256Adapter.compute_blind_index(value, key_bytes)
-                case BlindIndexMethod.ARGON2:
-                    from pydantic_encryption.adapters.blind_index.argon2 import Argon2BlindIndexAdapter
+            backend = get_blind_index_backend(annotation.method)
+            result.append((field_name, backend, value, key_bytes))
 
-                    result = Argon2BlindIndexAdapter.compute_blind_index(value, key_bytes)
-                case _:
-                    raise ValueError(f"Unknown blind index method: {annotation.method}")
+        return result or None
 
-            setattr(self, field_name, result)
+    # Sync methods
+
+    def encrypt_data(self) -> None:
+        """Encrypt data using the specified encryption method."""
+
+        collected = self._collect_encryption_fields()
+        if collected is None:
+            return
+        backend, key, fields = collected
+
+        for field_name, value in fields.items():
+            setattr(self, field_name, backend.encrypt(value, key=key))
+
+    def hash_data(self) -> None:
+        """Hash fields marked with `Hashed` annotation."""
+
+        fields = self._collect_hash_fields()
+        if fields is None:
+            return
+
+        for field_name, value in fields.items():
+            setattr(self, field_name, hashing.argon2.Argon2Adapter.hash(value))
+
+    def blind_index_data(self) -> None:
+        """Compute blind indexes for fields marked with `BlindIndex` annotation."""
+
+        tasks = self._collect_blind_index_tasks()
+        if tasks is None:
+            return
+
+        for field_name, backend, value, key_bytes in tasks:
+            setattr(self, field_name, backend.compute_blind_index(value, key_bytes))
+
+    def decrypt_fields(self) -> Self:
+        """Decrypt all Encrypted fields in-place. Returns self for chaining."""
+
+        collected = self._collect_encryption_fields()
+        if collected is None:
+            return self
+        backend, key, fields = collected
+
+        for field_name, value in fields.items():
+            setattr(self, field_name, backend.decrypt(value, key=key))
+
+        return self
+
+    # Async methods
+
+    async def async_encrypt_data(self) -> None:
+        """Asynchronously encrypt data using the specified encryption method."""
+
+        collected = self._collect_encryption_fields()
+        if collected is None:
+            return
+        backend, key, fields = collected
+        items = [(name, backend.async_encrypt(val, key=key)) for name, val in fields.items()]
+        results = await asyncio.gather(*(coro for _, coro in items))
+        for (name, _), value in zip(items, results):
+            setattr(self, name, value)
+
+    async def async_hash_data(self) -> None:
+        """Asynchronously hash fields marked with `Hashed` annotation."""
+
+        fields = self._collect_hash_fields()
+        if fields is None:
+            return
+        items = [(name, hashing.argon2.Argon2Adapter.async_hash(val)) for name, val in fields.items()]
+        results = await asyncio.gather(*(coro for _, coro in items))
+        for (name, _), value in zip(items, results):
+            setattr(self, name, value)
+
+    async def async_blind_index_data(self) -> None:
+        """Asynchronously compute blind indexes for fields marked with `BlindIndex` annotation."""
+
+        tasks = self._collect_blind_index_tasks()
+        if tasks is None:
+            return
+        items = [
+            (name, backend.async_compute_blind_index(value, key_bytes))
+            for name, backend, value, key_bytes in tasks
+        ]
+        results = await asyncio.gather(*(coro for _, coro in items))
+        for (name, _), value in zip(items, results):
+            setattr(self, name, value)
+
+    async def async_decrypt_fields(self) -> Self:
+        """Asynchronously decrypt all Encrypted fields in-place. Returns self for chaining."""
+
+        collected = self._collect_encryption_fields()
+        if collected is None:
+            return self
+        backend, key, fields = collected
+        items = [(name, backend.async_decrypt(val, key=key)) for name, val in fields.items()]
+        results = await asyncio.gather(*(coro for _, coro in items))
+        for (name, _), value in zip(items, results):
+            setattr(self, name, value)
+        return self
+
+    # Post-init hooks
 
     def default_post_init(self) -> None:
         """Post initialization hook for encryption, hashing, and blind indexing."""
 
-        if not self._disable:
-            if self.pending_encryption_fields:
-                self.encrypt_data()
+        if _defer_crypto_to_async.get():
+            return
 
-            if self.pending_hash_fields:
-                self.hash_data()
+        self.encrypt_data()
+        self.hash_data()
+        self.blind_index_data()
 
-            if self.pending_blind_index_fields:
-                self.blind_index_data()
+    @staticmethod
+    async def _async_post_init_nested(value: Any) -> None:
+        """Recursively walk containers to find and process nested SecureModel instances."""
 
-            if self.pending_decryption_fields:
-                self.decrypt_data()
+        if isinstance(value, SecureModel):
+            await value.async_post_init()
+        elif isinstance(value, dict):
+            await asyncio.gather(*(SecureModel._async_post_init_nested(v) for v in value.values()))
+        elif isinstance(value, (list, tuple, set, frozenset)):
+            await asyncio.gather(*(SecureModel._async_post_init_nested(v) for v in value))
 
-    @classmethod
-    def _get_class_parameter(cls, parameter_name: str) -> Any:
-        """Get a class parameter from the class or its parent classes."""
+    async def async_post_init(self) -> None:
+        """Asynchronously run all post-initialization operations."""
 
-        for base in cls.__mro__[1:]:
-            if hasattr(base, parameter_name):
-                return getattr(base, parameter_name)
+        children = [
+            self._async_post_init_nested(value)
+            for name in getattr(type(self), "model_fields", {})
+            if (value := getattr(self, name, None)) is not None
+        ]
+        await asyncio.gather(
+            *children,
+            self.async_encrypt_data(),
+            self.async_hash_data(),
+            self.async_blind_index_data(),
+        )
 
-        return None
+    # Field introspection
 
     @property
     def pending_encryption_fields(self) -> dict[str, AnnotatedFieldInfo]:
         """Get encrypted fields from the model."""
 
-        return self.get_annotated_fields(Encrypt)
-
-    @property
-    def pending_decryption_fields(self) -> dict[str, AnnotatedFieldInfo]:
-        """Get decrypted fields from the model."""
-
-        return self.get_annotated_fields(Decrypt)
+        return self.get_annotated_fields(Encrypted)
 
     @property
     def pending_hash_fields(self) -> dict[str, AnnotatedFieldInfo]:
         """Get hashable fields from the model."""
 
-        return self.get_annotated_fields(Hash)
+        return self.get_annotated_fields(Hashed)
 
     @property
     def pending_blind_index_fields(self) -> dict[str, AnnotatedFieldInfo]:
@@ -225,3 +312,15 @@ class BaseModel(SuperModelPydanticMixin, SecureModel):
         self.default_post_init()
 
         super().model_post_init(context)
+
+    @classmethod
+    async def async_init(cls, /, **data: Any) -> Self:
+        """Asynchronously construct a model with async encryption, hashing, and blind indexing."""
+
+        token = _defer_crypto_to_async.set(True)
+        try:
+            instance = cls(**data)
+        finally:
+            _defer_crypto_to_async.reset(token)
+        await instance.async_post_init()
+        return instance

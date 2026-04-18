@@ -14,7 +14,7 @@ from aws_encryption_sdk import CommitmentPolicy
 
 from pydantic_encryption.adapters.base import EncryptionAdapter
 from pydantic_encryption.config import settings
-from pydantic_encryption.types import DecryptedValue, EncryptedValue
+from pydantic_encryption.types import EncryptedValue
 
 
 class AWSAdapter(EncryptionAdapter):
@@ -119,7 +119,7 @@ class AWSAdapter(EncryptionAdapter):
         return cls._decrypt_keyring
 
     @classmethod
-    def encrypt(cls, plaintext: bytes | str | EncryptedValue) -> EncryptedValue:
+    def encrypt(cls, plaintext: bytes | str | EncryptedValue, *, key: str | None = None) -> EncryptedValue:
         if isinstance(plaintext, EncryptedValue):
             return plaintext
 
@@ -137,10 +137,7 @@ class AWSAdapter(EncryptionAdapter):
         return EncryptedValue(ciphertext)
 
     @classmethod
-    def decrypt(cls, ciphertext: bytes | str | EncryptedValue) -> DecryptedValue:
-        if isinstance(ciphertext, DecryptedValue):
-            return ciphertext
-
+    def decrypt(cls, ciphertext: bytes | str | EncryptedValue, *, key: str | None = None) -> str:
         if isinstance(ciphertext, str):
             ciphertext_bytes = ciphertext.encode("utf-8")
         else:
@@ -154,4 +151,6 @@ class AWSAdapter(EncryptionAdapter):
             keyring=keyring,
         )
 
-        return DecryptedValue(plaintext)
+        if isinstance(plaintext, bytes):
+            return plaintext.decode("utf-8")
+        return plaintext

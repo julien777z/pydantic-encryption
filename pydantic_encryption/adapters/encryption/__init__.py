@@ -3,11 +3,15 @@ from typing import TYPE_CHECKING
 from pydantic_encryption.adapters.encryption import fernet
 
 if TYPE_CHECKING:
-    from pydantic_encryption.adapters.encryption import aws, evervault
-else:
-    from pydantic_encryption._lazy import LazyModule
+    from pydantic_encryption.adapters.encryption import aws
 
-    aws = LazyModule("pydantic_encryption.adapters.encryption.aws", required_extra="aws")
-    evervault = LazyModule("pydantic_encryption.adapters.encryption.evervault", required_extra="evervault")
+__all__ = ["fernet", "aws"]
 
-__all__ = ["fernet", "aws", "evervault"]
+
+def __getattr__(name: str):
+    if name == "aws":
+        from pydantic_encryption.adapters.encryption import aws
+
+        return aws
+
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

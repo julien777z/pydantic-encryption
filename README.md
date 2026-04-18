@@ -1,109 +1,72 @@
-# Encryption and Hashing Models for Pydantic
+# pydantic-encryption
 
-Field-level encryption, decryption, hashing, and blind indexing for Pydantic models with SQLAlchemy integration.
+Field-level encryption, hashing, and blind indexing for Pydantic models with SQLAlchemy integration.
 
 ## Installation
 
 ```bash
-pip install pydantic_encryption
+pip install pydantic-encryption
 ```
 
 ### Optional extras
 
 ```bash
-pip install "pydantic_encryption[sqlalchemy]"  # SQLAlchemy integration
-pip install "pydantic_encryption[aws]"          # AWS KMS encryption
-pip install "pydantic_encryption[all]"          # All optional dependencies
+pip install "pydantic-encryption[sqlalchemy]"  # SQLAlchemy integration
+pip install "pydantic-encryption[aws]"         # AWS KMS encryption
+pip install "pydantic-encryption[all]"         # All optional dependencies
 ```
 
 ## Quick Start
 
-```python
-from typing import Annotated
-from pydantic_encryption import BaseModel, Encrypt, Hash
-
-class User(BaseModel):
-    name: str
-    address: Annotated[bytes, Encrypt]
-    password: Annotated[bytes, Hash]
-
-user = User(name="John Doe", address="123456", password="secret123")
-
-print(user.name)      # plaintext
-print(user.address)   # encrypted
-print(user.password)  # hashed
-```
-
-Fields marked with `Encrypt` are encrypted and fields marked with `Hash` are hashed during model initialization.
-
-To decrypt, use the `Decrypt` annotation:
+Mix `DeferredDecryptMixin` into any model with encrypted columns and drive reads through `AutoDecryptAsyncSession`. Every `execute` / `get` / `refresh` / `merge` auto-decrypts the rows it loads:
 
 ```python
-from pydantic_encryption import Decrypt, BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from pydantic_encryption import (
+    AutoDecryptAsyncSession,
+    DeferredDecryptMixin,
+    SQLAlchemyEncryptedValue,
+)
 
-class UserResponse(BaseModel):
-    address: Annotated[str, Decrypt]
 
-user = UserResponse(address=encrypted_bytes)
-print(user.address)  # decrypted
+class Base(DeclarativeBase):
+    pass
+
+
+class User(Base, DeferredDecryptMixin):
+    __tablename__ = "users"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[bytes] = mapped_column(SQLAlchemyEncryptedValue())
+
+
+engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+Session = async_sessionmaker(engine, class_=AutoDecryptAsyncSession, expire_on_commit=False)
+
+async with Session() as session:
+    session.add(User(email="john@example.com"))
+    await session.commit()
+
+    result = await session.execute(select(User))
+    user = result.scalar_one()
+    print(user.email)  # "john@example.com" — auto-decrypted
 ```
-
-## Encryption Methods
-
-Set the encryption method via environment variable:
-
-```bash
-ENCRYPTION_METHOD=fernet   # Fernet symmetric encryption (requires ENCRYPTION_KEY)
-ENCRYPTION_METHOD=aws      # AWS KMS (requires AWS_KMS_KEY_ARN, AWS_KMS_REGION, etc.)
-ENCRYPTION_METHOD=evervault # Evervault
-```
-
-There is no default — you must explicitly set `ENCRYPTION_METHOD` if using `Encrypt`/`Decrypt` fields.
-
-### Fernet Setup
-
-```bash
-# Generate a key
-openssl rand -base64 32
-
-# Set environment variables
-ENCRYPTION_METHOD=fernet
-ENCRYPTION_KEY=your_generated_key
-```
-
-### AWS KMS Setup
-
-```bash
-ENCRYPTION_METHOD=aws
-AWS_KMS_KEY_ARN=arn:aws:kms:us-east-1:123456789:key/your-key-id
-AWS_KMS_REGION=us-east-1
-AWS_KMS_ACCESS_KEY_ID=your_access_key
-AWS_KMS_SECRET_ACCESS_KEY=your_secret_key
-```
-
-Separate encrypt/decrypt keys are supported for key rotation or read-only scenarios:
-
-```bash
-AWS_KMS_ENCRYPT_KEY_ARN=arn:aws:kms:...encrypt-key
-AWS_KMS_DECRYPT_KEY_ARN=arn:aws:kms:...decrypt-key
-```
-
-See [config.py](https://github.com/julien777z/pydantic-encryption/blob/main/pydantic_encryption/config.py) for all environment variables.
 
 ## SQLAlchemy Integration
 
-Install with `pip install "pydantic_encryption[sqlalchemy]"`.
+Install with `pip install "pydantic-encryption[sqlalchemy]"`.
 
 ```python
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, Session
 
-from pydantic_encryption.integrations.sqlalchemy import (
+from pydantic_encryption import (
     SQLAlchemyEncryptedValue,
-    SQLAlchemyHashed,
+    SQLAlchemyHashedValue,
     SQLAlchemyBlindIndexValue,
+    BlindIndexMethod,
 )
-from pydantic_encryption.types import BlindIndexMethod
 
 
 class Base(DeclarativeBase):
@@ -116,7 +79,7 @@ class User(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     username: Mapped[str]
     email: Mapped[bytes] = mapped_column(SQLAlchemyEncryptedValue())
-    password: Mapped[bytes] = mapped_column(SQLAlchemyHashed())
+    password: Mapped[bytes] = mapped_column(SQLAlchemyHashedValue())
     blind_index_email: Mapped[bytes] = mapped_column(
         SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256)
     )
@@ -142,18 +105,6 @@ with Session(engine) as session:
     print(found.email)  # decrypted
 ```
 
-`SQLAlchemyBlindIndexValue` supports the same normalization options as `BlindIndex`:
-
-```python
-blind_index_email: Mapped[bytes] = mapped_column(
-    SQLAlchemyBlindIndexValue(
-        BlindIndexMethod.HMAC_SHA256,
-        normalize_to_lowercase=True,
-        strip_whitespace=True,
-    )
-)
-```
-
 ### Supported Types
 
 `SQLAlchemyEncryptedValue` preserves the Python type of your data:
@@ -163,12 +114,160 @@ blind_index_email: Mapped[bytes] = mapped_column(
 ### Array Support (PostgreSQL)
 
 ```python
-from pydantic_encryption.integrations.sqlalchemy import SQLAlchemyPGEncryptedArray
+from pydantic_encryption import SQLAlchemyPGEncryptedArray
 
 tags: Mapped[list[str] | None] = mapped_column(SQLAlchemyPGEncryptedArray(), nullable=True)
 ```
 
 Each element is individually encrypted. Requires PostgreSQL.
+
+### Async Decryption
+
+`TypeDecorator` is sync by contract, so slow backends (AWS KMS) can block the event loop. Two paths:
+
+- **Default.** Under `AsyncSession`, decryption uses SQLAlchemy's greenlet bridge so each call yields the event loop. Argon2 hashing and blind-indexing use the same bridge.
+- **Parallel batch decrypt.** `DeferredDecryptMixin` + `AutoDecryptAsyncSession` decrypts all loaded cells concurrently via `asyncio.gather`, turning N sequential roundtrips into one concurrent burst.
+
+Mix the helper into any model with encrypted columns and read through `AutoDecryptAsyncSession`:
+
+```python
+from pydantic_encryption import (
+    AutoDecryptAsyncSession,
+    DeferredDecryptMixin,
+    SQLAlchemyEncryptedValue,
+)
+
+
+class User(Base, DeferredDecryptMixin):
+    __tablename__ = "users"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[bytes] = mapped_column(SQLAlchemyEncryptedValue())
+
+
+Session = async_sessionmaker(engine, class_=AutoDecryptAsyncSession, expire_on_commit=False)
+```
+
+Streaming queries (`session.stream` / `session.stream_scalars`) bypass the auto-drain — call `Model.decrypt_many(batch)` per chunk or materialize with `.all()`.
+
+**Manual escape hatches** for vanilla `AsyncSession` or rows loaded outside a tracked `execute`:
+
+```python
+from pydantic_encryption import async_decrypt_rows, async_decrypt_values
+
+
+class User(Base, DeferredDecryptMixin):
+    __tablename__ = "users"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[bytes] = mapped_column(SQLAlchemyEncryptedValue())
+
+
+async with AsyncSession(engine) as session:
+    user = await session.get(User, 1)
+    result = await session.execute(select(User))
+    users = result.scalars().all()
+    ciphertexts = [u.email for u in users]
+
+    await user.decrypt()                                        # one mixin instance
+    await User.decrypt_many(users)                              # batch of one class
+    await async_decrypt_rows(users, User.email, concurrency=8)  # InstrumentedAttribute or column names
+    await async_decrypt_values(ciphertexts, concurrency=8)      # flat ciphertexts; preserves None positions
+```
+
+## Manual Encryption or Hashing
+
+Fields annotated with `Encrypted` are encrypted and fields annotated with `Hashed` are hashed during model initialization:
+
+```python
+from typing import Annotated
+from pydantic_encryption import BaseModel, Encrypted, Hashed
+
+class User(BaseModel):
+    name: str
+    address: Annotated[bytes, Encrypted]
+    password: Annotated[str, Hashed]
+
+user = User(name="John Doe", address="123 Main St", password="secret123")
+
+print(user.name)      # "John Doe"
+print(user.address)   # encrypted bytes
+print(user.password)  # argon2 hash bytes
+```
+
+### Decrypting
+
+Call `decrypt_fields()` to decrypt all `Encrypted` fields in-place. It returns `self`, so it can be chained:
+
+```python
+user = User(name="John", address="123 Main St", password="secret")
+user.decrypt_fields()
+print(user.address)  # "123 Main St"
+```
+
+### Async Support
+
+Use `async_init()` to construct models with async encryption, hashing, and blind indexing, and `async_decrypt_fields()` for async decryption:
+
+```python
+user = await User.async_init(name="John", address="123 Main St", password="secret")
+await user.async_decrypt_fields()
+```
+
+All phases (encrypt, hash, blind-index) run concurrently via `asyncio.gather`, and nested `BaseModel` instances — including those inside `list`, `tuple`, `dict`, and `set` containers — are processed recursively.
+
+## Encryption Methods
+
+Set the encryption method via environment variable:
+
+```bash
+ENCRYPTION_METHOD=fernet   # Fernet symmetric encryption (requires ENCRYPTION_KEY)
+ENCRYPTION_METHOD=aws      # AWS KMS (requires AWS_KMS_KEY_ARN, AWS_KMS_REGION, etc.)
+```
+
+There is no default — you must explicitly set `ENCRYPTION_METHOD` if using `Encrypted` fields.
+
+### Fernet Setup
+
+```bash
+# Generate a key
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+
+# Set environment variables
+ENCRYPTION_METHOD=fernet
+ENCRYPTION_KEY=your_generated_key
+```
+
+### AWS KMS Setup
+
+```bash
+ENCRYPTION_METHOD=aws
+AWS_KMS_KEY_ARN=arn:aws:kms:us-east-1:123456789:key/your-key-id
+AWS_KMS_REGION=us-east-1
+AWS_KMS_ACCESS_KEY_ID=your_access_key
+AWS_KMS_SECRET_ACCESS_KEY=your_secret_key
+```
+
+As an alternative to `AWS_KMS_KEY_ARN`, separate encrypt/decrypt keys are supported for key rotation or read-only scenarios:
+
+```bash
+AWS_KMS_ENCRYPT_KEY_ARN=arn:aws:kms:...encrypt-key
+AWS_KMS_DECRYPT_KEY_ARN=arn:aws:kms:...decrypt-key
+```
+
+Use one mode or the other — combining `AWS_KMS_KEY_ARN` with either split variant raises a validation error. A decrypt-only key alone is allowed (read-only workloads).
+
+### Model-Level Config
+
+Override encryption settings per model instead of relying on environment variables:
+
+```python
+from pydantic_encryption import BaseModel, Encrypted, EncryptionMethod
+from typing import Annotated
+
+class SpecialUser(BaseModel, encryption_method=EncryptionMethod.FERNET, encryption_key="my-key"):
+    email: Annotated[bytes, Encrypted]
+```
+
+Supported kwargs: `encryption_method`, `encryption_key`, `blind_index_key`. Falls back to env vars if not set.
 
 ## Blind Indexes
 
@@ -188,7 +287,7 @@ class User(BaseModel):
 
 ### Normalization
 
-You can normalize values before hashing to ensure consistent lookups:
+Normalize values before hashing to ensure consistent lookups:
 
 ```python
 email_index: Annotated[bytes, BlindIndex(
@@ -215,49 +314,24 @@ Available options:
 | `BlindIndexMethod.HMAC_SHA256` | Fast HMAC-SHA256 keyed hash. Standard choice. |
 | `BlindIndexMethod.ARGON2` | Memory-hard Argon2 hash with deterministic salt. Better brute-force resistance. |
 
-## Disable Auto-Processing
-
-```python
-class UserResponse(BaseModel, disable=True):
-    address: Annotated[bytes, Encrypt]
-
-user = UserResponse(address="123 Main St")
-user.encrypt_data()  # manual encryption
-```
-
 ## Custom Encryption or Hashing
 
-Subclass `SecureModel` to implement your own logic:
-
-```python
-from pydantic import BaseModel as PydanticBaseModel
-from pydantic_encryption import SecureModel
-
-class MySecureModel(PydanticBaseModel, SecureModel):
-    def encrypt_data(self) -> None:
-        # your encryption logic
-        pass
-
-    def model_post_init(self, context, /):
-        self.default_post_init()
-        super().model_post_init(context)
-```
-
-## Generics
+Subclass `BaseModel` and override any of `encrypt_data`, `hash_data`, `blind_index_data` (or their async variants) to plug in your own logic. The post-init hook runs automatically:
 
 ```python
 from pydantic_encryption import BaseModel
 
-class MyModel[T](BaseModel):
-    value: T
-
-model = MyModel[str](value="Hello")
-print(model.get_type())  # <class 'str'>
+class MyModel(BaseModel):
+    def encrypt_data(self) -> None:
+        # your encryption logic (mutate self in-place)
+        ...
 ```
+
+To implement a new backend instead of replacing the per-model path, subclass one of the adapter ABCs (`EncryptionAdapter`, `HashingAdapter`, `BlindIndexAdapter`) and register it via `register_encryption_backend` / `register_blind_index_backend`. Async variants are inherited by default — override `async_encrypt` / `async_decrypt` only for natively-async backends.
 
 ## Run Tests
 
 ```bash
-poetry install --all-extras
-poetry run pytest -v
+pip install -e ".[dev]"
+pytest -v
 ```

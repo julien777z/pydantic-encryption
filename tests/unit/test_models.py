@@ -2,7 +2,7 @@ from typing import Annotated
 
 from pydantic_super_model import AnnotatedFieldInfo
 
-from pydantic_encryption import BaseModel, Decrypt, Encrypt, Hash
+from pydantic_encryption import BaseModel, Encrypted, Hashed
 
 
 class TestModelEncryption:
@@ -12,9 +12,9 @@ class TestModelEncryption:
         """Test model with multiple encrypted fields."""
 
         class _MultiEncrypt(BaseModel):
-            field1: Annotated[bytes, Encrypt]
-            field2: Annotated[bytes, Encrypt]
-            field3: Annotated[bytes, Encrypt]
+            field1: Annotated[bytes, Encrypted]
+            field2: Annotated[bytes, Encrypted]
+            field3: Annotated[bytes, Encrypted]
 
         model = _MultiEncrypt(field1="secret1", field2="secret2", field3="secret3")
 
@@ -26,7 +26,7 @@ class TestModelEncryption:
         """Test optional encrypted field with value."""
 
         class _OptionalEncrypt(BaseModel):
-            secret: Annotated[bytes, Encrypt] | None = None
+            secret: Annotated[bytes, Encrypted] | None = None
 
         model = _OptionalEncrypt(secret="my secret")
 
@@ -36,7 +36,7 @@ class TestModelEncryption:
         """Test optional encrypted field with None."""
 
         class _OptionalEncrypt(BaseModel):
-            secret: Annotated[bytes, Encrypt] | None = None
+            secret: Annotated[bytes, Encrypted] | None = None
 
         model = _OptionalEncrypt()
 
@@ -46,7 +46,7 @@ class TestModelEncryption:
         """Test optional hashed field with explicit None."""
 
         class _OptionalHash(BaseModel):
-            password: Annotated[str, Hash] | None
+            password: Annotated[str, Hashed] | None
 
         model = _OptionalHash(password=None)
 
@@ -57,8 +57,8 @@ class TestModelEncryption:
 
         class _MixedModel(BaseModel):
             username: str
-            email: Annotated[bytes, Encrypt]
-            password: Annotated[str, Hash]
+            email: Annotated[bytes, Encrypted]
+            password: Annotated[str, Hashed]
 
         model = _MixedModel(username="john", email="john@example.com", password="secret123")
 
@@ -73,8 +73,8 @@ class TestModelEncryption:
             username: str
 
         class _SecureUser(_BaseUser):
-            password: Annotated[str, Hash]
-            secret: Annotated[bytes, Encrypt]
+            password: Annotated[str, Hashed]
+            secret: Annotated[bytes, Encrypted]
 
         model = _SecureUser(username="john", password="pass123", secret="my secret")
 
@@ -82,53 +82,49 @@ class TestModelEncryption:
         assert getattr(model.password, "hashed", False)
         assert getattr(model.secret, "encrypted", False)
 
-    def test_disabled_encryption_inheritance(self):
-        """Test disable=True works in subclasses."""
-
-        class _DisabledModel(BaseModel, disable=True):
-            secret: Annotated[bytes, Encrypt]
-            password: Annotated[str, Hash]
-
-        model = _DisabledModel(secret="plaintext", password="plaintext")
-
-        assert not getattr(model.secret, "encrypted", False)
-        assert not getattr(model.password, "hashed", False)
 
 
 class TestModelDecryption:
-    """Test model decryption behavior."""
+    """Test model decryption behavior using decrypt_fields()."""
 
-    def test_decrypt_field(self):
-        """Test decrypting a field."""
+    def test_decrypt_fields(self):
+        """Test decrypting fields in-place."""
 
-        class _EncryptModel(BaseModel):
-            data: Annotated[bytes, Encrypt]
-
-        class _DecryptModel(BaseModel):
-            data: Annotated[bytes, Decrypt]
+        class _Model(BaseModel):
+            data: Annotated[bytes, Encrypted]
 
         original = "secret data"
-        encrypted = _EncryptModel(data=original)
-        decrypted = _DecryptModel(**encrypted.model_dump())
+        model = _Model(data=original)
 
-        assert decrypted.data == original
+        assert getattr(model.data, "encrypted", False)
+
+        model.decrypt_fields()
+
+        assert model.data == original
 
     def test_decrypt_multiple_fields(self):
         """Test decrypting multiple fields."""
 
-        class _EncryptModel(BaseModel):
-            data1: Annotated[bytes, Encrypt]
-            data2: Annotated[bytes, Encrypt]
+        class _Model(BaseModel):
+            data1: Annotated[bytes, Encrypted]
+            data2: Annotated[bytes, Encrypted]
 
-        class _DecryptModel(BaseModel):
-            data1: Annotated[bytes, Decrypt]
-            data2: Annotated[bytes, Decrypt]
+        model = _Model(data1="secret1", data2="secret2")
+        model.decrypt_fields()
 
-        encrypted = _EncryptModel(data1="secret1", data2="secret2")
-        decrypted = _DecryptModel(**encrypted.model_dump())
+        assert model.data1 == "secret1"
+        assert model.data2 == "secret2"
 
-        assert decrypted.data1 == "secret1"
-        assert decrypted.data2 == "secret2"
+    def test_decrypt_fields_returns_self(self):
+        """Test decrypt_fields returns self for chaining."""
+
+        class _Model(BaseModel):
+            data: Annotated[bytes, Encrypted]
+
+        model = _Model(data="secret")
+        result = model.decrypt_fields()
+
+        assert result is model
 
 
 class TestModelSerialization:
@@ -138,7 +134,7 @@ class TestModelSerialization:
         """Test model_dump contains encrypted values."""
 
         class _EncryptModel(BaseModel):
-            secret: Annotated[bytes, Encrypt]
+            secret: Annotated[bytes, Encrypted]
 
         model = _EncryptModel(secret="plaintext")
         dumped = model.model_dump()
@@ -150,7 +146,7 @@ class TestModelSerialization:
         """Test model_dump contains hashed values."""
 
         class _HashModel(BaseModel):
-            password: Annotated[str, Hash]
+            password: Annotated[str, Hashed]
 
         model = _HashModel(password="plaintext")
         dumped = model.model_dump()
@@ -166,24 +162,24 @@ class TestAnnotatedFieldLookup:
         """Return annotated field info objects for encrypted fields."""
 
         class _EncryptModel(BaseModel):
-            secret: Annotated[bytes, Encrypt]
+            secret: Annotated[bytes, Encrypted]
 
         model = _EncryptModel(secret="plaintext")
-        fields = model.get_annotated_fields(Encrypt)
+        fields = model.get_annotated_fields(Encrypted)
 
         assert isinstance(fields["secret"], AnnotatedFieldInfo)
         assert fields["secret"].value == model.secret
-        assert fields["secret"].matched_metadata == (Encrypt,)
+        assert fields["secret"].matched_metadata == (Encrypted,)
 
     def test_includes_explicit_none_values_in_annotated_field_lookup(self):
         """Include explicit None values in annotated field info results."""
 
         class _EncryptModel(BaseModel):
-            secret: Annotated[bytes, Encrypt] | None
+            secret: Annotated[bytes, Encrypted] | None
 
         model = _EncryptModel(secret=None)
 
-        fields = model.get_annotated_fields(Encrypt)
+        fields = model.get_annotated_fields(Encrypted)
 
         assert isinstance(fields["secret"], AnnotatedFieldInfo)
         assert fields["secret"].value is None
@@ -192,11 +188,11 @@ class TestAnnotatedFieldLookup:
         """Omit unset default None values from annotated field info results."""
 
         class _EncryptModel(BaseModel):
-            secret: Annotated[bytes, Encrypt] | None = None
+            secret: Annotated[bytes, Encrypted] | None = None
 
         model = _EncryptModel()
 
-        assert model.get_annotated_fields(Encrypt) == {}
+        assert model.get_annotated_fields(Encrypted) == {}
 
 
 class TestEdgeCases:
@@ -206,7 +202,7 @@ class TestEdgeCases:
         """Test encrypting empty string."""
 
         class _Model(BaseModel):
-            data: Annotated[bytes, Encrypt]
+            data: Annotated[bytes, Encrypted]
 
         model = _Model(data="")
 
@@ -216,7 +212,7 @@ class TestEdgeCases:
         """Test encrypting whitespace string."""
 
         class _Model(BaseModel):
-            data: Annotated[bytes, Encrypt]
+            data: Annotated[bytes, Encrypted]
 
         model = _Model(data="   ")
 
@@ -226,28 +222,22 @@ class TestEdgeCases:
         """Test encrypting unicode characters."""
 
         class _Model(BaseModel):
-            data: Annotated[bytes, Encrypt]
-
-        class _DecryptModel(BaseModel):
-            data: Annotated[bytes, Decrypt]
+            data: Annotated[bytes, Encrypted]
 
         original = "日本語 🔐 العربية"
-        encrypted = _Model(data=original)
-        decrypted = _DecryptModel(**encrypted.model_dump())
+        model = _Model(data=original)
+        model.decrypt_fields()
 
-        assert decrypted.data == original
+        assert model.data == original
 
     def test_long_string_encryption(self):
         """Test encrypting long string."""
 
         class _Model(BaseModel):
-            data: Annotated[bytes, Encrypt]
-
-        class _DecryptModel(BaseModel):
-            data: Annotated[bytes, Decrypt]
+            data: Annotated[bytes, Encrypted]
 
         original = "x" * 10000
-        encrypted = _Model(data=original)
-        decrypted = _DecryptModel(**encrypted.model_dump())
+        model = _Model(data=original)
+        model.decrypt_fields()
 
-        assert decrypted.data == original
+        assert model.data == original

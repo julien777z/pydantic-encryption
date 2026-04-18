@@ -2,12 +2,13 @@ import uuid
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 
-from sqlmodel import Field, SQLModel
+from sqlalchemy import String
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from pydantic_encryption.integrations.sqlalchemy import (
     SQLAlchemyBlindIndexValue,
     SQLAlchemyEncryptedValue,
-    SQLAlchemyHashed,
+    SQLAlchemyHashedValue,
     SQLAlchemyPGEncryptedArray,
 )
 from pydantic_encryption.types import BlindIndexMethod
@@ -15,75 +16,33 @@ from pydantic_encryption.types import BlindIndexMethod
 __all__ = ["Base", "User"]
 
 
-class Base(SQLModel, table=False):
+class Base(DeclarativeBase):
     """Base model."""
 
-    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
 
-
-class User(Base, table=True):
-    """User model. This model uses the `SQLAlchemyEncryptedValue` and `SQLAlchemyHashed` types."""
+class User(Base):
+    """User model. Uses SQLAlchemyEncryptedValue and SQLAlchemyHashedValue types."""
 
     __tablename__ = "users"
 
-    username: str = Field(default=None)
-    email: bytes = Field(
-        default=None,
-        sa_type=SQLAlchemyEncryptedValue(),
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    username: Mapped[str | None] = mapped_column(String, default=None)
+    email: Mapped[bytes | None] = mapped_column(SQLAlchemyEncryptedValue(), default=None)
+    password: Mapped[bytes] = mapped_column(SQLAlchemyHashedValue(), nullable=False)
+    birth_date: Mapped[date | None] = mapped_column(SQLAlchemyEncryptedValue(), default=None)
+    last_login: Mapped[datetime | None] = mapped_column(SQLAlchemyEncryptedValue(), default=None)
+    age: Mapped[int | None] = mapped_column(SQLAlchemyEncryptedValue(), default=None)
+    secret_data: Mapped[bytes | None] = mapped_column(SQLAlchemyEncryptedValue(), default=None)
+    is_active: Mapped[bool | None] = mapped_column(SQLAlchemyEncryptedValue(), default=None)
+    balance: Mapped[float | None] = mapped_column(SQLAlchemyEncryptedValue(), default=None)
+    salary: Mapped[Decimal | None] = mapped_column(SQLAlchemyEncryptedValue(), default=None)
+    external_id: Mapped[uuid.UUID | None] = mapped_column(SQLAlchemyEncryptedValue(), default=None)
+    login_time: Mapped[time | None] = mapped_column(SQLAlchemyEncryptedValue(), default=None)
+    session_duration: Mapped[timedelta | None] = mapped_column(SQLAlchemyEncryptedValue(), default=None)
+    tags: Mapped[list[str] | None] = mapped_column(SQLAlchemyPGEncryptedArray(), default=None)
+    blind_index_email: Mapped[bytes | None] = mapped_column(
+        SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256), default=None
     )
-    password: bytes = Field(
-        sa_type=SQLAlchemyHashed(),
-        nullable=False,
-    )
-    birth_date: date | None = Field(
-        default=None,
-        sa_type=SQLAlchemyEncryptedValue(),
-    )
-    last_login: datetime | None = Field(
-        default=None,
-        sa_type=SQLAlchemyEncryptedValue(),
-    )
-    age: int | None = Field(
-        default=None,
-        sa_type=SQLAlchemyEncryptedValue(),
-    )
-    secret_data: bytes | None = Field(
-        default=None,
-        sa_type=SQLAlchemyEncryptedValue(),
-    )
-    is_active: bool | None = Field(
-        default=None,
-        sa_type=SQLAlchemyEncryptedValue(),
-    )
-    balance: float | None = Field(
-        default=None,
-        sa_type=SQLAlchemyEncryptedValue(),
-    )
-    salary: Decimal | None = Field(
-        default=None,
-        sa_type=SQLAlchemyEncryptedValue(),
-    )
-    external_id: uuid.UUID | None = Field(
-        default=None,
-        sa_type=SQLAlchemyEncryptedValue(),
-    )
-    login_time: time | None = Field(
-        default=None,
-        sa_type=SQLAlchemyEncryptedValue(),
-    )
-    session_duration: timedelta | None = Field(
-        default=None,
-        sa_type=SQLAlchemyEncryptedValue(),
-    )
-    tags: list[str] | None = Field(
-        default=None,
-        sa_type=SQLAlchemyPGEncryptedArray(),
-    )
-    blind_index_email: bytes | None = Field(
-        default=None,
-        sa_type=SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256),
-    )
-    blind_index_email_argon2: bytes | None = Field(
-        default=None,
-        sa_type=SQLAlchemyBlindIndexValue(BlindIndexMethod.ARGON2),
+    blind_index_email_argon2: Mapped[bytes | None] = mapped_column(
+        SQLAlchemyBlindIndexValue(BlindIndexMethod.ARGON2), default=None
     )

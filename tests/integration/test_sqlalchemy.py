@@ -70,7 +70,7 @@ class TestIntegrationSQLAlchemy:
         return db_session.query(User).filter_by(username=username).first()
 
     def test_secure_fields(self, db_session: Session):
-        """Test encrypting and hashing fields with the SQLAlchemyEncryptedValue and SQLAlchemyHashed types."""
+        """Test encrypting and hashing fields with the SQLAlchemyEncryptedValue and SQLAlchemyHashedValue types."""
 
         user = self._create_user(db_session, username="user1", password=TEST_PASSWORD)
 

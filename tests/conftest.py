@@ -2,8 +2,8 @@ import pytest
 
 from pydantic_encryption.config import settings
 from pydantic_encryption.types import EncryptionMethod
-from tests.factories import UserFactory, UserDecryptFactory, UserDisabledFactory
-from tests.models import User, UserDecrypt, UserDisabledEncryption
+from tests.factories import UserFactory
+from tests.models import User
 
 
 @pytest.fixture(autouse=True)
@@ -20,25 +20,13 @@ def set_default_encryption_method(monkeypatch):
         # Reset cached Fernet client so it picks up new key
         from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
 
-        FernetAdapter._client = None
+        FernetAdapter._clients.clear()
 
 
 @pytest.fixture
 def user() -> User:
     """Generate a User instance with encrypted address and hashed password."""
     return UserFactory.build()
-
-
-@pytest.fixture
-def user_decrypt() -> UserDecrypt:
-    """Generate a UserDecrypt instance."""
-    return UserDecryptFactory.build()
-
-
-@pytest.fixture
-def user_disabled() -> UserDisabledEncryption:
-    """Generate a User instance with encryption disabled."""
-    return UserDisabledFactory.build()
 
 
 @pytest.fixture

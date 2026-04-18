@@ -1,14 +1,11 @@
 from enum import Enum
-from typing import Annotated
-
-from pydantic import BeforeValidator
 
 
-class Encrypt:
+class Encrypted:
     """Annotation to mark fields for encryption."""
 
 
-class Hash:
+class Hashed:
     """Annotation to mark fields for hashing."""
 
 
@@ -16,7 +13,6 @@ class EncryptionMethod(Enum):
     """Enum for encryption methods."""
 
     FERNET = "fernet"
-    EVERVAULT = "evervault"
     AWS = "aws"
 
 
@@ -27,50 +23,37 @@ class BlindIndexMethod(Enum):
     ARGON2 = "argon2"
 
 
-def _decrypt_bytes_to_str(v: bytes | str) -> str:
-    if isinstance(v, bytes):
-        return v.decode("utf-8")
+class EncryptedValue(bytes):
+    """Bytes subclass representing an encrypted value."""
 
-    return v
-
-
-Decrypt = Annotated[str, BeforeValidator(_decrypt_bytes_to_str)]
-
-
-class NormalizeToBytes(bytes):
-    """Normalize a value to bytes."""
+    encrypted: bool = True
 
     def __new__(cls, value: str | bytes):
         if isinstance(value, str):
             value = value.encode("utf-8")
-
         return super().__new__(cls, value)
 
 
-class NormalizeToString(str):
-    """Normalize a value to string."""
+class HashedValue(bytes):
+    """Bytes subclass representing a hashed value."""
 
-    def __new__(cls, value: str | bytes):
-        if isinstance(value, bytes):
-            value = value.decode("utf-8")
-
-        return super().__new__(cls, value)
-
-
-class EncryptedValue(NormalizeToBytes):
-    encrypted: bool = True
-
-
-class DecryptedValue(NormalizeToString):
-    encrypted: bool = False
-
-
-class HashedValue(NormalizeToBytes):
     hashed: bool = True
 
+    def __new__(cls, value: str | bytes):
+        if isinstance(value, str):
+            value = value.encode("utf-8")
+        return super().__new__(cls, value)
 
-class BlindIndexValue(NormalizeToBytes):
+
+class BlindIndexValue(bytes):
+    """Bytes subclass representing a blind index value."""
+
     blind_indexed: bool = True
+
+    def __new__(cls, value: str | bytes):
+        if isinstance(value, str):
+            value = value.encode("utf-8")
+        return super().__new__(cls, value)
 
 
 class BlindIndex:
@@ -101,16 +84,12 @@ class BlindIndex:
 
 
 __all__ = [
-    "Encrypt",
-    "Decrypt",
-    "Hash",
+    "Encrypted",
+    "Hashed",
     "EncryptionMethod",
     "EncryptedValue",
-    "DecryptedValue",
     "HashedValue",
     "BlindIndex",
     "BlindIndexMethod",
     "BlindIndexValue",
-    "NormalizeToBytes",
-    "NormalizeToString",
 ]

@@ -20,11 +20,6 @@ class Settings(BaseSettings):
     AWS_KMS_ACCESS_KEY_ID: Optional[str] = None
     AWS_KMS_SECRET_ACCESS_KEY: Optional[str] = None
 
-    # Evervault settings
-    EVERVAULT_API_KEY: Optional[str] = None
-    EVERVAULT_APP_ID: Optional[str] = None
-    EVERVAULT_ENCRYPTION_ROLE: Optional[str] = None
-
     # Blind index settings
     BLIND_INDEX_SECRET_KEY: Optional[str] = None
 
