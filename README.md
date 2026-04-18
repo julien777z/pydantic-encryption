@@ -154,6 +154,18 @@ Streaming queries (`session.stream` / `session.stream_scalars`) bypass the auto-
 ```python
 from pydantic_encryption import async_decrypt_rows, async_decrypt_values
 
+
+class User(Base, DeferredDecryptMixin):
+    __tablename__ = "users"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[bytes] = mapped_column(SQLAlchemyEncryptedValue())
+
+
+instance: User = ...          # single row loaded outside a tracked execute
+instances: list[User] = ...   # batch of User rows
+rows: list[User] = ...        # rows with one or more encrypted columns
+ciphertexts = [user.email for user in rows]  # flat list of raw ciphertext bytes
+
 await instance.decrypt()                                    # one mixin instance
 await User.decrypt_many(instances)                          # batch of one class
 await async_decrypt_rows(rows, User.email, concurrency=8)   # InstrumentedAttribute or column names
