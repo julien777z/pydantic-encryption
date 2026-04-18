@@ -126,18 +126,41 @@ Each element is individually encrypted. Requires PostgreSQL.
 `TypeDecorator` is sync by contract, so slow backends (AWS KMS) can block the event loop. Two paths:
 
 - **Default.** Under `AsyncSession`, decryption uses SQLAlchemy's greenlet bridge so each call yields the event loop. Argon2 hashing and blind-indexing use the same bridge.
-- **Parallel batch decrypt** (Quick Start). `DeferredDecryptMixin` + `AutoDecryptAsyncSession` decrypts all loaded cells concurrently via `asyncio.gather`, turning N sequential roundtrips into one concurrent burst.
+- **Parallel batch decrypt.** `DeferredDecryptMixin` + `AutoDecryptAsyncSession` decrypts all loaded cells concurrently via `asyncio.gather`, turning N sequential roundtrips into one concurrent burst.
+
+Mix the helper into any model with encrypted columns and read through `AutoDecryptAsyncSession`:
+
+```python
+from pydantic_encryption import (
+    AutoDecryptAsyncSession,
+    DeferredDecryptMixin,
+    SQLAlchemyEncryptedValue,
+)
+
+
+class User(Base, DeferredDecryptMixin):
+    __tablename__ = "users"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[bytes] = mapped_column(SQLAlchemyEncryptedValue())
+
+
+Session = async_sessionmaker(engine, class_=AutoDecryptAsyncSession, expire_on_commit=False)
+```
 
 Streaming queries (`session.stream` / `session.stream_scalars`) bypass the auto-drain — call `Model.decrypt_many(batch)` per chunk or materialize with `.all()`.
 
 **Manual escape hatches** for vanilla `AsyncSession` or rows loaded outside a tracked `execute`:
 
-- `await instance.decrypt()` — one mixin instance.
-- `await Model.decrypt_many(instances)` — batch of one class.
-- `async_decrypt_rows(rows, User.email, ..., concurrency=N)` — accepts `InstrumentedAttribute` or column names; caps in-flight decrypts with an `asyncio.Semaphore`.
-- `async_decrypt_values(ciphertexts, concurrency=N)` — flat iterable of ciphertexts; preserves `None` positions.
+```python
+from pydantic_encryption import async_decrypt_rows, async_decrypt_values
 
-## Pydantic Models
+await instance.decrypt()                                    # one mixin instance
+await User.decrypt_many(instances)                          # batch of one class
+await async_decrypt_rows(rows, User.email, concurrency=8)   # InstrumentedAttribute or column names
+await async_decrypt_values(ciphertexts, concurrency=8)      # flat ciphertexts; preserves None positions
+```
+
+## Manual Encryption or Hashing
 
 Fields annotated with `Encrypted` are encrypted and fields annotated with `Hashed` are hashed during model initialization:
 
