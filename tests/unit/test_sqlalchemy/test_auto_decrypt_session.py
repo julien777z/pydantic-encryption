@@ -116,7 +116,7 @@ class TestAutoDecryptAsyncSession:
 
         assert session.info[AUTO_DECRYPT_ENABLED_KEY] is True
 
-    def test_drain_calls_decrypt_many_per_class(self):
+    def test_drain_decrypts_every_pending_class(self):
         session = AutoDecryptAsyncSession(bind=None)
         user = _AutoDecryptUser(id=1, email=_wrap("a@x.com"))
         blob = _AutoDecryptBlob(id=1, payload=_wrap(b"shh"))
@@ -237,6 +237,45 @@ class TestBytesColumnIdempotency:
         _collect_encrypted_cells(blob, collected, visited)
 
         assert collected == {}
+
+
+class TestDrainParallelism:
+    """Regression test: the drain must fan out every class's cells in a single gather."""
+
+    @classmethod
+    def setup_class(cls):
+        configure_mappers()
+
+    def test_drain_gathers_cells_across_classes_in_parallel(self):
+        session = AutoDecryptAsyncSession(bind=None)
+        user = _AutoDecryptUser(id=1, email=_wrap("a@x.com"))
+        blob = _AutoDecryptBlob(id=1, payload=_wrap(b"shh"))
+
+        bucket: dict[type, list[Any]] = defaultdict(list)
+        bucket[_AutoDecryptUser].append(user)
+        bucket[_AutoDecryptBlob].append(blob)
+        session.info[PENDING_DECRYPT_KEY] = bucket
+
+        gather_calls: list[int] = []
+        original_gather = asyncio.gather
+
+        async def counting_gather(*coros, **kwargs):
+            gather_calls.append(len(coros))
+            return await original_gather(*coros, **kwargs)
+
+        asyncio.gather = counting_gather  # type: ignore[assignment]
+        try:
+            asyncio.run(session._drain_pending_decrypt())
+        finally:
+            asyncio.gather = original_gather  # type: ignore[assignment]
+
+        assert user.email == "a@x.com"
+        assert blob.payload == b"shh"
+        assert gather_calls, "expected asyncio.gather to be invoked by the drain"
+        assert max(gather_calls) >= 2, (
+            "expected at least one gather to span both classes' cells; "
+            f"got gather widths {gather_calls}"
+        )
 
 
 class TestNoDirtyAfterDecrypt:
