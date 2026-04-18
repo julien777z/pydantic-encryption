@@ -161,15 +161,16 @@ class User(Base, DeferredDecryptMixin):
     email: Mapped[bytes] = mapped_column(SQLAlchemyEncryptedValue())
 
 
-instance: User = ...          # single row loaded outside a tracked execute
-instances: list[User] = ...   # batch of User rows
-rows: list[User] = ...        # rows with one or more encrypted columns
-ciphertexts = [user.email for user in rows]  # flat list of raw ciphertext bytes
+async with AsyncSession(engine) as session:
+    user = await session.get(User, 1)
+    result = await session.execute(select(User))
+    users = result.scalars().all()
+    ciphertexts = [u.email for u in users]
 
-await instance.decrypt()                                    # one mixin instance
-await User.decrypt_many(instances)                          # batch of one class
-await async_decrypt_rows(rows, User.email, concurrency=8)   # InstrumentedAttribute or column names
-await async_decrypt_values(ciphertexts, concurrency=8)      # flat ciphertexts; preserves None positions
+    await user.decrypt()                                        # one mixin instance
+    await User.decrypt_many(users)                              # batch of one class
+    await async_decrypt_rows(users, User.email, concurrency=8)  # InstrumentedAttribute or column names
+    await async_decrypt_values(ciphertexts, concurrency=8)      # flat ciphertexts; preserves None positions
 ```
 
 ## Manual Encryption or Hashing
