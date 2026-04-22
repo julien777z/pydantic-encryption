@@ -109,6 +109,27 @@ class TestDescriptorInstallation:
 
         assert descriptor.key == "first_name"
 
+    def test_descriptor_includes_current_instance_when_missing_from_siblings(self):
+        """Reading current instance must decrypt it even when siblings list lacks it."""
+
+        from types import SimpleNamespace
+        from collections import defaultdict
+        from weakref import WeakSet
+        from unittest.mock import patch
+
+        sibling = _OnAccessContractor(id=1, first_name=_wrap("Ada"))
+        current = _OnAccessContractor(id=2, first_name=_wrap("Alan"))
+
+        bucket: dict[type, WeakSet] = defaultdict(WeakSet)
+        bucket[_OnAccessContractor].add(sibling)
+        fake_session = SimpleNamespace(info={PENDING_DECRYPT_KEY: bucket})
+
+        with patch(
+            "pydantic_encryption.integrations.sqlalchemy.bulk.object_session",
+            return_value=fake_session,
+        ):
+            assert current.first_name == "Alan"
+
 
 class TestAsyncBatchAcrossSiblings:
     """Test that the async batch helper decrypts one column across every row in parallel."""

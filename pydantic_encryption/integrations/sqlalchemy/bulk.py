@@ -274,7 +274,9 @@ class _DecryptOnAccessDescriptor:
         value = self._wrapped.__get__(instance, owner)
         if isinstance(value, EncryptedValue):
             session = object_session(instance)
-            siblings = _pending_siblings(session, self._cls) or [instance]
+            siblings = _pending_siblings(session, self._cls)
+            if instance not in siblings:
+                siblings = [instance, *siblings]
             run_async_or_sync(
                 async_decrypt_rows,
                 _decrypt_column_batch_sync,
