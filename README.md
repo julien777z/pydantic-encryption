@@ -53,15 +53,18 @@ async with Session() as session:
 
 Install with `pip install "pydantic-encryption[sqlalchemy]"`.
 
+Encryption, hashing, and blind indexing go through SQLAlchemy's greenlet bridge, so the library requires `AsyncSession` / `async_sessionmaker`. Synchronous `Session` is not supported.
+
 ```python
-from sqlalchemy import create_engine
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, Session
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from pydantic_encryption import (
+    BlindIndexMethod,
+    SQLAlchemyBlindIndexValue,
     SQLAlchemyEncryptedValue,
     SQLAlchemyHashedValue,
-    SQLAlchemyBlindIndexValue,
-    BlindIndexMethod,
 )
 
 
@@ -81,23 +84,23 @@ class User(Base):
     )
 
 
-engine = create_engine("sqlite:///:memory:")
-Base.metadata.create_all(engine)
+engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+Session = async_sessionmaker(engine, expire_on_commit=False)
 
-with Session(engine) as session:
-    user = User(
+async with Session() as session:
+    session.add(User(
         username="john",
         email="john@example.com",
         password="secret123",
         blind_index_email="john@example.com",
-    )
-    session.add(user)
-    session.commit()
+    ))
+    await session.commit()
 
     # Query by blind index — automatically hashed
-    found = session.query(User).filter(
-        User.blind_index_email == "john@example.com"
-    ).first()
+    result = await session.execute(
+        select(User).where(User.blind_index_email == "john@example.com")
+    )
+    found = result.scalar_one()
     print(found.email)  # decrypted
 ```
 
@@ -177,7 +180,7 @@ async with AsyncSession(engine) as session:
     await decrypt_values(ciphertexts, concurrency=8)      # flat ciphertexts; preserves None positions
 ```
 
-### Safety: catching accidental ciphertext access
+### Safety: Catching Accidental Ciphertext Access
 
 Reads go through the on-access descriptor. If a `DeferredDecryptMixin` column is still encrypted when accessed — because the row is detached or you're outside an async-session greenlet — the descriptor raises `EncryptedValueAccessError`. Call `await instance.decrypt()` or `await decrypt_pending_fields(session)` first.
 
@@ -185,7 +188,7 @@ If anything bypasses the descriptor and hands you an `EncryptedValue` directly (
 
 ## Manual Encryption or Hashing
 
-Fields annotated with `Encrypted` are encrypted and fields annotated with `Hashed` are hashed during model initialization:
+Construct models with `await cls.async_init(...)` — every `Encrypted`, `Hashed`, and `BlindIndex` field is applied concurrently during construction. Plain `cls(...)` is reserved for read-side reconstruction and does not run crypto.
 
 ```python
 from typing import Annotated
@@ -196,7 +199,7 @@ class User(BaseModel):
     address: Annotated[bytes, Encrypted]
     password: Annotated[str, Hashed]
 
-user = User(name="John Doe", address="123 Main St", password="secret123")
+user = await User.async_init(name="John Doe", address="123 Main St", password="secret123")
 
 print(user.name)      # "John Doe"
 print(user.address)   # encrypted bytes
@@ -205,21 +208,12 @@ print(user.password)  # argon2 hash bytes
 
 ### Decrypting
 
-Call `decrypt_data()` to decrypt all `Encrypted` fields in-place. It returns `self`, so it can be chained:
-
-```python
-user = User(name="John", address="123 Main St", password="secret")
-user.decrypt_data()
-print(user.address)  # "123 Main St"
-```
-
-### Async Support
-
-Use `async_init()` to construct models with async encryption, hashing, and blind indexing, and `async_decrypt_data()` for async decryption:
+Call `await user.decrypt_data()` to decrypt all `Encrypted` fields in-place. It returns `self`, so it can be chained:
 
 ```python
 user = await User.async_init(name="John", address="123 Main St", password="secret")
-await user.async_decrypt_data()
+await user.decrypt_data()
+print(user.address)  # "123 Main St"
 ```
 
 All phases (encrypt, hash, blind-index) run concurrently via `asyncio.gather`, and nested `BaseModel` instances — including those inside `list`, `tuple`, `dict`, and `set` containers — are processed recursively.
@@ -265,7 +259,7 @@ AWS_KMS_DECRYPT_KEY_ARN=arn:aws:kms:...decrypt-key
 
 Use one mode or the other — combining `AWS_KMS_KEY_ARN` with either split variant raises a validation error. A decrypt-only key alone is allowed (read-only workloads).
 
-#### Plaintext cache (opt-in)
+#### Plaintext Cache (Opt-In)
 
 For read-heavy workloads that repeatedly decrypt the same ciphertexts, AWS KMS round-trips dominate. An in-process LRU of ciphertext → plaintext is available as opt-in:
 
@@ -337,18 +331,18 @@ Available options:
 
 ## Custom Encryption or Hashing
 
-Subclass `BaseModel` and override any of `encrypt_data`, `hash_data`, `blind_index_data` (or their async variants) to plug in your own logic. The post-init hook runs automatically:
+Subclass `BaseModel` and override any of `encrypt_data`, `hash_data`, `blind_index_data`, or `post_init` to plug in your own logic. All of them are coroutines and run when you call `await cls.async_init(...)`:
 
 ```python
 from pydantic_encryption import BaseModel
 
 class MyModel(BaseModel):
-    def encrypt_data(self) -> None:
+    async def encrypt_data(self) -> None:
         # your encryption logic (mutate self in-place)
         ...
 ```
 
-To implement a new backend instead of replacing the per-model path, subclass one of the adapter ABCs (`EncryptionAdapter`, `HashingAdapter`, `BlindIndexAdapter`) and register it via `register_encryption_backend` / `register_blind_index_backend`. Async variants are inherited by default — override `async_encrypt` / `async_decrypt` only for natively-async backends.
+To implement a new backend instead of replacing the per-model path, subclass one of the adapter ABCs (`EncryptionAdapter`, `HashingAdapter`, `BlindIndexAdapter`) and register it via `register_encryption_backend` / `register_blind_index_backend`. Each ABC only defines async methods; wrap blocking crypto libraries with `asyncio.to_thread` inside your adapter.
 
 ## Run Tests
 

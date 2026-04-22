@@ -39,6 +39,15 @@ class _DeferPlain(_DeferBase):
     )
 
 
+def _make_ciphertext(value) -> EncryptedValue:
+    """Encrypt a value via the async FernetAdapter and return it as an EncryptedValue."""
+
+    from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
+    from pydantic_encryption.integrations.sqlalchemy.serialization import encode_value
+
+    return asyncio.run(FernetAdapter.encrypt(encode_value(value)))
+
+
 class TestDeferDecrypt:
     """Test that DeferredDecryptMixin auto-defers encrypted columns on the read path."""
 
@@ -46,42 +55,32 @@ class TestDeferDecrypt:
     def setup_class(cls):
         configure_mappers()
 
-    def test_mixin_column_returns_encrypted_value(self):
-        column_type = _DeferMixed.__table__.c.secret.type
-        assert column_type._deferred is True
+    def test_mixin_column_marks_deferred(self):
+        """Test that DeferredDecryptMixin flips _deferred on its encrypted columns."""
 
-        ciphertext = column_type.process_bind_param("hello", None)
-        assert ciphertext is not None
-
-        result = column_type.process_result_value(ciphertext, None)
-        assert isinstance(result, EncryptedValue)
-        assert result != "hello"
+        assert _DeferMixed.__table__.c.secret.type._deferred is True
 
     def test_mixin_column_none_passthrough(self):
+        """Test that a None value passes through process_result_value as None."""
+
         column_type = _DeferMixed.__table__.c.secret.type
         assert column_type.process_result_value(None, None) is None
 
-    def test_plain_column_returns_plaintext(self):
-        column_type = _DeferPlain.__table__.c.secret.type
-        assert column_type._deferred is False
+    def test_plain_column_stays_non_deferred(self):
+        """Test that a plain (non-mixin) encrypted column keeps _deferred=False."""
 
-        ciphertext = column_type.process_bind_param("hello", None)
-        result = column_type.process_result_value(ciphertext, None)
-        assert result == "hello"
+        assert _DeferPlain.__table__.c.secret.type._deferred is False
 
 
 class TestDecryptRows:
     """Test the decrypt_rows bulk helper."""
 
-    def _make_ciphertext(self, value):
-        return SQLAlchemyEncryptedValue().process_bind_param(value, None)
-
     def test_decrypt_rows_fernet(self):
         # Build 3 fake rows with 2 encrypted columns each.
         rows = [
             SimpleNamespace(
-                email=EncryptedValue(self._make_ciphertext(f"user{i}@example.com")),
-                secret=EncryptedValue(self._make_ciphertext(f"secret-{i}")),
+                email=EncryptedValue(_make_ciphertext(f"user{i}@example.com")),
+                secret=EncryptedValue(_make_ciphertext(f"secret-{i}")),
             )
             for i in range(3)
         ]
@@ -98,8 +97,8 @@ class TestDecryptRows:
 
     def test_decrypt_rows_skips_none_cells(self):
         rows = [
-            SimpleNamespace(email=EncryptedValue(self._make_ciphertext("a@x.com")), secret=None),
-            SimpleNamespace(email=None, secret=EncryptedValue(self._make_ciphertext("s1"))),
+            SimpleNamespace(email=EncryptedValue(_make_ciphertext("a@x.com")), secret=None),
+            SimpleNamespace(email=None, secret=EncryptedValue(_make_ciphertext("s1"))),
         ]
 
         asyncio.run(decrypt_rows(rows, "email", "secret"))
@@ -111,7 +110,7 @@ class TestDecryptRows:
 
     def test_decrypt_rows_respects_concurrency(self):
         rows = [
-            SimpleNamespace(email=EncryptedValue(self._make_ciphertext(f"u{i}@x.com")))
+            SimpleNamespace(email=EncryptedValue(_make_ciphertext(f"u{i}@x.com")))
             for i in range(5)
         ]
 
@@ -151,10 +150,13 @@ class _BulkContractor(_BulkBase, DeferredDecryptMixin):
     org: Mapped["_BulkOrg | None"] = relationship(back_populates="contractors")
 
 
-def _encrypt_deferred(value: str) -> bytes:
-    """Encrypt a value using SQLAlchemyEncryptedValue on the write path."""
+def _encrypt_deferred(value: str) -> EncryptedValue:
+    """Encrypt a value and return an EncryptedValue, mirroring the deferred read path."""
 
-    return SQLAlchemyEncryptedValue().process_bind_param(value, None)
+    from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
+    from pydantic_encryption.integrations.sqlalchemy.serialization import encode_value
+
+    return asyncio.run(FernetAdapter.encrypt(encode_value(value)))
 
 
 class TestDeferredDecryptMixin:
@@ -238,11 +240,8 @@ class TestDeferredDecryptMixin:
 class TestDecryptValues:
     """Test the decrypt_values bulk helper for flat ciphertext iterables."""
 
-    def _make_ciphertext(self, value: str) -> bytes:
-        return SQLAlchemyEncryptedValue().process_bind_param(value, None)
-
     def test_decrypts_list_of_ciphertexts(self):
-        values = [self._make_ciphertext(f"user-{i}") for i in range(3)]
+        values = [_make_ciphertext(f"user-{i}") for i in range(3)]
 
         result = asyncio.run(decrypt_values(values))
 
@@ -250,9 +249,9 @@ class TestDecryptValues:
 
     def test_preserves_none_positions(self):
         values = [
-            self._make_ciphertext("a"),
+            _make_ciphertext("a"),
             None,
-            self._make_ciphertext("b"),
+            _make_ciphertext("b"),
             None,
         ]
 
@@ -264,14 +263,14 @@ class TestDecryptValues:
         assert asyncio.run(decrypt_values([])) == []
 
     def test_passes_through_non_bytes_cells(self):
-        values = [self._make_ciphertext("a"), 42, "plain", None]
+        values = [_make_ciphertext("a"), 42, "plain", None]
 
         result = asyncio.run(decrypt_values(values))
 
         assert result == ["a", 42, "plain", None]
 
     def test_respects_concurrency(self):
-        values = [self._make_ciphertext(f"v{i}") for i in range(5)]
+        values = [_make_ciphertext(f"v{i}") for i in range(5)]
 
         result = asyncio.run(decrypt_values(values, concurrency=2))
 

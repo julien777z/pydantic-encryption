@@ -1,3 +1,4 @@
+import asyncio
 from typing import ClassVar
 
 from cryptography.fernet import Fernet
@@ -15,6 +16,8 @@ class FernetAdapter(EncryptionAdapter):
 
     @classmethod
     def _get_client(cls, key: str | None = None) -> Fernet:
+        """Return a cached Fernet client for the given key."""
+
         if key is None:
             key = settings.ENCRYPTION_KEY
         if not key:
@@ -26,7 +29,9 @@ class FernetAdapter(EncryptionAdapter):
         return cls._clients[key]
 
     @classmethod
-    def encrypt(cls, plaintext: bytes | str | EncryptedValue, *, key: str | None = None) -> EncryptedValue:
+    async def encrypt(
+        cls, plaintext: bytes | str | EncryptedValue, *, key: str | None = None
+    ) -> EncryptedValue:
         if isinstance(plaintext, EncryptedValue):
             return plaintext
 
@@ -34,18 +39,23 @@ class FernetAdapter(EncryptionAdapter):
             plaintext = plaintext.encode("utf-8")
 
         client = cls._get_client(key)
-        return EncryptedValue(client.encrypt(plaintext))
+        ciphertext = await asyncio.to_thread(client.encrypt, plaintext)
+
+        return EncryptedValue(ciphertext)
 
     @classmethod
-    def decrypt(cls, ciphertext: str | bytes | EncryptedValue, *, key: str | None = None) -> str:
+    async def decrypt(
+        cls, ciphertext: str | bytes | EncryptedValue, *, key: str | None = None
+    ) -> str:
         if isinstance(ciphertext, str):
             ciphertext_bytes = ciphertext.encode("utf-8")
         else:
             ciphertext_bytes = ciphertext
 
         client = cls._get_client(key)
-        decrypted_bytes = client.decrypt(ciphertext_bytes)
-        return decrypted_bytes.decode("utf-8")
+        plaintext_bytes = await asyncio.to_thread(client.decrypt, ciphertext_bytes)
+
+        return plaintext_bytes.decode("utf-8")
 
 
 register_encryption_backend(EncryptionMethod.FERNET, FernetAdapter)

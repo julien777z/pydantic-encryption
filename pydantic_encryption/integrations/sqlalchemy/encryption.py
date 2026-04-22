@@ -1,4 +1,4 @@
-from pydantic_encryption._lazy import require_optional_dependency
+from pydantic_encryption.lazy import require_optional_dependency
 
 require_optional_dependency("sqlalchemy", "sqlalchemy")
 
@@ -6,7 +6,7 @@ from sqlalchemy.types import ARRAY, LargeBinary, TypeDecorator
 
 from pydantic_encryption.adapters.registry import get_encryption_backend
 from pydantic_encryption.config import settings
-from pydantic_encryption.integrations.sqlalchemy._async_bridge import run_async_or_sync
+from pydantic_encryption.integrations.sqlalchemy.async_bridge import greenlet_await
 from pydantic_encryption.integrations.sqlalchemy.serialization import (
     EncryptableValue,
     decode_value,
@@ -40,7 +40,7 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
         backend = get_encryption_backend(settings.ENCRYPTION_METHOD)
         serialized = encode_value(value)
 
-        return run_async_or_sync(backend.async_encrypt, backend.encrypt, serialized)
+        return greenlet_await(backend.encrypt(serialized), context="SQLAlchemyEncryptedValue.encrypt")
 
     def _decrypt_cell(self, value: str | bytes | None) -> str | bytes | None:
         """Decrypt a single ciphertext; callers are responsible for decoding."""
@@ -53,7 +53,7 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
 
         backend = get_encryption_backend(settings.ENCRYPTION_METHOD)
 
-        return run_async_or_sync(backend.async_decrypt, backend.decrypt, value)
+        return greenlet_await(backend.decrypt(value), context="SQLAlchemyEncryptedValue.decrypt")
 
     def process_bind_param(self, value: EncryptableValue | None, dialect) -> bytes | None:
         """Encrypt a value before binding it to the database."""

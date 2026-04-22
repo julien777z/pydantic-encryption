@@ -1,7 +1,8 @@
+import asyncio
 import threading
 from typing import Any, ClassVar
 
-from pydantic_encryption._lazy import require_optional_dependency
+from pydantic_encryption.lazy import require_optional_dependency
 
 require_optional_dependency("boto3", "aws")
 require_optional_dependency("aws_encryption_sdk", "aws")
@@ -159,25 +160,46 @@ class AWSAdapter(EncryptionAdapter):
             cls._plaintext_cache = None
 
     @classmethod
-    def encrypt(cls, plaintext: bytes | str | EncryptedValue, *, key: str | None = None) -> EncryptedValue:
+    def _encrypt_sync(cls, plaintext: bytes) -> bytes:
+        """Run the blocking KMS encrypt call."""
+
+        cls._init_base_clients()
+        keyring = cls._get_encrypt_keyring()
+        ciphertext, _ = cls._encryption_client.encrypt(source=plaintext, keyring=keyring)
+
+        return ciphertext
+
+    @classmethod
+    def _decrypt_sync(cls, ciphertext_bytes: bytes) -> str:
+        """Run the blocking KMS decrypt call and decode the plaintext."""
+
+        cls._init_base_clients()
+        keyring = cls._get_decrypt_keyring()
+        plaintext, _ = cls._encryption_client.decrypt(source=ciphertext_bytes, keyring=keyring)
+
+        if isinstance(plaintext, bytes):
+            plaintext = plaintext.decode("utf-8")
+
+        return plaintext
+
+    @classmethod
+    async def encrypt(
+        cls, plaintext: bytes | str | EncryptedValue, *, key: str | None = None
+    ) -> EncryptedValue:
         if isinstance(plaintext, EncryptedValue):
             return plaintext
 
         if isinstance(plaintext, str):
             plaintext = plaintext.encode("utf-8")
 
-        cls._init_base_clients()
-        keyring = cls._get_encrypt_keyring()
-
-        ciphertext, _ = cls._encryption_client.encrypt(
-            source=plaintext,
-            keyring=keyring,
-        )
+        ciphertext = await asyncio.to_thread(cls._encrypt_sync, plaintext)
 
         return EncryptedValue(ciphertext)
 
     @classmethod
-    def decrypt(cls, ciphertext: bytes | str | EncryptedValue, *, key: str | None = None) -> str:
+    async def decrypt(
+        cls, ciphertext: bytes | str | EncryptedValue, *, key: str | None = None
+    ) -> str:
         if isinstance(ciphertext, str):
             ciphertext_bytes = ciphertext.encode("utf-8")
         else:
@@ -187,16 +209,7 @@ class AWSAdapter(EncryptionAdapter):
         if cached is not None:
             return cached
 
-        cls._init_base_clients()
-        keyring = cls._get_decrypt_keyring()
-
-        plaintext, _ = cls._encryption_client.decrypt(
-            source=ciphertext_bytes,
-            keyring=keyring,
-        )
-
-        if isinstance(plaintext, bytes):
-            plaintext = plaintext.decode("utf-8")
-
+        plaintext = await asyncio.to_thread(cls._decrypt_sync, ciphertext_bytes)
         cls._cache_store(ciphertext_bytes, plaintext)
+
         return plaintext
