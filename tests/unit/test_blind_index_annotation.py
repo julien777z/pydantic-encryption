@@ -5,8 +5,6 @@ import pytest
 from pydantic_encryption import BaseModel, BlindIndex, BlindIndexMethod
 from pydantic_encryption.types import BlindIndexValue
 
-pytestmark = pytest.mark.asyncio
-
 
 @pytest.fixture(autouse=True)
 def set_blind_index_key(monkeypatch):
@@ -20,45 +18,37 @@ def set_blind_index_key(monkeypatch):
 class TestBlindIndexAnnotationHMAC:
     """Test BlindIndex annotation with HMAC-SHA256 in Pydantic models."""
 
-    async def test_field_is_blind_indexed(self):
-        """Test that an HMAC-SHA256 BlindIndex field is hashed on async_init."""
-
+    def test_field_is_blind_indexed(self):
         class UserModel(BaseModel):
             email_index: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
 
-        user = await UserModel.async_init(email_index="test@example.com")
+        user = UserModel(email_index="test@example.com")
 
         assert isinstance(user.email_index, BlindIndexValue)
 
-    async def test_deterministic_output(self):
-        """Test that equal inputs produce equal HMAC-SHA256 blind indexes."""
-
+    def test_deterministic_output(self):
         class UserModel(BaseModel):
             email_index: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
 
-        first = await UserModel.async_init(email_index="test@example.com")
-        second = await UserModel.async_init(email_index="test@example.com")
+        user1 = UserModel(email_index="test@example.com")
+        user2 = UserModel(email_index="test@example.com")
 
-        assert first.email_index == second.email_index
+        assert user1.email_index == user2.email_index
 
-    async def test_different_inputs_different_output(self):
-        """Test that different inputs produce different HMAC-SHA256 blind indexes."""
-
+    def test_different_inputs_different_output(self):
         class UserModel(BaseModel):
             email_index: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
 
-        first = await UserModel.async_init(email_index="alice@example.com")
-        second = await UserModel.async_init(email_index="bob@example.com")
+        user1 = UserModel(email_index="alice@example.com")
+        user2 = UserModel(email_index="bob@example.com")
 
-        assert first.email_index != second.email_index
+        assert user1.email_index != user2.email_index
 
-    async def test_output_is_32_bytes(self):
-        """Test that the HMAC-SHA256 blind index is 32 bytes."""
-
+    def test_output_is_32_bytes(self):
         class UserModel(BaseModel):
             email_index: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
 
-        user = await UserModel.async_init(email_index="test@example.com")
+        user = UserModel(email_index="test@example.com")
 
         assert len(user.email_index) == 32
 
@@ -66,78 +56,60 @@ class TestBlindIndexAnnotationHMAC:
 class TestBlindIndexAnnotationArgon2:
     """Test BlindIndex annotation with Argon2 in Pydantic models."""
 
-    async def test_field_is_blind_indexed(self):
-        """Test that an Argon2 BlindIndex field is hashed on async_init."""
-
+    def test_field_is_blind_indexed(self):
         class UserModel(BaseModel):
             email_index: Annotated[bytes, BlindIndex(BlindIndexMethod.ARGON2)]
 
-        user = await UserModel.async_init(email_index="test@example.com")
+        user = UserModel(email_index="test@example.com")
 
         assert isinstance(user.email_index, BlindIndexValue)
         assert len(user.email_index) == 32
 
-    async def test_deterministic_output(self):
-        """Test that equal inputs produce equal Argon2 blind indexes."""
-
+    def test_deterministic_output(self):
         class UserModel(BaseModel):
             email_index: Annotated[bytes, BlindIndex(BlindIndexMethod.ARGON2)]
 
-        first = await UserModel.async_init(email_index="test@example.com")
-        second = await UserModel.async_init(email_index="test@example.com")
+        user1 = UserModel(email_index="test@example.com")
+        user2 = UserModel(email_index="test@example.com")
 
-        assert first.email_index == second.email_index
+        assert user1.email_index == user2.email_index
 
 
 class TestBlindIndexAnnotationNormalization:
     """Test BlindIndex annotation with normalization options."""
 
-    async def test_normalize_to_lowercase(self):
-        """Test that normalize_to_lowercase produces the same index regardless of case."""
-
+    def test_normalize_to_lowercase(self):
         class UserModel(BaseModel):
-            email_index: Annotated[
-                bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256, normalize_to_lowercase=True)
-            ]
+            email_index: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256, normalize_to_lowercase=True)]
 
-        first = await UserModel.async_init(email_index="Hello@Example.COM")
-        second = await UserModel.async_init(email_index="hello@example.com")
+        user1 = UserModel(email_index="Hello@Example.COM")
+        user2 = UserModel(email_index="hello@example.com")
 
-        assert first.email_index == second.email_index
+        assert user1.email_index == user2.email_index
 
-    async def test_strip_whitespace(self):
-        """Test that strip_whitespace produces the same index regardless of whitespace."""
-
+    def test_strip_whitespace(self):
         class UserModel(BaseModel):
-            name_index: Annotated[
-                bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256, strip_whitespace=True)
-            ]
+            name_index: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256, strip_whitespace=True)]
 
-        first = await UserModel.async_init(name_index="  John   Doe  ")
-        second = await UserModel.async_init(name_index="John Doe")
+        user1 = UserModel(name_index="  John   Doe  ")
+        user2 = UserModel(name_index="John Doe")
 
-        assert first.name_index == second.name_index
+        assert user1.name_index == user2.name_index
 
-    async def test_strip_non_digits(self):
-        """Test that strip_non_digits produces the same index regardless of formatting."""
-
+    def test_strip_non_digits(self):
         class UserModel(BaseModel):
-            phone_index: Annotated[
-                bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256, strip_non_digits=True)
-            ]
+            phone_index: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256, strip_non_digits=True)]
 
-        first = await UserModel.async_init(phone_index="+1 (555) 123-4567")
-        second = await UserModel.async_init(phone_index="15551234567")
+        user1 = UserModel(phone_index="+1 (555) 123-4567")
+        user2 = UserModel(phone_index="15551234567")
 
-        assert first.phone_index == second.phone_index
+        assert user1.phone_index == user2.phone_index
 
 
 class TestBlindIndexAnnotationConfig:
     """Test BlindIndex annotation configuration edge cases."""
 
-    async def test_missing_secret_key_raises_error(self, monkeypatch):
-        """Test that missing BLIND_INDEX_SECRET_KEY raises during async_init."""
-
+    def test_missing_secret_key_raises_error(self, monkeypatch):
         from pydantic_encryption import config
 
         monkeypatch.setattr(config.settings, "BLIND_INDEX_SECRET_KEY", None)
@@ -146,61 +118,43 @@ class TestBlindIndexAnnotationConfig:
             email_index: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
 
         with pytest.raises(ValueError, match="BLIND_INDEX_SECRET_KEY must be set"):
-            await UserModel.async_init(email_index="test@example.com")
+            UserModel(email_index="test@example.com")
 
-    async def test_none_value_stays_none(self):
-        """Test that a None-valued BlindIndex field stays None."""
-
+    def test_none_value_stays_none(self):
         class UserModel(BaseModel):
             email_index: Annotated[bytes | None, BlindIndex(BlindIndexMethod.HMAC_SHA256)] = None
 
-        user = await UserModel.async_init()
+        user = UserModel()
 
         assert user.email_index is None
 
-    @pytest.mark.asyncio(loop_scope="function")
-    async def test_conflicting_strip_options_raises(self):
-        """Test that contradictory strip flags are rejected at annotation definition."""
+    def test_conflicting_strip_options_raises(self):
+        with pytest.raises(ValueError, match="strip_non_characters and strip_non_digits cannot both be True"):
+            BlindIndex(BlindIndexMethod.HMAC_SHA256, strip_non_characters=True, strip_non_digits=True)
 
-        with pytest.raises(
-            ValueError, match="strip_non_characters and strip_non_digits cannot both be True"
-        ):
-            BlindIndex(
-                BlindIndexMethod.HMAC_SHA256, strip_non_characters=True, strip_non_digits=True
-            )
+    def test_conflicting_case_options_raises(self):
+        with pytest.raises(ValueError, match="normalize_to_lowercase and normalize_to_uppercase cannot both be True"):
+            BlindIndex(BlindIndexMethod.HMAC_SHA256, normalize_to_lowercase=True, normalize_to_uppercase=True)
 
-    @pytest.mark.asyncio(loop_scope="function")
-    async def test_conflicting_case_options_raises(self):
-        """Test that contradictory case flags are rejected at annotation definition."""
-
-        with pytest.raises(
-            ValueError, match="normalize_to_lowercase and normalize_to_uppercase cannot both be True"
-        ):
-            BlindIndex(
-                BlindIndexMethod.HMAC_SHA256, normalize_to_lowercase=True, normalize_to_uppercase=True
-            )
-
-    async def test_already_indexed_value_not_rehashed(self):
-        """Test that passing an already-indexed BlindIndexValue into async_init leaves it unchanged."""
-
+    def test_already_indexed_value_not_rehashed(self):
         class UserModel(BaseModel):
             email_index: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
 
-        first = await UserModel.async_init(email_index="test@example.com")
-        second = await UserModel.async_init(email_index=first.email_index)
+        user1 = UserModel(email_index="test@example.com")
+        first_index = user1.email_index
 
-        assert second.email_index == first.email_index
+        # Simulate re-processing by creating a new model with the already-indexed value
+        user2 = UserModel(email_index=first_index)
+        assert user2.email_index == first_index
 
-    async def test_different_methods_produce_different_outputs(self):
-        """Test that HMAC and Argon2 blind indexes differ for the same input."""
-
+    def test_different_methods_produce_different_outputs(self):
         class UserModelHMAC(BaseModel):
             idx: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
 
         class UserModelArgon2(BaseModel):
             idx: Annotated[bytes, BlindIndex(BlindIndexMethod.ARGON2)]
 
-        hmac_user = await UserModelHMAC.async_init(idx="test@example.com")
-        argon2_user = await UserModelArgon2.async_init(idx="test@example.com")
+        hmac_user = UserModelHMAC(idx="test@example.com")
+        argon2_user = UserModelArgon2(idx="test@example.com")
 
         assert hmac_user.idx != argon2_user.idx

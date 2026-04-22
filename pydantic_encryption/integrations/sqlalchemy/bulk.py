@@ -2,7 +2,7 @@ import asyncio
 from collections.abc import Awaitable, Iterable
 from typing import Any
 
-from pydantic_encryption.lazy import require_optional_dependency
+from pydantic_encryption._lazy import require_optional_dependency
 
 require_optional_dependency("sqlalchemy", "sqlalchemy")
 
@@ -12,7 +12,7 @@ from sqlalchemy.orm.attributes import InstrumentedAttribute
 
 from pydantic_encryption.adapters.registry import get_encryption_backend
 from pydantic_encryption.config import settings
-from pydantic_encryption.integrations.sqlalchemy.state import (
+from pydantic_encryption.integrations.sqlalchemy._state import (
     PENDING_DECRYPT_KEY,
     read_raw_cell,
     set_decrypted,
@@ -51,7 +51,7 @@ def _resolve_concurrency(concurrency: int | None) -> int | None:
 async def _decrypt_cell(backend: Any, ciphertext: bytes) -> EncryptableValue:
     """Decrypt a single ciphertext and decode it to its original Python type."""
 
-    plaintext = await backend.decrypt(ciphertext)
+    plaintext = await backend.async_decrypt(ciphertext)
 
     return decode_value(plaintext)
 

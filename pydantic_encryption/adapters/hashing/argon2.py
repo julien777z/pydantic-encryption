@@ -1,4 +1,3 @@
-import asyncio
 from typing import ClassVar
 
 from argon2 import PasswordHasher
@@ -14,21 +13,19 @@ class Argon2Adapter(HashingAdapter):
 
     @classmethod
     def _get_hasher(cls) -> PasswordHasher:
-        """Return a cached PasswordHasher instance."""
-
         if cls._hasher is None:
             cls._hasher = PasswordHasher()
 
         return cls._hasher
 
     @classmethod
-    async def hash(cls, value: str | bytes | HashedValue) -> HashedValue:
+    def hash(cls, value: str | bytes | HashedValue) -> HashedValue:
         """Hash data using Argon2."""
 
         if isinstance(value, HashedValue):
             return value
 
         hasher = cls._get_hasher()
-        hashed = await asyncio.to_thread(hasher.hash, value)
+        hashed_value = HashedValue(hasher.hash(value))
 
-        return HashedValue(hashed)
+        return hashed_value

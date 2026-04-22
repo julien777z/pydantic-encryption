@@ -1,13 +1,18 @@
 from typing import Any
 
-from pydantic_encryption.lazy import require_optional_dependency
+from pydantic_encryption._lazy import require_optional_dependency
 
 require_optional_dependency("sqlalchemy", "sqlalchemy")
 
+try:
+    from sqlalchemy.util import await_  # type: ignore[attr-defined]
+except ImportError:
+    from sqlalchemy.util import await_only as await_
+
+from sqlalchemy.exc import MissingGreenlet
 from sqlalchemy.orm import object_session
 
-from pydantic_encryption.integrations.sqlalchemy.async_bridge import greenlet_await
-from pydantic_encryption.integrations.sqlalchemy.state import pending_siblings
+from pydantic_encryption.integrations.sqlalchemy._state import pending_siblings
 from pydantic_encryption.integrations.sqlalchemy.bulk import decrypt_rows
 from pydantic_encryption.types import EncryptedValue, EncryptedValueAccessError
 
@@ -44,10 +49,14 @@ class DecryptOnAccessDescriptor:
             )
 
         rows = {instance, *pending_siblings(session, self._cls)}
-        greenlet_await(
-            decrypt_rows(rows, self._column_key),
-            context=f"{self._cls.__name__}.{self._column_key} read",
-        )
+        try:
+            await_(decrypt_rows(rows, self._column_key))
+        except MissingGreenlet:
+            raise EncryptedValueAccessError(
+                f"Cannot decrypt {self._cls.__name__}.{self._column_key} outside of an "
+                "async-session greenlet. Call `await decrypt_pending_fields(session)` or "
+                "`await instance.decrypt()` first."
+            )
 
         return self._wrapped.__get__(instance, owner)
 

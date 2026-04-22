@@ -1,6 +1,6 @@
 from typing import Any
 
-from pydantic_encryption.lazy import require_optional_dependency
+from pydantic_encryption._lazy import require_optional_dependency
 
 require_optional_dependency("sqlalchemy", "sqlalchemy")
 

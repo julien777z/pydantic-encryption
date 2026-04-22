@@ -8,7 +8,7 @@ from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import DeclarativeBase, Mapped, configure_mappers, mapped_column
 
 from pydantic_encryption.integrations.sqlalchemy import DeferredDecryptMixin, decrypt_pending_fields
-from pydantic_encryption.integrations.sqlalchemy.state import PENDING_DECRYPT_KEY
+from pydantic_encryption.integrations.sqlalchemy._state import PENDING_DECRYPT_KEY
 from pydantic_encryption.integrations.sqlalchemy.bulk import collect_encrypted_cells
 from pydantic_encryption.integrations.sqlalchemy.deferred import on_orm_load
 from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue
@@ -41,15 +41,16 @@ class _AutoDecryptBlob(_AutoDecryptBase, DeferredDecryptMixin):
     )
 
 
+def _encrypt(value: Any) -> bytes:
+    """Encrypt a value via the SQLAlchemyEncryptedValue write path."""
+
+    return SQLAlchemyEncryptedValue().process_bind_param(value, None)
+
+
 def _wrap(value: Any) -> EncryptedValue:
-    """Encrypt a Python value and wrap the ciphertext like process_result_value does on read."""
+    """Wrap ciphertext in EncryptedValue the way process_result_value does on read."""
 
-    from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
-    from pydantic_encryption.integrations.sqlalchemy.serialization import encode_value
-
-    ciphertext = asyncio.run(FernetAdapter.encrypt(encode_value(value)))
-
-    return EncryptedValue(bytes(ciphertext))
+    return EncryptedValue(_encrypt(value))
 
 
 class TestOnOrmLoadListener:

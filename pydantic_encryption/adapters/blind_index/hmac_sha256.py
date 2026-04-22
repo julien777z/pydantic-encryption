@@ -1,4 +1,3 @@
-import asyncio
 import hashlib
 import hmac
 
@@ -11,13 +10,7 @@ class HMACSHA256Adapter(BlindIndexAdapter):
     """Blind index adapter using HMAC-SHA256."""
 
     @classmethod
-    def _compute_sync(cls, value: bytes, key: bytes) -> bytes:
-        """Run the HMAC-SHA256 digest off the event loop."""
-
-        return hmac.new(key, value, hashlib.sha256).digest()
-
-    @classmethod
-    async def compute_blind_index(cls, value: str | bytes, key: bytes) -> BlindIndexValue:
+    def compute_blind_index(cls, value: str | bytes, key: bytes) -> BlindIndexValue:
         """Compute a deterministic HMAC-SHA256 blind index."""
 
         if isinstance(value, BlindIndexValue):
@@ -26,7 +19,7 @@ class HMACSHA256Adapter(BlindIndexAdapter):
         if isinstance(value, str):
             value = value.encode("utf-8")
 
-        digest = await asyncio.to_thread(cls._compute_sync, value, key)
+        digest = hmac.new(key, value, hashlib.sha256).digest()
 
         return BlindIndexValue(digest)
 

@@ -3,13 +3,13 @@ from collections.abc import Iterable
 from typing import Any, Self
 from weakref import WeakSet
 
-from pydantic_encryption.lazy import require_optional_dependency
+from pydantic_encryption._lazy import require_optional_dependency
 
 require_optional_dependency("sqlalchemy", "sqlalchemy")
 
 from sqlalchemy import event
 
-from pydantic_encryption.integrations.sqlalchemy.state import PENDING_DECRYPT_KEY
+from pydantic_encryption.integrations.sqlalchemy._state import PENDING_DECRYPT_KEY
 from pydantic_encryption.integrations.sqlalchemy.bulk import bulk_decrypt_entities
 from pydantic_encryption.integrations.sqlalchemy.descriptor import DecryptOnAccessDescriptor
 from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue

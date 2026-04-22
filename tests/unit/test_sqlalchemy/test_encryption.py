@@ -317,37 +317,20 @@ class TestEncryptionIdempotency:
         self.type_adapter = SQLAlchemyEncryptedValue()
 
     def test_encrypt_cell_already_encrypted_returns_same(self):
-        """Test that an EncryptedValue passed to _encrypt_cell is returned unchanged."""
-
-        from tests.unit.test_sqlalchemy.conftest import call_in_greenlet
-
-        encrypted = call_in_greenlet(self.type_adapter._encrypt_cell, "hello")
-        double_encrypted = call_in_greenlet(self.type_adapter._encrypt_cell, encrypted)
-
+        encrypted = self.type_adapter._encrypt_cell("hello")
+        double_encrypted = self.type_adapter._encrypt_cell(encrypted)
         assert encrypted == double_encrypted
 
     def test_process_bind_param_already_encrypted_returns_same(self):
-        """Test that an already-encrypted value skipped by process_bind_param is returned unchanged."""
-
         from pydantic_encryption.types import EncryptedValue
-        from tests.unit.test_sqlalchemy.conftest import call_in_greenlet
 
-        encrypted = call_in_greenlet(self.type_adapter.process_bind_param, "hello", None)
-        double_encrypted = call_in_greenlet(
-            self.type_adapter.process_bind_param, EncryptedValue(encrypted), None
-        )
-
+        encrypted = self.type_adapter.process_bind_param("hello", None)
+        double_encrypted = self.type_adapter.process_bind_param(EncryptedValue(encrypted), None)
         assert encrypted == double_encrypted
 
     def test_process_literal_param_already_encrypted_returns_same(self):
-        """Test that an already-encrypted value skipped by process_literal_param is returned unchanged."""
-
         from pydantic_encryption.types import EncryptedValue
-        from tests.unit.test_sqlalchemy.conftest import call_in_greenlet
 
-        encrypted = call_in_greenlet(self.type_adapter.process_literal_param, "hello", None)
-        double_encrypted = call_in_greenlet(
-            self.type_adapter.process_literal_param, EncryptedValue(encrypted), None
-        )
-
+        encrypted = self.type_adapter.process_literal_param("hello", None)
+        double_encrypted = self.type_adapter.process_literal_param(EncryptedValue(encrypted), None)
         assert encrypted == double_encrypted

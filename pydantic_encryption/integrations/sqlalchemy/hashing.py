@@ -1,11 +1,11 @@
-from pydantic_encryption.lazy import require_optional_dependency
+from pydantic_encryption._lazy import require_optional_dependency
 
 require_optional_dependency("sqlalchemy", "sqlalchemy")
 
 from sqlalchemy.types import LargeBinary, TypeDecorator
 
 from pydantic_encryption.adapters.hashing.argon2 import Argon2Adapter
-from pydantic_encryption.integrations.sqlalchemy.async_bridge import greenlet_await
+from pydantic_encryption.integrations.sqlalchemy._async_bridge import run_async_or_sync
 from pydantic_encryption.types import HashedValue
 
 
@@ -16,9 +16,7 @@ class SQLAlchemyHashedValue(TypeDecorator):
     cache_ok = True
 
     def _hash(self, value: str | bytes) -> HashedValue:
-        """Hash a single value via the async Argon2 adapter through the greenlet bridge."""
-
-        return greenlet_await(Argon2Adapter.hash(value), context="SQLAlchemyHashedValue.hash")
+        return run_async_or_sync(Argon2Adapter.async_hash, Argon2Adapter.hash, value)
 
     def process_bind_param(self, value: str | bytes | None, dialect) -> bytes | None:
         """Hash a value before binding it to the database."""

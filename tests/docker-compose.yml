@@ -1,0 +1,24 @@
+version: "3.5"
+
+services:
+  postgres:
+    image: postgres:17.4
+    container_name: postgres_pydantic_encryption_tests
+    restart: no
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-admin}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-admin123}
+      - POSTGRES_DB=${POSTGRES_DB:-pydantic_encryption}
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - default
+
+volumes:
+  postgres-data:
+
+networks:
+  default:
+    name: pydantic_encryption-test-network
