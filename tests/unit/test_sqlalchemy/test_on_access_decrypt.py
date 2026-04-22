@@ -79,6 +79,25 @@ class TestDescriptorInstallation:
         compiled = str(stmt.compile(compile_kwargs={"literal_binds": False}))
         assert "first_name" in compiled
 
+    def test_descriptor_set_delegates_to_wrapped(self):
+        a = _OnAccessContractor(id=1)
+
+        a.first_name = "Grace"
+
+        assert sa_inspect(a).dict["first_name"] == "Grace"
+
+    def test_descriptor_delete_delegates_to_wrapped(self):
+        a = _OnAccessContractor(id=1, first_name=_wrap("Ada"))
+
+        del a.first_name
+
+        assert "first_name" not in sa_inspect(a).dict
+
+    def test_descriptor_proxies_comparator_attributes_to_wrapped(self):
+        descriptor = _OnAccessContractor.__dict__["first_name"]
+
+        assert descriptor.key == "first_name"
+
 
 class TestAsyncBatchAcrossSiblings:
     """Test that the async batch helper decrypts one column across every row in parallel."""
