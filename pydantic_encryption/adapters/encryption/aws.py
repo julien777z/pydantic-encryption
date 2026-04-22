@@ -1,11 +1,11 @@
 import threading
-from collections import OrderedDict
 from typing import Any, ClassVar
 
 from pydantic_encryption._lazy import require_optional_dependency
 
 require_optional_dependency("boto3", "aws")
 require_optional_dependency("aws_encryption_sdk", "aws")
+require_optional_dependency("cachetools", "aws")
 
 import aws_encryption_sdk
 import boto3
@@ -13,6 +13,7 @@ from aws_cryptographic_material_providers.mpl import AwsCryptographicMaterialPro
 from aws_cryptographic_material_providers.mpl.config import MaterialProvidersConfig
 from aws_cryptographic_material_providers.mpl.models import CreateAwsKmsKeyringInput
 from aws_encryption_sdk import CommitmentPolicy
+from cachetools import LRUCache
 
 from pydantic_encryption.adapters.base import EncryptionAdapter
 from pydantic_encryption.config import settings
@@ -27,7 +28,7 @@ class AWSAdapter(EncryptionAdapter):
     _mat_prov: ClassVar[Any | None] = None
     _encrypt_keyring: ClassVar[Any | None] = None
     _decrypt_keyring: ClassVar[Any | None] = None
-    _plaintext_cache: ClassVar[OrderedDict[bytes, str] | None] = None
+    _plaintext_cache: ClassVar[LRUCache[bytes, str] | None] = None
     _plaintext_cache_lock: ClassVar[threading.Lock] = threading.Lock()
 
     @classmethod
@@ -124,24 +125,19 @@ class AWSAdapter(EncryptionAdapter):
 
     @classmethod
     def _cache_lookup(cls, ciphertext: bytes) -> str | None:
-        """Return the cached plaintext for a ciphertext, promoting it to MRU, or None on miss."""
+        """Return the cached plaintext for a ciphertext, or None on miss."""
 
         if not settings.AWS_KMS_PLAINTEXT_CACHE_ENABLED:
             return None
 
         with cls._plaintext_cache_lock:
-            cache = cls._plaintext_cache
-            if cache is None:
+            if cls._plaintext_cache is None:
                 return None
-            plaintext = cache.get(ciphertext)
-            if plaintext is None:
-                return None
-            cache.move_to_end(ciphertext)
-            return plaintext
+            return cls._plaintext_cache.get(ciphertext)
 
     @classmethod
     def _cache_store(cls, ciphertext: bytes, plaintext: str) -> None:
-        """Insert a ciphertext->plaintext mapping, evicting the LRU entry when over capacity."""
+        """Insert a ciphertext->plaintext mapping; LRU eviction is handled by the cache."""
 
         if not settings.AWS_KMS_PLAINTEXT_CACHE_ENABLED:
             return
@@ -151,14 +147,9 @@ class AWSAdapter(EncryptionAdapter):
             return
 
         with cls._plaintext_cache_lock:
-            cache = cls._plaintext_cache
-            if cache is None:
-                cache = OrderedDict()
-                cls._plaintext_cache = cache
-            cache[ciphertext] = plaintext
-            cache.move_to_end(ciphertext)
-            while len(cache) > capacity:
-                cache.popitem(last=False)
+            if cls._plaintext_cache is None:
+                cls._plaintext_cache = LRUCache(maxsize=capacity)
+            cls._plaintext_cache[ciphertext] = plaintext
 
     @classmethod
     def _clear_plaintext_cache(cls) -> None:
