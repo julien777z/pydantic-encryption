@@ -7,18 +7,13 @@ require_optional_dependency("sqlalchemy", "sqlalchemy")
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pydantic_encryption.integrations.sqlalchemy.bulk import (
-    AUTO_DECRYPT_ENABLED_KEY,
     PENDING_DECRYPT_KEY,
     _bulk_decrypt,
 )
 
 
 class AutoDecryptAsyncSession(AsyncSession):
-    """AsyncSession flagged for on-access decrypt with an explicit drain escape hatch."""
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        self.info[AUTO_DECRYPT_ENABLED_KEY] = True
+    """AsyncSession subclass preserved for wiring compatibility; exposes an explicit drain helper."""
 
     async def drain_pending_decrypt(self) -> None:
         """Force-decrypt every encrypted column on every instance in the pending bucket."""

@@ -11,7 +11,6 @@ from pydantic_encryption.integrations.sqlalchemy import (
     DeferredDecryptMixin,
 )
 from pydantic_encryption.integrations.sqlalchemy.bulk import (
-    AUTO_DECRYPT_ENABLED_KEY,
     PENDING_DECRYPT_KEY,
     _collect_encrypted_cells,
     _on_orm_load,
@@ -101,11 +100,6 @@ class TestOnOrmLoadListener:
 
 class TestAutoDecryptAsyncSession:
     """Test that AutoDecryptAsyncSession exposes the manual drain escape hatch."""
-
-    def test_init_sets_enabled_flag(self):
-        session = AutoDecryptAsyncSession(bind=None)
-
-        assert session.info[AUTO_DECRYPT_ENABLED_KEY] is True
 
     def test_drain_decrypts_every_pending_class(self):
         session = AutoDecryptAsyncSession(bind=None)

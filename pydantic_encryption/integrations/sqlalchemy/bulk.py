@@ -19,7 +19,6 @@ from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEnc
 from pydantic_encryption.integrations.sqlalchemy.serialization import decode_value
 from pydantic_encryption.types import EncryptedValue
 
-AUTO_DECRYPT_ENABLED_KEY = "__pydantic_encryption_auto_decrypt__"
 PENDING_DECRYPT_KEY = "__pydantic_encryption_pending_decrypt__"
 
 
@@ -93,9 +92,9 @@ async def async_decrypt_rows(
     for row in rows:
         for name in column_names:
             value = _read_raw_cell(row, name)
-            if not isinstance(value, (bytes, bytearray)):
+            if not isinstance(value, EncryptedValue):
                 continue
-            ciphertext = bytes(value) if not isinstance(value, bytes) else value
+            ciphertext = bytes(value)
             coros.append(decrypt_cell(ciphertext))
             assignments.append((row, name))
 
@@ -133,11 +132,9 @@ async def async_decrypt_values(
     indexed: list[tuple[int, Any]] = []
     coros = []
     for index, value in enumerate(values_list):
-        if value is None:
+        if not isinstance(value, EncryptedValue):
             continue
-        if not isinstance(value, (bytes, bytearray)):
-            continue
-        ciphertext = bytes(value) if not isinstance(value, bytes) else value
+        ciphertext = bytes(value)
         coros.append(decrypt_cell(ciphertext))
         indexed.append((index, value))
 
@@ -251,9 +248,9 @@ def _decrypt_column_batch_sync(rows: list[Any], column_key: str) -> None:
     backend = get_encryption_backend(settings.ENCRYPTION_METHOD)
     for row in rows:
         value = _read_raw_cell(row, column_key)
-        if not isinstance(value, (bytes, bytearray)):
+        if not isinstance(value, EncryptedValue):
             continue
-        ciphertext = bytes(value) if not isinstance(value, bytes) else value
+        ciphertext = bytes(value)
         plaintext = decode_value(backend.decrypt(ciphertext))
         _set_decrypted(row, column_key, plaintext)
 

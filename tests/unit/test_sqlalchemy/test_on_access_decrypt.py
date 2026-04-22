@@ -34,6 +34,17 @@ class _OnAccessContractor(_OnAccessBase, DeferredDecryptMixin):
     )
 
 
+class _OnAccessBytesRow(_OnAccessBase, DeferredDecryptMixin):
+    """Bytes-typed encrypted column; decrypted plaintext is indistinguishable from ciphertext by bytes-check."""
+
+    __tablename__ = "_on_access_bytes_row"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    payload: Mapped[bytes | None] = mapped_column(
+        SQLAlchemyEncryptedValue(), nullable=True, default=None
+    )
+
+
 def _encrypt(value: Any) -> bytes:
     """Encrypt a value via the SQLAlchemyEncryptedValue write path."""
 
@@ -116,6 +127,21 @@ class TestAsyncBatchAcrossSiblings:
         assert isinstance(sa_inspect(a).dict["last_name"], EncryptedValue)
         assert isinstance(sa_inspect(b).dict["last_name"], EncryptedValue)
         assert isinstance(sa_inspect(c).dict["last_name"], EncryptedValue)
+
+    def test_skips_rows_whose_column_is_already_decrypted(self):
+        """Decrypted bytes-typed columns look like plain bytes; must not be re-decrypted."""
+
+        a = _OnAccessBytesRow(id=1, payload=_wrap(b"secret-a"))
+        b = _OnAccessBytesRow(id=2, payload=_wrap(b"secret-b"))
+
+        asyncio.run(async_decrypt_rows([a], "payload"))
+
+        assert sa_inspect(a).dict["payload"] == b"secret-a"
+
+        asyncio.run(async_decrypt_rows([a, b], "payload"))
+
+        assert sa_inspect(a).dict["payload"] == b"secret-a"
+        assert sa_inspect(b).dict["payload"] == b"secret-b"
 
     def test_decrypt_call_count_equals_row_count(self):
         a = _OnAccessContractor(id=1, first_name=_wrap("Ada"), last_name=_wrap("Lovelace"))
