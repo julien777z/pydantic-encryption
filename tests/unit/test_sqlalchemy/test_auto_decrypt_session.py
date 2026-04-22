@@ -124,7 +124,7 @@ class TestAutoDecryptAsyncSession:
         bucket[_AutoDecryptBlob].add(blob)
         session.info[PENDING_DECRYPT_KEY] = bucket
 
-        asyncio.run(session.drain_pending_decrypt())
+        asyncio.run(session.decrypt_pending_fields())
 
         assert user.email == "a@x.com"
         assert blob.payload == b"shh"
@@ -133,7 +133,7 @@ class TestAutoDecryptAsyncSession:
     def test_drain_noop_when_bucket_empty(self):
         session = AutoDecryptAsyncSession(bind=None)
 
-        asyncio.run(session.drain_pending_decrypt())
+        asyncio.run(session.decrypt_pending_fields())
 
         assert PENDING_DECRYPT_KEY not in session.info
 
@@ -161,7 +161,7 @@ class TestBytesColumnIdempotency:
 
 
 class TestDrainParallelism:
-    """Test that drain_pending_decrypt fans out every class's cells in a single gather."""
+    """Test that decrypt_pending_fields fans out every class's cells in a single gather."""
 
     @classmethod
     def setup_class(cls):
@@ -186,7 +186,7 @@ class TestDrainParallelism:
 
         asyncio.gather = counting_gather  # type: ignore[assignment]
         try:
-            asyncio.run(session.drain_pending_decrypt())
+            asyncio.run(session.decrypt_pending_fields())
         finally:
             asyncio.gather = original_gather  # type: ignore[assignment]
 

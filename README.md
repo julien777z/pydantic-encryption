@@ -155,7 +155,17 @@ async with Session() as session:
         print(user.email)
 ```
 
-`AutoDecryptAsyncSession` exposes `drain_pending_decrypt()` as an optional escape hatch when you need to pre-warm every encrypted column on every loaded row before leaving the session context (e.g. serializing outside a greenlet spawn).
+`AutoDecryptAsyncSession.decrypt_pending_fields()` is an optional escape hatch when you need to pre-warm every encrypted column on every loaded row before leaving the session context (e.g. serializing outside a greenlet spawn):
+
+```python
+async with Session() as session:
+    users = (await session.execute(select(User))).scalars().all()
+
+    # Decrypt every encrypted column on every row loaded so far.
+    await session.decrypt_pending_fields()
+
+    payload = [{"id": u.id, "email": u.email} for u in users]
+```
 
 **Manual helpers** for vanilla `AsyncSession` or rows loaded outside a session:
 

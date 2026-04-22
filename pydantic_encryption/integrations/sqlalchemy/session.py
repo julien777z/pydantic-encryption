@@ -15,7 +15,7 @@ from pydantic_encryption.integrations.sqlalchemy.bulk import (
 class AutoDecryptAsyncSession(AsyncSession):
     """AsyncSession subclass preserved for wiring compatibility; exposes an explicit drain helper."""
 
-    async def drain_pending_decrypt(self) -> None:
+    async def decrypt_pending_fields(self) -> None:
         """Force-decrypt every encrypted column on every instance in the pending bucket."""
 
         pending: dict[type, WeakSet] | None = self.info.pop(PENDING_DECRYPT_KEY, None)
