@@ -1,6 +1,6 @@
 from typing import Any
 
-from pydantic_encryption._lazy import require_optional_dependency
+from pydantic_encryption.lazy import require_optional_dependency
 
 require_optional_dependency("sqlalchemy", "sqlalchemy")
 
@@ -12,7 +12,7 @@ except ImportError:
 from sqlalchemy.exc import MissingGreenlet
 from sqlalchemy.orm import object_session
 
-from pydantic_encryption.integrations.sqlalchemy._state import pending_siblings
+from pydantic_encryption.integrations.sqlalchemy.state import pending_siblings
 from pydantic_encryption.integrations.sqlalchemy.bulk import decrypt_rows
 from pydantic_encryption.types import EncryptedValue, EncryptedValueAccessError
 

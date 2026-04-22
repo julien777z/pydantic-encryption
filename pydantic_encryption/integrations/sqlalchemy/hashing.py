@@ -1,11 +1,11 @@
-from pydantic_encryption._lazy import require_optional_dependency
+from pydantic_encryption.lazy import require_optional_dependency
 
 require_optional_dependency("sqlalchemy", "sqlalchemy")
 
 from sqlalchemy.types import LargeBinary, TypeDecorator
 
 from pydantic_encryption.adapters.hashing.argon2 import Argon2Adapter
-from pydantic_encryption.integrations.sqlalchemy._async_bridge import run_async_or_sync
+from pydantic_encryption.integrations.sqlalchemy.async_bridge import run_async_or_sync
 from pydantic_encryption.types import HashedValue
 
 

@@ -2,7 +2,7 @@ import asyncio
 from collections.abc import Awaitable, Iterable
 from typing import Any
 
-from pydantic_encryption._lazy import require_optional_dependency
+from pydantic_encryption.lazy import require_optional_dependency
 
 require_optional_dependency("sqlalchemy", "sqlalchemy")
 
@@ -12,7 +12,7 @@ from sqlalchemy.orm.attributes import InstrumentedAttribute
 
 from pydantic_encryption.adapters.registry import get_encryption_backend
 from pydantic_encryption.config import settings
-from pydantic_encryption.integrations.sqlalchemy._state import (
+from pydantic_encryption.integrations.sqlalchemy.state import (
     PENDING_DECRYPT_KEY,
     read_raw_cell,
     set_decrypted,

@@ -1,7 +1,7 @@
 import threading
 from typing import Any, ClassVar
 
-from pydantic_encryption._lazy import require_optional_dependency
+from pydantic_encryption.lazy import require_optional_dependency
 
 require_optional_dependency("boto3", "aws")
 require_optional_dependency("aws_encryption_sdk", "aws")
