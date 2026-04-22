@@ -2,6 +2,7 @@ import asyncio
 from collections import defaultdict
 from types import SimpleNamespace
 from typing import Any
+from weakref import WeakSet
 
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import DeclarativeBase, Mapped, configure_mappers, mapped_column
@@ -72,7 +73,7 @@ class TestOnOrmLoadListener:
         _on_orm_load(instance, context)
 
         bucket = session.info[PENDING_DECRYPT_KEY]
-        assert bucket[_AutoDecryptUser] == [instance]
+        assert instance in bucket[_AutoDecryptUser]
 
     def test_noop_when_session_is_none(self):
         context = SimpleNamespace(session=None)
@@ -94,8 +95,20 @@ class TestOnOrmLoadListener:
         _on_orm_load(blob, context)
 
         bucket = session.info[PENDING_DECRYPT_KEY]
-        assert bucket[_AutoDecryptUser] == [user_a, user_b]
-        assert bucket[_AutoDecryptBlob] == [blob]
+        assert set(bucket[_AutoDecryptUser]) == {user_a, user_b}
+        assert set(bucket[_AutoDecryptBlob]) == {blob}
+
+    def test_refresh_dedups_same_instance(self):
+        session = SimpleNamespace(info={})
+        context = SimpleNamespace(session=session)
+        instance = _AutoDecryptUser(id=1)
+
+        _on_orm_load(instance, context)
+        _on_orm_load(instance, context)
+        _on_orm_load(instance, context)
+
+        bucket = session.info[PENDING_DECRYPT_KEY]
+        assert len(bucket[_AutoDecryptUser]) == 1
 
 
 class TestAutoDecryptAsyncSession:
@@ -106,9 +119,9 @@ class TestAutoDecryptAsyncSession:
         user = _AutoDecryptUser(id=1, email=_wrap("a@x.com"))
         blob = _AutoDecryptBlob(id=1, payload=_wrap(b"shh"))
 
-        bucket: dict[type, list[Any]] = defaultdict(list)
-        bucket[_AutoDecryptUser].append(user)
-        bucket[_AutoDecryptBlob].append(blob)
+        bucket: dict[type, WeakSet] = defaultdict(WeakSet)
+        bucket[_AutoDecryptUser].add(user)
+        bucket[_AutoDecryptBlob].add(blob)
         session.info[PENDING_DECRYPT_KEY] = bucket
 
         asyncio.run(session.drain_pending_decrypt())
@@ -159,9 +172,9 @@ class TestDrainParallelism:
         user = _AutoDecryptUser(id=1, email=_wrap("a@x.com"))
         blob = _AutoDecryptBlob(id=1, payload=_wrap(b"shh"))
 
-        bucket: dict[type, list[Any]] = defaultdict(list)
-        bucket[_AutoDecryptUser].append(user)
-        bucket[_AutoDecryptBlob].append(blob)
+        bucket: dict[type, WeakSet] = defaultdict(WeakSet)
+        bucket[_AutoDecryptUser].add(user)
+        bucket[_AutoDecryptBlob].add(blob)
         session.info[PENDING_DECRYPT_KEY] = bucket
 
         gather_calls: list[int] = []

@@ -1,4 +1,4 @@
-from typing import Any
+from weakref import WeakSet
 
 from pydantic_encryption._lazy import require_optional_dependency
 
@@ -18,7 +18,7 @@ class AutoDecryptAsyncSession(AsyncSession):
     async def drain_pending_decrypt(self) -> None:
         """Force-decrypt every encrypted column on every instance in the pending bucket."""
 
-        pending: dict[type, list[Any]] | None = self.info.pop(PENDING_DECRYPT_KEY, None)
+        pending: dict[type, WeakSet] | None = self.info.pop(PENDING_DECRYPT_KEY, None)
         if not pending:
             return
         all_instances = [instance for instances in pending.values() for instance in instances]

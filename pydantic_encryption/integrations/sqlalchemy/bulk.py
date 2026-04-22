@@ -2,13 +2,13 @@ import asyncio
 from collections import defaultdict
 from collections.abc import Iterable
 from typing import Any, Self
+from weakref import WeakSet
 
 from pydantic_encryption._lazy import require_optional_dependency
 
 require_optional_dependency("sqlalchemy", "sqlalchemy")
 
 from sqlalchemy import event, inspect as sa_inspect
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import object_session
 from sqlalchemy.orm.attributes import InstrumentedAttribute, set_committed_value
 
@@ -236,7 +236,10 @@ def _pending_siblings(session: Any, cls: type) -> list[Any]:
     bucket = info.get(PENDING_DECRYPT_KEY)
     if not bucket:
         return []
-    return list(bucket.get(cls, []))
+    siblings = bucket.get(cls)
+    if siblings is None:
+        return []
+    return list(siblings)
 
 
 def _decrypt_column_batch_sync(rows: list[Any], column_key: str) -> None:
@@ -325,8 +328,8 @@ def _on_orm_load(instance: Any, context: Any) -> None:
     session = context.session
     if session is None:
         return
-    bucket: dict[type, list[Any]] = session.info.setdefault(PENDING_DECRYPT_KEY, defaultdict(list))
-    bucket[type(instance)].append(instance)
+    bucket: dict[type, WeakSet] = session.info.setdefault(PENDING_DECRYPT_KEY, defaultdict(WeakSet))
+    bucket[type(instance)].add(instance)
 
 
 def _on_orm_refresh(instance: Any, context: Any, attrs: Any) -> None:

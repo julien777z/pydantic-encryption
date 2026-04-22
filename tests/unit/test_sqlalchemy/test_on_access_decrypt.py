@@ -195,14 +195,17 @@ class TestPendingSiblings:
     def test_returns_instances_when_class_present_in_bucket(self):
         from types import SimpleNamespace
         from collections import defaultdict
+        from weakref import WeakSet
 
         a = _OnAccessContractor(id=1)
         b = _OnAccessContractor(id=2)
-        bucket: dict[type, list[Any]] = defaultdict(list)
-        bucket[_OnAccessContractor].extend([a, b])
+        bucket: dict[type, WeakSet] = defaultdict(WeakSet)
+        bucket[_OnAccessContractor].add(a)
+        bucket[_OnAccessContractor].add(b)
         session = SimpleNamespace(info={PENDING_DECRYPT_KEY: bucket})
 
-        assert _pending_siblings(session, _OnAccessContractor) == [a, b]
+        siblings = _pending_siblings(session, _OnAccessContractor)
+        assert set(siblings) == {a, b}
 
     def test_returns_empty_list_when_session_is_none(self):
         assert _pending_siblings(None, _OnAccessContractor) == []

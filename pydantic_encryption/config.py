@@ -22,7 +22,7 @@ class Settings(BaseSettings):
 
     ENCRYPTION_METHOD: EncryptionMethod | None = None
 
-    AWS_KMS_PLAINTEXT_CACHE_ENABLED: bool = True
+    AWS_KMS_PLAINTEXT_CACHE_ENABLED: bool = False
     AWS_KMS_PLAINTEXT_CACHE_CAPACITY: int = 2048
 
     DECRYPT_CONCURRENCY: int = 32
