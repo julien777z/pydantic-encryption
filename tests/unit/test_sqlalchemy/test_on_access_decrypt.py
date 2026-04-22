@@ -210,7 +210,7 @@ class TestDescriptorRaisesOnDetachedRead:
 
         assert a.id == 42
 
-    def test_no_greenlet_raises_access_error(self):
+    def test_no_greenlet_falls_back_to_sync_decrypt(self):
         a = _OnAccessContractor(id=1, first_name=_wrap("Ada"))
         fake_session = SimpleNamespace(info={})
 
@@ -218,10 +218,7 @@ class TestDescriptorRaisesOnDetachedRead:
             "pydantic_encryption.integrations.sqlalchemy.descriptor.object_session",
             return_value=fake_session,
         ):
-            with pytest.raises(EncryptedValueAccessError) as exc_info:
-                _ = a.first_name
-
-        assert "greenlet" in str(exc_info.value).lower()
+            assert a.first_name == "Ada"
 
     def test_decrypt_method_unblocks_subsequent_reads(self):
         """After awaiting instance.decrypt(), the attribute reads return plaintext."""

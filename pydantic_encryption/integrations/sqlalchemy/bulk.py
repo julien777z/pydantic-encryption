@@ -109,6 +109,30 @@ async def decrypt_rows(
         set_decrypted(row, key, plaintext)
 
 
+def decrypt_rows_sync(
+    rows: Iterable[Any], *columns: InstrumentedAttribute | str
+) -> None:
+    """Sync decrypt fallback for descriptor reads outside an async-session greenlet."""
+
+    if not columns:
+        return
+
+    rows_list = list(rows)
+    if not rows_list:
+        return
+
+    backend = _resolve_backend()
+    column_keys = [_column_key(c) for c in columns]
+
+    for row in rows_list:
+        for key in column_keys:
+            value = read_raw_cell(row, key)
+            if not isinstance(value, EncryptedValue):
+                continue
+            plaintext = decode_value(backend.decrypt(bytes(value)))
+            set_decrypted(row, key, plaintext)
+
+
 async def decrypt_values(
     values: Iterable[Any],
     *,
@@ -227,5 +251,6 @@ __all__ = [
     "collect_encrypted_cells",
     "decrypt_pending_fields",
     "decrypt_rows",
+    "decrypt_rows_sync",
     "decrypt_values",
 ]

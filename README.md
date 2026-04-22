@@ -179,7 +179,7 @@ async with AsyncSession(engine) as session:
 
 ### Safety: catching accidental ciphertext access
 
-Reads go through the on-access descriptor. If a `DeferredDecryptMixin` column is still encrypted when accessed — because the row is detached or you're outside an async-session greenlet — the descriptor raises `EncryptedValueAccessError`. Call `await instance.decrypt()` or `await decrypt_pending_fields(session)` first.
+Reads go through the on-access descriptor. If a `DeferredDecryptMixin` column is still encrypted when accessed on a **detached** instance (no session), the descriptor raises `EncryptedValueAccessError`; call `await instance.decrypt()` or `await decrypt_pending_fields(session)` first. Reads from plain async code (outside an SA greenlet) fall back to a synchronous batch decrypt across the session's pending siblings and return plaintext transparently.
 
 If anything bypasses the descriptor and hands you an `EncryptedValue` directly (raw `state.dict[col]`, a logged row), coercing it via `str(value)` / `f"{value}"` / `"%s" % value` raises the same error. `repr(value)` is a safe `<EncryptedValue: N bytes>` marker, and `bytes(value)` returns the raw ciphertext. Use `is_encrypted(value)` to guard at a boundary.
 

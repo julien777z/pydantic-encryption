@@ -13,7 +13,7 @@ from sqlalchemy.exc import MissingGreenlet
 from sqlalchemy.orm import object_session
 
 from pydantic_encryption.integrations.sqlalchemy.state import pending_siblings
-from pydantic_encryption.integrations.sqlalchemy.bulk import decrypt_rows
+from pydantic_encryption.integrations.sqlalchemy.bulk import decrypt_rows, decrypt_rows_sync
 from pydantic_encryption.types import EncryptedValue, EncryptedValueAccessError
 
 
@@ -52,11 +52,7 @@ class DecryptOnAccessDescriptor:
         try:
             await_(decrypt_rows(rows, self._column_key))
         except MissingGreenlet:
-            raise EncryptedValueAccessError(
-                f"Cannot decrypt {self._cls.__name__}.{self._column_key} outside of an "
-                "async-session greenlet. Call `await decrypt_pending_fields(session)` or "
-                "`await instance.decrypt()` first."
-            )
+            decrypt_rows_sync(rows, self._column_key)
 
         return self._wrapped.__get__(instance, owner)
 
