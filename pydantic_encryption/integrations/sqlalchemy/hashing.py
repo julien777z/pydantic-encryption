@@ -10,12 +10,7 @@ from pydantic_encryption.types import HashedValue
 
 
 class SQLAlchemyHashedValue(TypeDecorator):
-    """SQLAlchemy column type that Argon2-hashes strings on write.
-
-    Argon2 is memory-hard (tens of ms per call). Under ``AsyncSession``,
-    hashing uses SQLAlchemy's greenlet bridge so the event loop isn't blocked
-    during ``commit()``. Falls back to the blocking path for sync ``Session``.
-    """
+    """SQLAlchemy column type that Argon2-hashes strings on write."""
 
     impl = LargeBinary
     cache_ok = True

@@ -16,14 +16,7 @@ def run_async_or_sync(
     *args: Any,
     **kwargs: Any,
 ) -> T:
-    """Call ``async_fn`` via SQLAlchemy's greenlet bridge; fall back to ``sync_fn``.
-
-    Inside an ``AsyncSession`` greenlet spawn, ``await_`` suspends the calling
-    frame so the event loop keeps running during slow backends (e.g. AWS KMS).
-    Outside one, ``await_`` raises ``MissingGreenlet`` and we run the plain sync
-    version. The awaited coroutine is always consumed or closed to avoid a
-    ``RuntimeWarning: coroutine was never awaited``.
-    """
+    """Call ``async_fn`` via SQLAlchemy's greenlet bridge; fall back to ``sync_fn`` outside one."""
 
     coro = async_fn(*args, **kwargs)
     try:

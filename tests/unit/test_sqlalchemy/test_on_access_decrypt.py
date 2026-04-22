@@ -5,10 +5,9 @@ from unittest.mock import patch
 from sqlalchemy import inspect as sa_inspect, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, configure_mappers, mapped_column
 
-from pydantic_encryption.integrations.sqlalchemy import DeferredDecryptMixin
+from pydantic_encryption.integrations.sqlalchemy import DeferredDecryptMixin, async_decrypt_rows
 from pydantic_encryption.integrations.sqlalchemy.bulk import (
     _DecryptOnAccessDescriptor,
-    _decrypt_column_batch_async,
     _decrypt_column_batch_sync,
     _pending_siblings,
     PENDING_DECRYPT_KEY,
@@ -89,7 +88,7 @@ class TestAsyncBatchAcrossSiblings:
         b = _OnAccessContractor(id=2, first_name=_wrap("Alan"), last_name=_wrap("Turing"))
         c = _OnAccessContractor(id=3, first_name=_wrap("Grace"), last_name=_wrap("Hopper"))
 
-        asyncio.run(_decrypt_column_batch_async([a, b, c], "first_name"))
+        asyncio.run(async_decrypt_rows([a, b, c], "first_name"))
 
         assert sa_inspect(a).dict["first_name"] == "Ada"
         assert sa_inspect(b).dict["first_name"] == "Alan"
@@ -114,7 +113,7 @@ class TestAsyncBatchAcrossSiblings:
             return await original_async_decrypt(ciphertext, key=key)
 
         with patch.object(FernetAdapter, "async_decrypt", side_effect=counting_decrypt):
-            asyncio.run(_decrypt_column_batch_async([a, b], "first_name"))
+            asyncio.run(async_decrypt_rows([a, b], "first_name"))
 
         assert call_count["n"] == 2
 

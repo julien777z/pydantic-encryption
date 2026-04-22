@@ -5,11 +5,7 @@ from pydantic_encryption.types import BlindIndexValue, EncryptedValue, HashedVal
 
 
 class EncryptionAdapter(ABC):
-    """Abstract base class for encryption adapters.
-
-    Subclasses implement sync `encrypt` and `decrypt`. Async variants default to
-    running the sync method in a thread; override them for natively-async backends.
-    """
+    """Abstract base class for encryption adapters."""
 
     @classmethod
     @abstractmethod

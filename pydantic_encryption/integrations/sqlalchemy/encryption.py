@@ -16,13 +16,7 @@ from pydantic_encryption.types import EncryptedValue
 
 
 class SQLAlchemyEncryptedValue(TypeDecorator):
-    """SQLAlchemy column type that encrypts on write and decrypts on read.
-
-    Under ``AsyncSession``, encryption and decryption use SQLAlchemy's greenlet
-    bridge so network-bound backends (e.g. AWS KMS) yield the event loop. For
-    true parallelism across many rows, inherit :class:`DeferredDecryptMixin`
-    and combine with :func:`async_decrypt_rows` post-fetch.
-    """
+    """SQLAlchemy column type that encrypts on write and decrypts on read."""
 
     impl = LargeBinary
     cache_ok = True

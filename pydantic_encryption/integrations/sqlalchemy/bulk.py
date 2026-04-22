@@ -30,7 +30,7 @@ def _column_name(column: InstrumentedAttribute | str) -> str:
 
 
 def _read_raw_cell(row: Any, name: str) -> Any:
-    """Read a column's stored value from ORM state, bypassing any on-access descriptor."""
+    """Read a column's stored value via ORM state, bypassing attribute descriptors."""
 
     state = sa_inspect(row, raiseerr=False)
     if state is not None and hasattr(state, "dict"):
@@ -39,7 +39,7 @@ def _read_raw_cell(row: Any, name: str) -> Any:
 
 
 def _resolve_concurrency(concurrency: int | None) -> int | None:
-    """Fall back to the global DECRYPT_CONCURRENCY setting when a caller doesn't pass one."""
+    """Resolve to settings.DECRYPT_CONCURRENCY when the caller didn't supply one."""
 
     if concurrency is not None:
         return concurrency
@@ -51,7 +51,7 @@ def _build_decrypt_cell(
     concurrency: int | None,
     caller_name: str,
 ):
-    """Build a single decrypt-one-cell coroutine factory shared by the bulk helpers."""
+    """Build a single-cell decrypt coroutine factory with optional semaphore."""
 
     if settings.ENCRYPTION_METHOD is None:
         raise ValueError(f"ENCRYPTION_METHOD must be set to use {caller_name}.")
@@ -77,19 +77,7 @@ async def async_decrypt_rows(
     *columns: InstrumentedAttribute | str,
     concurrency: int | None = None,
 ) -> None:
-    """Bulk-decrypt deferred encrypted columns across many rows in parallel.
-
-    Each non-``None`` ``(row, column)`` cell becomes one ``async_decrypt`` task.
-    All tasks run via a single ``asyncio.gather``. Concurrency defaults to
-    ``settings.DECRYPT_CONCURRENCY`` (``32``) unless overridden; pass
-    ``concurrency=None`` explicitly and set ``DECRYPT_CONCURRENCY=0`` to disable
-    the cap entirely.
-
-    Columns may be passed as SQLAlchemy ``InstrumentedAttribute`` (e.g.
-    ``User.email``) or plain strings (``"email"``). Decrypted values are
-    written back via ``set_committed_value`` so they do not mark the row as
-    dirty for the next flush.
-    """
+    """Decrypt the given columns across every row in one asyncio.gather."""
 
     if not columns:
         return
@@ -120,7 +108,7 @@ async def async_decrypt_rows(
 
 
 def _set_decrypted(row: Any, name: str, plaintext: Any) -> None:
-    """Set a decrypted value on a row without marking the column as dirty for the next flush."""
+    """Commit a decrypted value on a row without marking it dirty for the next flush."""
 
     state = sa_inspect(row, raiseerr=False)
     if state is None or not hasattr(state, "mapper"):
@@ -134,13 +122,7 @@ async def async_decrypt_values(
     *,
     concurrency: int | None = None,
 ) -> list[Any]:
-    """Bulk-decrypt a flat iterable of ciphertexts, preserving ``None`` positions.
-
-    Returned list has the same length as ``values`` with plaintexts substituted
-    for each non-``None`` input. Any cell already holding plaintext (not
-    ``bytes``/``bytearray``) is passed through untouched, matching the read-
-    path convention used by ``async_decrypt_rows``.
-    """
+    """Decrypt a flat iterable of ciphertexts, preserving None and plaintext passthrough."""
 
     values_list = list(values)
     if not values_list:
@@ -171,7 +153,7 @@ async def async_decrypt_values(
 
 
 async def _bulk_decrypt(entities: Any | Iterable[Any] | None) -> None:
-    """Walk entities + loaded relationships and batch-decrypt deferred encrypted cells."""
+    """Walk entities + loaded relationships and decrypt every deferred cell."""
 
     collected: dict[tuple[type, str], list[Any]] = {}
     visited: set[int] = set()
@@ -193,7 +175,7 @@ def _collect_encrypted_cells(
     collected: dict[tuple[type, str], list[Any]],
     visited: set[int],
 ) -> None:
-    """Walk entities (and loaded relationships) and group rows by (class, column) for deferred-encrypted cells."""
+    """Group deferred-encrypted cells by (class, column), walking loaded relationships."""
 
     if entities is None:
         return
@@ -247,7 +229,7 @@ def _collect_encrypted_cells(
 
 
 def _pending_siblings(session: Any, cls: type) -> list[Any]:
-    """Pull pending-decrypt instances for `cls` from the session bucket (empty list if absent)."""
+    """Pending-decrypt instances of cls in session (empty list if absent)."""
 
     if session is None:
         return []
@@ -260,14 +242,8 @@ def _pending_siblings(session: Any, cls: type) -> list[Any]:
     return list(bucket.get(cls, []))
 
 
-async def _decrypt_column_batch_async(rows: list[Any], column_key: str) -> None:
-    """Batch-decrypt one encrypted column across every row via a single asyncio.gather."""
-
-    await async_decrypt_rows(rows, column_key)
-
-
 def _decrypt_column_batch_sync(rows: list[Any], column_key: str) -> None:
-    """Sync fallback used when no greenlet context is available (tests, CLI scripts)."""
+    """Sync fallback used outside any greenlet context."""
 
     if settings.ENCRYPTION_METHOD is None:
         raise ValueError("ENCRYPTION_METHOD must be set to decrypt on attribute access.")
@@ -283,14 +259,7 @@ def _decrypt_column_batch_sync(rows: list[Any], column_key: str) -> None:
 
 
 class _DecryptOnAccessDescriptor:
-    """Class-level wrapper around an encrypted column's ``InstrumentedAttribute`` that
-    batch-decrypts the column across all pending-session siblings on first read.
-
-    - Class-level access (e.g. ``Contractor.first_name == "x"``) returns the wrapped
-      ``InstrumentedAttribute`` unchanged, so ORM query construction is unaffected.
-    - Instance-level access triggers a per-column batch decrypt when the stored cell
-      is still an ``EncryptedValue``; subsequent reads get the plaintext for free.
-    """
+    """InstrumentedAttribute wrapper that batch-decrypts one column across session siblings on first read."""
 
     __slots__ = ("_wrapped", "_cls", "_column_key")
 
@@ -307,7 +276,7 @@ class _DecryptOnAccessDescriptor:
             session = object_session(instance)
             siblings = _pending_siblings(session, self._cls) or [instance]
             run_async_or_sync(
-                _decrypt_column_batch_async,
+                async_decrypt_rows,
                 _decrypt_column_batch_sync,
                 siblings,
                 self._column_key,
@@ -326,13 +295,7 @@ class _DecryptOnAccessDescriptor:
 
 
 def _install_decrypt_hooks(mapper, class_) -> None:
-    """Mark encrypted columns as deferred and install on-access decrypt descriptors.
-
-    Replaces each encrypted column's class attribute with a descriptor that
-    delegates to the original ``InstrumentedAttribute`` but decrypts on first
-    read. Safe to call multiple times — already-installed descriptors are
-    left in place.
-    """
+    """Mark encrypted columns deferred and wrap them with the on-access descriptor."""
 
     for column in mapper.columns:
         if not isinstance(column.type, SQLAlchemyEncryptedValue):
@@ -358,7 +321,7 @@ def _install_decrypt_hooks(mapper, class_) -> None:
 
 
 def _on_orm_load(instance: Any, context: Any) -> None:
-    """Collect freshly loaded DeferredDecryptMixin instances into the session's pending bucket."""
+    """Add a freshly loaded instance to the session's pending-decrypt bucket."""
 
     if context is None:
         return
@@ -370,25 +333,13 @@ def _on_orm_load(instance: Any, context: Any) -> None:
 
 
 def _on_orm_refresh(instance: Any, context: Any, attrs: Any) -> None:
-    """Collect refreshed DeferredDecryptMixin instances into the session's pending bucket."""
+    """Re-add a refreshed instance to the session's pending-decrypt bucket."""
 
     _on_orm_load(instance, context)
 
 
 class DeferredDecryptMixin:
-    """Mixin that defers decryption of ``SQLAlchemyEncryptedValue`` columns until the
-    first attribute access, then batch-decrypts each column across all sibling
-    instances loaded into the same session.
-
-    No call-site changes are needed: reading ``contractor.first_name`` on any
-    loaded contractor decrypts ``first_name`` across every contractor in the
-    session in one ``asyncio.gather``; columns the response never reads stay
-    encrypted and cost nothing.
-
-    ``decrypt()`` / ``decrypt_many()`` remain available for the rare call sites
-    that want to pre-warm many columns at once (e.g. serializing a large
-    pre-built payload outside of any session context).
-    """
+    """Defer encrypted-column decryption until first attribute access, batched per column."""
 
     def __init_subclass__(cls, **kwargs) -> None:
         super().__init_subclass__(**kwargs)
@@ -397,7 +348,7 @@ class DeferredDecryptMixin:
         event.listen(cls, "refresh", _on_orm_refresh)
 
     async def decrypt(self) -> Self:
-        """Decrypt deferred encrypted columns on this instance and any loaded relationships."""
+        """Decrypt every deferred encrypted column on this instance and loaded relationships."""
 
         await _bulk_decrypt(self)
 
@@ -405,7 +356,7 @@ class DeferredDecryptMixin:
 
     @classmethod
     async def decrypt_many(cls, entities: Any | Iterable[Any] | None) -> None:
-        """Decrypt deferred encrypted columns on the given entities (single, iterable, or None) and any loaded relationships."""
+        """Decrypt every deferred encrypted column on the given entities and loaded relationships."""
 
         await _bulk_decrypt(entities)
 

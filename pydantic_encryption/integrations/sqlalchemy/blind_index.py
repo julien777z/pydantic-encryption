@@ -12,12 +12,7 @@ from pydantic_encryption.types import BlindIndexMethod, BlindIndexValue
 
 
 class SQLAlchemyBlindIndexValue(TypeDecorator):
-    """SQLAlchemy column type that stores a deterministic blind index.
-
-    The Argon2 blind index backend is memory-hard. Under ``AsyncSession`` the
-    greenlet bridge is used so write-side index computation doesn't block the
-    event loop. Falls back to the sync path for plain ``Session``.
-    """
+    """SQLAlchemy column type that stores a deterministic blind index."""
 
     impl = LargeBinary
     cache_ok = True

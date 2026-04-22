@@ -20,15 +20,7 @@ from pydantic_encryption.types import EncryptedValue
 
 
 class AWSAdapter(EncryptionAdapter):
-    """Adapter for AWS KMS encryption with a ciphertext->plaintext cache on decrypt.
-
-    AWS KMS decrypt is the dominant cost on read-heavy paths. The aws-encryption-sdk
-    uses a fresh data key per encrypt call, so CMM-level data-key caching rarely
-    hits on decrypt across different rows. A plaintext cache keyed by the full
-    ciphertext is far more effective: the same ciphertext produces the same
-    plaintext forever, and repeated reads of the same row (very common in
-    paginated list endpoints hit in succession) collapse to zero KMS calls.
-    """
+    """AWS KMS adapter with an in-process ciphertext->plaintext cache on decrypt."""
 
     _kms_client: ClassVar[Any | None] = None
     _encryption_client: ClassVar[Any | None] = None
