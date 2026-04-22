@@ -126,9 +126,9 @@ Each element is individually encrypted. Requires PostgreSQL.
 `TypeDecorator` is sync by contract, so slow backends (AWS KMS) can block the event loop. Two paths:
 
 - **Default.** Under `AsyncSession`, decryption uses SQLAlchemy's greenlet bridge so each call yields the event loop. Argon2 hashing and blind-indexing use the same bridge.
-- **Parallel batch decrypt.** `DeferredDecryptMixin` + `AutoDecryptAsyncSession` decrypts all loaded cells concurrently via `asyncio.gather`, turning N sequential roundtrips into one concurrent burst.
+- **On-access batch decrypt.** `DeferredDecryptMixin` defers each encrypted column until the first read, then batch-decrypts that column across every sibling instance loaded into the same session via a single `asyncio.gather`. Columns the caller never reads stay encrypted and cost nothing.
 
-Mix the helper into any model with encrypted columns and read through `AutoDecryptAsyncSession`:
+Mix the helper into any model with encrypted columns and read as usual:
 
 ```python
 from pydantic_encryption import (
@@ -145,29 +145,29 @@ class User(Base, DeferredDecryptMixin):
 
 
 Session = async_sessionmaker(engine, class_=AutoDecryptAsyncSession, expire_on_commit=False)
+
+async with Session() as session:
+    result = await session.execute(select(User))
+    users = result.scalars().all()
+
+    # First read of `email` batch-decrypts it across every user in the session.
+    for user in users:
+        print(user.email)
 ```
 
-Streaming queries (`session.stream` / `session.stream_scalars`) bypass the auto-drain — call `Model.decrypt_many(batch)` per chunk or materialize with `.all()`.
+`AutoDecryptAsyncSession` exposes `drain_pending_decrypt()` as an optional escape hatch when you need to pre-warm every encrypted column on every loaded row before leaving the session context (e.g. serializing outside a greenlet spawn).
 
-**Manual escape hatches** for vanilla `AsyncSession` or rows loaded outside a tracked `execute`:
+**Manual helpers** for vanilla `AsyncSession` or rows loaded outside a session:
 
 ```python
 from pydantic_encryption import async_decrypt_rows, async_decrypt_values
 
 
-class User(Base, DeferredDecryptMixin):
-    __tablename__ = "users"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    email: Mapped[bytes] = mapped_column(SQLAlchemyEncryptedValue())
-
-
 async with AsyncSession(engine) as session:
-    user = await session.get(User, 1)
-    result = await session.execute(select(User))
-    users = result.scalars().all()
+    users = (await session.execute(select(User))).scalars().all()
     ciphertexts = [u.email for u in users]
 
-    await user.decrypt()                                        # one mixin instance
+    await users[0].decrypt()                                    # one mixin instance
     await User.decrypt_many(users)                              # batch of one class
     await async_decrypt_rows(users, User.email, concurrency=8)  # InstrumentedAttribute or column names
     await async_decrypt_values(ciphertexts, concurrency=8)      # flat ciphertexts; preserves None positions
@@ -254,6 +254,17 @@ AWS_KMS_DECRYPT_KEY_ARN=arn:aws:kms:...decrypt-key
 ```
 
 Use one mode or the other — combining `AWS_KMS_KEY_ARN` with either split variant raises a validation error. A decrypt-only key alone is allowed (read-only workloads).
+
+#### Plaintext cache (opt-in)
+
+For read-heavy workloads that repeatedly decrypt the same ciphertexts, AWS KMS round-trips dominate. An in-process LRU of ciphertext → plaintext is available as opt-in:
+
+```bash
+AWS_KMS_PLAINTEXT_CACHE_ENABLED=true      # default: false
+AWS_KMS_PLAINTEXT_CACHE_CAPACITY=2048     # default: 2048 entries
+```
+
+Disabled by default because cache entries hold decrypted sensitive data in a process-wide `cachetools.LRUCache` for the lifetime of the process. Enable it when the perf win outweighs keeping plaintext resident in memory.
 
 ### Model-Level Config
 
