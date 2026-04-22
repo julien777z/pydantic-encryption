@@ -164,28 +164,24 @@ async with Session() as session:
 **Manual helpers** for rows loaded outside a session or flat ciphertext lists:
 
 ```python
-from pydantic_encryption import async_decrypt_rows, async_decrypt_values
+from pydantic_encryption import decrypt_rows, decrypt_values
 
 
 async with AsyncSession(engine) as session:
     users = (await session.execute(select(User))).scalars().all()
     ciphertexts = [u.email for u in users]
 
-    await users[0].decrypt()                                    # one mixin instance
-    await User.decrypt_many(users)                              # batch of one class
-    await async_decrypt_rows(users, User.email, concurrency=8)  # InstrumentedAttribute or column names
-    await async_decrypt_values(ciphertexts, concurrency=8)      # flat ciphertexts; preserves None positions
+    await users[0].decrypt()                              # one mixin instance
+    await User.decrypt_many(users)                        # batch of one class
+    await decrypt_rows(users, User.email, concurrency=8)  # InstrumentedAttribute or column names
+    await decrypt_values(ciphertexts, concurrency=8)      # flat ciphertexts; preserves None positions
 ```
 
 ### Safety: catching accidental ciphertext access
 
-`EncryptedValue` is a `bytes` subclass, so anything that bypasses the on-access descriptor (raw `state.dict[col]`, a detached row passed to a FastAPI response, a log line on a pickled row) could silently emit ciphertext that *looks* like a value. Three guards make that loud:
+Reads go through the on-access descriptor. If a `DeferredDecryptMixin` column is still encrypted when accessed — because the row is detached or you're outside an async-session greenlet — the descriptor raises `EncryptedValueAccessError`. Call `await instance.decrypt()` or `await decrypt_pending_fields(session)` first.
 
-- `repr(value)` returns `<EncryptedValue: N bytes>` instead of leaking raw ciphertext into logs.
-- `str(value)`, `f"{value}"`, `"%s" % value` raise `EncryptedValueAccessError` with a message pointing at the decrypt path. Use `bytes(value)` if you explicitly want the raw ciphertext (backups, transport).
-- `is_encrypted(value)` is a cheap public helper for boundary code that needs to guard a payload.
-
-For workloads that pass ORM rows across async boundaries (queue workers, pickled rows), set `DECRYPT_STRICT_DETACHED=true`. With strict mode enabled, reading an encrypted column on a detached instance raises `EncryptedValueAccessError` instead of silently falling back to synchronous decrypt — forcing the caller to `await instance.decrypt()` or `await decrypt_pending_fields(session)` up front.
+If anything bypasses the descriptor and hands you an `EncryptedValue` directly (raw `state.dict[col]`, a logged row), coercing it via `str(value)` / `f"{value}"` / `"%s" % value` raises the same error. `repr(value)` is a safe `<EncryptedValue: N bytes>` marker, and `bytes(value)` returns the raw ciphertext. Use `is_encrypted(value)` to guard at a boundary.
 
 ## Manual Encryption or Hashing
 

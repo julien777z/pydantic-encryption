@@ -5,13 +5,12 @@ from typing import Any
 from unittest.mock import patch
 from weakref import WeakSet
 
+import pytest
 from sqlalchemy import inspect as sa_inspect, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, configure_mappers, mapped_column
 
-from pydantic_encryption.config import settings
-from pydantic_encryption.integrations.sqlalchemy import DeferredDecryptMixin, async_decrypt_rows
+from pydantic_encryption.integrations.sqlalchemy import DeferredDecryptMixin, decrypt_rows
 from pydantic_encryption.integrations.sqlalchemy._state import PENDING_DECRYPT_KEY, pending_siblings
-from pydantic_encryption.integrations.sqlalchemy.bulk import _decrypt_rows_sync
 from pydantic_encryption.integrations.sqlalchemy.descriptor import DecryptOnAccessDescriptor
 from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue
 from pydantic_encryption.types import EncryptedValue, EncryptedValueAccessError
@@ -36,7 +35,7 @@ class _OnAccessContractor(_OnAccessBase, DeferredDecryptMixin):
 
 
 class _OnAccessBytesRow(_OnAccessBase, DeferredDecryptMixin):
-    """Bytes-typed encrypted column; decrypted plaintext is indistinguishable from ciphertext by bytes-check."""
+    """Bytes-typed encrypted column for coverage of the same descriptor install path."""
 
     __tablename__ = "_on_access_bytes_row"
 
@@ -106,24 +105,8 @@ class TestDescriptorInstallation:
 
         assert descriptor.key == "first_name"
 
-    def test_descriptor_includes_current_instance_when_missing_from_siblings(self):
-        """Reading current instance must decrypt it even when siblings list lacks it."""
 
-        sibling = _OnAccessContractor(id=1, first_name=_wrap("Ada"))
-        current = _OnAccessContractor(id=2, first_name=_wrap("Alan"))
-
-        bucket: dict[type, WeakSet] = defaultdict(WeakSet)
-        bucket[_OnAccessContractor].add(sibling)
-        fake_session = SimpleNamespace(info={PENDING_DECRYPT_KEY: bucket})
-
-        with patch(
-            "pydantic_encryption.integrations.sqlalchemy.descriptor.object_session",
-            return_value=fake_session,
-        ):
-            assert current.first_name == "Alan"
-
-
-class TestAsyncBatchAcrossSiblings:
+class TestBatchAcrossSiblings:
     """Test that the async batch helper decrypts one column across every row in parallel."""
 
     def test_batches_across_every_row(self):
@@ -131,7 +114,7 @@ class TestAsyncBatchAcrossSiblings:
         b = _OnAccessContractor(id=2, first_name=_wrap("Alan"), last_name=_wrap("Turing"))
         c = _OnAccessContractor(id=3, first_name=_wrap("Grace"), last_name=_wrap("Hopper"))
 
-        asyncio.run(async_decrypt_rows([a, b, c], "first_name"))
+        asyncio.run(decrypt_rows([a, b, c], "first_name"))
 
         assert sa_inspect(a).dict["first_name"] == "Ada"
         assert sa_inspect(b).dict["first_name"] == "Alan"
@@ -147,11 +130,11 @@ class TestAsyncBatchAcrossSiblings:
         a = _OnAccessBytesRow(id=1, payload=_wrap(b"secret-a"))
         b = _OnAccessBytesRow(id=2, payload=_wrap(b"secret-b"))
 
-        asyncio.run(async_decrypt_rows([a], "payload"))
+        asyncio.run(decrypt_rows([a], "payload"))
 
         assert sa_inspect(a).dict["payload"] == b"secret-a"
 
-        asyncio.run(async_decrypt_rows([a, b], "payload"))
+        asyncio.run(decrypt_rows([a, b], "payload"))
 
         assert sa_inspect(a).dict["payload"] == b"secret-a"
         assert sa_inspect(b).dict["payload"] == b"secret-b"
@@ -171,29 +154,9 @@ class TestAsyncBatchAcrossSiblings:
             return await original_async_decrypt(ciphertext, key=key)
 
         with patch.object(FernetAdapter, "async_decrypt", side_effect=counting_decrypt):
-            asyncio.run(async_decrypt_rows([a, b], "first_name"))
+            asyncio.run(decrypt_rows([a, b], "first_name"))
 
         assert call_count["n"] == 2
-
-
-class TestSyncFallback:
-    """Test that the sync fallback decrypts each row in sequence."""
-
-    def test_sync_fallback_decrypts_every_row(self):
-        a = _OnAccessContractor(id=1, first_name=_wrap("Ada"))
-        b = _OnAccessContractor(id=2, first_name=_wrap("Alan"))
-
-        _decrypt_rows_sync([a, b], "first_name")
-
-        assert sa_inspect(a).dict["first_name"] == "Ada"
-        assert sa_inspect(b).dict["first_name"] == "Alan"
-
-    def test_sync_fallback_noop_when_already_plaintext(self):
-        a = _OnAccessContractor(id=1, first_name="Ada")
-
-        _decrypt_rows_sync([a], "first_name")
-
-        assert sa_inspect(a).dict["first_name"] == "Ada"
 
 
 class TestPendingSiblings:
@@ -218,74 +181,36 @@ class TestPendingSiblings:
         assert pending_siblings(None, _OnAccessContractor) == []
 
 
-class TestDescriptorReadPath:
-    """Test that attribute reads trigger decryption lazily and cache the plaintext."""
+class TestDescriptorRaisesOnDetachedRead:
+    """Test that reading an encrypted attribute on a detached instance always raises."""
 
     @classmethod
     def setup_class(cls):
         configure_mappers()
 
-    def test_first_read_decrypts_subsequent_reads_are_cached(self):
+    def test_detached_instance_raises_access_error(self):
         a = _OnAccessContractor(id=1, first_name=_wrap("Ada"))
 
-        assert isinstance(sa_inspect(a).dict["first_name"], EncryptedValue)
-
-        assert a.first_name == "Ada"
-
-        assert sa_inspect(a).dict["first_name"] == "Ada"
-
-    def test_second_read_does_not_retrigger_decrypt(self):
-        a = _OnAccessContractor(id=1, first_name=_wrap("Ada"))
-
-        call_count = {"n": 0}
-
-        original_sync = _decrypt_rows_sync
-
-        def counting_sync(rows, *columns):
-            call_count["n"] += 1
-            return original_sync(rows, *columns)
-
-        with patch(
-            "pydantic_encryption.integrations.sqlalchemy.descriptor._decrypt_rows_sync",
-            side_effect=counting_sync,
-        ):
-            _ = a.first_name
-            _ = a.first_name
+        with pytest.raises(EncryptedValueAccessError) as exc_info:
             _ = a.first_name
 
-        assert call_count["n"] == 1
+        message = str(exc_info.value)
+        assert "_OnAccessContractor" in message
+        assert "first_name" in message
+        assert "detached" in message.lower()
 
-    def test_reading_one_column_leaves_others_encrypted(self):
-        a = _OnAccessContractor(id=1, first_name=_wrap("Ada"), last_name=_wrap("Lovelace"))
+    def test_other_columns_still_readable_when_plaintext(self):
+        a = _OnAccessContractor(id=1, first_name="plain", last_name=None)
 
-        _ = a.first_name
+        assert a.first_name == "plain"
+        assert a.last_name is None
 
-        assert isinstance(sa_inspect(a).dict["last_name"], EncryptedValue)
+    def test_plain_integer_columns_never_raise(self):
+        a = _OnAccessContractor(id=42)
 
+        assert a.id == 42
 
-class TestStrictDetachedMode:
-    """Test that DECRYPT_STRICT_DETACHED raises when reading encrypted values on detached instances."""
-
-    @classmethod
-    def setup_class(cls):
-        configure_mappers()
-
-    def test_raises_when_strict_mode_and_no_session(self, monkeypatch):
-        monkeypatch.setattr(settings, "DECRYPT_STRICT_DETACHED", True)
-
-        a = _OnAccessContractor(id=1, first_name=_wrap("Ada"))
-
-        try:
-            _ = a.first_name
-        except EncryptedValueAccessError as exc:
-            assert "_OnAccessContractor" in str(exc)
-            assert "first_name" in str(exc)
-        else:
-            raise AssertionError("expected EncryptedValueAccessError")
-
-    def test_strict_mode_allows_read_when_session_attached(self, monkeypatch):
-        monkeypatch.setattr(settings, "DECRYPT_STRICT_DETACHED", True)
-
+    def test_no_greenlet_raises_access_error(self):
         a = _OnAccessContractor(id=1, first_name=_wrap("Ada"))
         fake_session = SimpleNamespace(info={})
 
@@ -293,4 +218,16 @@ class TestStrictDetachedMode:
             "pydantic_encryption.integrations.sqlalchemy.descriptor.object_session",
             return_value=fake_session,
         ):
-            assert a.first_name == "Ada"
+            with pytest.raises(EncryptedValueAccessError) as exc_info:
+                _ = a.first_name
+
+        assert "greenlet" in str(exc_info.value).lower()
+
+    def test_decrypt_method_unblocks_subsequent_reads(self):
+        """After awaiting instance.decrypt(), the attribute reads return plaintext."""
+
+        a = _OnAccessContractor(id=1, first_name=_wrap("Ada"))
+
+        asyncio.run(a.decrypt())
+
+        assert a.first_name == "Ada"

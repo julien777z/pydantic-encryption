@@ -6,8 +6,8 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, configure_mappers, mapped_co
 
 from pydantic_encryption.integrations.sqlalchemy import (
     DeferredDecryptMixin,
-    async_decrypt_rows,
-    async_decrypt_values,
+    decrypt_rows,
+    decrypt_values,
 )
 from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue
 from pydantic_encryption.types import EncryptedValue
@@ -70,13 +70,13 @@ class TestDeferDecrypt:
         assert result == "hello"
 
 
-class TestAsyncDecryptRows:
-    """Test the async_decrypt_rows bulk helper."""
+class TestDecryptRows:
+    """Test the decrypt_rows bulk helper."""
 
     def _make_ciphertext(self, value):
         return SQLAlchemyEncryptedValue().process_bind_param(value, None)
 
-    def test_async_decrypt_rows_fernet(self):
+    def test_decrypt_rows_fernet(self):
         # Build 3 fake rows with 2 encrypted columns each.
         rows = [
             SimpleNamespace(
@@ -86,36 +86,36 @@ class TestAsyncDecryptRows:
             for i in range(3)
         ]
 
-        asyncio.run(async_decrypt_rows(rows, "email", "secret"))
+        asyncio.run(decrypt_rows(rows, "email", "secret"))
 
         for i, row in enumerate(rows):
             assert row.email == f"user{i}@example.com"
             assert row.secret == f"secret-{i}"
 
-    def test_async_decrypt_rows_empty(self):
-        asyncio.run(async_decrypt_rows([], "email"))  # no error
-        asyncio.run(async_decrypt_rows([SimpleNamespace(email=None)], "email"))  # no error
+    def test_decrypt_rows_empty(self):
+        asyncio.run(decrypt_rows([], "email"))  # no error
+        asyncio.run(decrypt_rows([SimpleNamespace(email=None)], "email"))  # no error
 
-    def test_async_decrypt_rows_skips_none_cells(self):
+    def test_decrypt_rows_skips_none_cells(self):
         rows = [
             SimpleNamespace(email=EncryptedValue(self._make_ciphertext("a@x.com")), secret=None),
             SimpleNamespace(email=None, secret=EncryptedValue(self._make_ciphertext("s1"))),
         ]
 
-        asyncio.run(async_decrypt_rows(rows, "email", "secret"))
+        asyncio.run(decrypt_rows(rows, "email", "secret"))
 
         assert rows[0].email == "a@x.com"
         assert rows[0].secret is None
         assert rows[1].email is None
         assert rows[1].secret == "s1"
 
-    def test_async_decrypt_rows_respects_concurrency(self):
+    def test_decrypt_rows_respects_concurrency(self):
         rows = [
             SimpleNamespace(email=EncryptedValue(self._make_ciphertext(f"u{i}@x.com")))
             for i in range(5)
         ]
 
-        asyncio.run(async_decrypt_rows(rows, "email", concurrency=2))
+        asyncio.run(decrypt_rows(rows, "email", concurrency=2))
 
         for i, row in enumerate(rows):
             assert row.email == f"u{i}@x.com"
@@ -235,8 +235,8 @@ class TestDeferredDecryptMixin:
         assert contractor.last_name is None
 
 
-class TestAsyncDecryptValues:
-    """Test the async_decrypt_values bulk helper for flat ciphertext iterables."""
+class TestDecryptValues:
+    """Test the decrypt_values bulk helper for flat ciphertext iterables."""
 
     def _make_ciphertext(self, value: str) -> bytes:
         return SQLAlchemyEncryptedValue().process_bind_param(value, None)
@@ -244,7 +244,7 @@ class TestAsyncDecryptValues:
     def test_decrypts_list_of_ciphertexts(self):
         values = [self._make_ciphertext(f"user-{i}") for i in range(3)]
 
-        result = asyncio.run(async_decrypt_values(values))
+        result = asyncio.run(decrypt_values(values))
 
         assert result == ["user-0", "user-1", "user-2"]
 
@@ -256,23 +256,23 @@ class TestAsyncDecryptValues:
             None,
         ]
 
-        result = asyncio.run(async_decrypt_values(values))
+        result = asyncio.run(decrypt_values(values))
 
         assert result == ["a", None, "b", None]
 
     def test_empty_input(self):
-        assert asyncio.run(async_decrypt_values([])) == []
+        assert asyncio.run(decrypt_values([])) == []
 
     def test_passes_through_non_bytes_cells(self):
         values = [self._make_ciphertext("a"), 42, "plain", None]
 
-        result = asyncio.run(async_decrypt_values(values))
+        result = asyncio.run(decrypt_values(values))
 
         assert result == ["a", 42, "plain", None]
 
     def test_respects_concurrency(self):
         values = [self._make_ciphertext(f"v{i}") for i in range(5)]
 
-        result = asyncio.run(async_decrypt_values(values, concurrency=2))
+        result = asyncio.run(decrypt_values(values, concurrency=2))
 
         assert result == [f"v{i}" for i in range(5)]

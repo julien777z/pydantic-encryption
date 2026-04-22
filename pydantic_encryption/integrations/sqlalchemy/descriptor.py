@@ -4,15 +4,16 @@ from pydantic_encryption._lazy import require_optional_dependency
 
 require_optional_dependency("sqlalchemy", "sqlalchemy")
 
+try:
+    from sqlalchemy.util import await_  # type: ignore[attr-defined]
+except ImportError:
+    from sqlalchemy.util import await_only as await_
+
+from sqlalchemy.exc import MissingGreenlet
 from sqlalchemy.orm import object_session
 
-from pydantic_encryption.config import settings
-from pydantic_encryption.integrations.sqlalchemy._async_bridge import run_async_or_sync
 from pydantic_encryption.integrations.sqlalchemy._state import pending_siblings
-from pydantic_encryption.integrations.sqlalchemy.bulk import (
-    _decrypt_rows_sync,
-    async_decrypt_rows,
-)
+from pydantic_encryption.integrations.sqlalchemy.bulk import decrypt_rows
 from pydantic_encryption.types import EncryptedValue, EncryptedValueAccessError
 
 
@@ -41,20 +42,21 @@ class DecryptOnAccessDescriptor:
             return value
 
         session = object_session(instance)
-        if session is None and settings.DECRYPT_STRICT_DETACHED:
+        if session is None:
             raise EncryptedValueAccessError(
-                f"Cannot decrypt {self._cls.__name__}.{self._column_key} on a detached instance "
-                "while DECRYPT_STRICT_DETACHED is enabled. Call `await instance.decrypt()` or "
-                "`await decrypt_pending_fields(session)` before passing rows across async boundaries."
+                f"Cannot decrypt {self._cls.__name__}.{self._column_key} on a detached instance. "
+                "Call `await instance.decrypt()` or `await decrypt_pending_fields(session)` first."
             )
 
         rows = {instance, *pending_siblings(session, self._cls)}
-        run_async_or_sync(
-            async_decrypt_rows,
-            _decrypt_rows_sync,
-            rows,
-            self._column_key,
-        )
+        try:
+            await_(decrypt_rows(rows, self._column_key))
+        except MissingGreenlet:
+            raise EncryptedValueAccessError(
+                f"Cannot decrypt {self._cls.__name__}.{self._column_key} outside of an "
+                "async-session greenlet. Call `await decrypt_pending_fields(session)` or "
+                "`await instance.decrypt()` first."
+            )
 
         return self._wrapped.__get__(instance, owner)
 

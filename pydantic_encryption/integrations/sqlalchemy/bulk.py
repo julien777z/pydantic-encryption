@@ -38,6 +38,16 @@ def _resolve_backend() -> Any:
     return get_encryption_backend(method)
 
 
+def _resolve_concurrency(concurrency: int | None) -> int | None:
+    """Pick the effective concurrency cap, falling back to settings.DECRYPT_CONCURRENCY when unset."""
+
+    if concurrency is not None:
+        return concurrency
+
+    default = settings.DECRYPT_CONCURRENCY
+    return default if default and default > 0 else None
+
+
 async def _decrypt_cell(backend: Any, ciphertext: bytes) -> EncryptableValue:
     """Decrypt a single ciphertext and decode it to its original Python type."""
 
@@ -63,7 +73,7 @@ async def _gather_with_limit(
     return await asyncio.gather(*(guarded(c) for c in coros))
 
 
-async def async_decrypt_rows(
+async def decrypt_rows(
     rows: Iterable[Any],
     *columns: InstrumentedAttribute | str,
     concurrency: int | None = None,
@@ -79,7 +89,7 @@ async def async_decrypt_rows(
 
     backend = _resolve_backend()
     column_keys = [_column_key(c) for c in columns]
-    effective_concurrency = concurrency or settings.DECRYPT_CONCURRENCY or None
+    effective_concurrency = _resolve_concurrency(concurrency)
 
     assignments: list[tuple[Any, str]] = []
     coros: list[Awaitable[Any]] = []
@@ -99,7 +109,7 @@ async def async_decrypt_rows(
         set_decrypted(row, key, plaintext)
 
 
-async def async_decrypt_values(
+async def decrypt_values(
     values: Iterable[Any],
     *,
     concurrency: int | None = None,
@@ -111,7 +121,7 @@ async def async_decrypt_values(
         return []
 
     backend = _resolve_backend()
-    effective_concurrency = concurrency or settings.DECRYPT_CONCURRENCY or None
+    effective_concurrency = _resolve_concurrency(concurrency)
 
     indexes: list[int] = []
     coros: list[Awaitable[Any]] = []
@@ -129,30 +139,6 @@ async def async_decrypt_values(
         values_list[index] = plaintext
 
     return values_list
-
-
-def _decrypt_rows_sync(
-    rows: Iterable[Any], *columns: InstrumentedAttribute | str
-) -> None:
-    """Sync decrypt fallback used when no greenlet and no running event loop are available."""
-
-    if not columns:
-        return
-
-    rows_list = list(rows)
-    if not rows_list:
-        return
-
-    backend = _resolve_backend()
-    column_keys = [_column_key(c) for c in columns]
-
-    for row in rows_list:
-        for key in column_keys:
-            value = read_raw_cell(row, key)
-            if not isinstance(value, EncryptedValue):
-                continue
-            plaintext = decode_value(backend.decrypt(bytes(value)))
-            set_decrypted(row, key, plaintext)
 
 
 def collect_encrypted_cells(
@@ -220,7 +206,7 @@ async def bulk_decrypt_entities(entities: Any | Iterable[Any] | None) -> None:
 
     await asyncio.gather(
         *(
-            async_decrypt_rows(rows, getattr(cls, column_key))
+            decrypt_rows(rows, getattr(cls, column_key))
             for (cls, column_key), rows in collected.items()
         )
     )
@@ -237,9 +223,9 @@ async def decrypt_pending_fields(session: AsyncSession) -> None:
 
 
 __all__ = [
-    "async_decrypt_rows",
-    "async_decrypt_values",
     "bulk_decrypt_entities",
     "collect_encrypted_cells",
     "decrypt_pending_fields",
+    "decrypt_rows",
+    "decrypt_values",
 ]

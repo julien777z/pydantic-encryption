@@ -26,9 +26,9 @@ if TYPE_CHECKING:
         SQLAlchemyEncryptedValue,
         SQLAlchemyHashedValue,
         SQLAlchemyPGEncryptedArray,
-        async_decrypt_rows,
-        async_decrypt_values,
         decrypt_pending_fields,
+        decrypt_rows,
+        decrypt_values,
     )
 
 
@@ -58,15 +58,15 @@ def __getattr__(name: str):
 
         return AWSAdapter
 
-    if name == "async_decrypt_rows":
-        from pydantic_encryption.integrations.sqlalchemy import async_decrypt_rows
+    if name == "decrypt_rows":
+        from pydantic_encryption.integrations.sqlalchemy import decrypt_rows
 
-        return async_decrypt_rows
+        return decrypt_rows
 
-    if name == "async_decrypt_values":
-        from pydantic_encryption.integrations.sqlalchemy import async_decrypt_values
+    if name == "decrypt_values":
+        from pydantic_encryption.integrations.sqlalchemy import decrypt_values
 
-        return async_decrypt_values
+        return decrypt_values
 
     if name == "decrypt_pending_fields":
         from pydantic_encryption.integrations.sqlalchemy import decrypt_pending_fields
@@ -105,8 +105,8 @@ __all__ = [
     "SQLAlchemyEncryptedValue",
     "SQLAlchemyPGEncryptedArray",
     "SQLAlchemyHashedValue",
-    "async_decrypt_rows",
-    "async_decrypt_values",
-    "decrypt_pending_fields",
     "DeferredDecryptMixin",
+    "decrypt_pending_fields",
+    "decrypt_rows",
+    "decrypt_values",
 ]
