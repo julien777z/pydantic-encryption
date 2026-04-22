@@ -5,7 +5,7 @@ from typing import Final
 
 from sqlalchemy.orm import Session
 
-from pydantic_encryption.types import BlindIndexValue
+from pydantic_encryption.types import BlindIndexValue, HashedValue
 
 from tests.integration.database import User
 
@@ -76,7 +76,7 @@ class TestIntegrationSQLAlchemy:
 
         assert user.username == "user1"
         assert user.email == TEST_EMAIL
-        assert getattr(user.password, "hashed") is True
+        assert isinstance(user.password, HashedValue)
 
     def test_encrypt_decrypt_date(self, db_session: Session):
         """Test that date fields are encrypted and decrypted correctly."""

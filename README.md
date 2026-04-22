@@ -18,17 +18,13 @@ pip install "pydantic-encryption[all]"         # All optional dependencies
 
 ## Quick Start
 
-Mix `DeferredDecryptMixin` into any model with encrypted columns and drive reads through `AutoDecryptAsyncSession`. Every `execute` / `get` / `refresh` / `merge` auto-decrypts the rows it loads:
+Mix `DeferredDecryptMixin` into any model with encrypted columns. The first time you read an encrypted attribute on any loaded row, the column is batch-decrypted across every sibling instance in the session — columns you never read stay encrypted and cost nothing:
 
 ```python
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from pydantic_encryption import (
-    AutoDecryptAsyncSession,
-    DeferredDecryptMixin,
-    SQLAlchemyEncryptedValue,
-)
+from pydantic_encryption import DeferredDecryptMixin, SQLAlchemyEncryptedValue
 
 
 class Base(DeclarativeBase):
@@ -42,7 +38,7 @@ class User(Base, DeferredDecryptMixin):
 
 
 engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-Session = async_sessionmaker(engine, class_=AutoDecryptAsyncSession, expire_on_commit=False)
+Session = async_sessionmaker(engine, expire_on_commit=False)
 
 async with Session() as session:
     session.add(User(email="john@example.com"))
@@ -50,7 +46,7 @@ async with Session() as session:
 
     result = await session.execute(select(User))
     user = result.scalar_one()
-    print(user.email)  # "john@example.com" — auto-decrypted
+    print(user.email)  # "john@example.com" — decrypted on first read
 ```
 
 ## SQLAlchemy Integration
@@ -131,11 +127,7 @@ Each element is individually encrypted. Requires PostgreSQL.
 Mix the helper into any model with encrypted columns and read as usual:
 
 ```python
-from pydantic_encryption import (
-    AutoDecryptAsyncSession,
-    DeferredDecryptMixin,
-    SQLAlchemyEncryptedValue,
-)
+from pydantic_encryption import DeferredDecryptMixin, SQLAlchemyEncryptedValue
 
 
 class User(Base, DeferredDecryptMixin):
@@ -144,7 +136,7 @@ class User(Base, DeferredDecryptMixin):
     email: Mapped[bytes] = mapped_column(SQLAlchemyEncryptedValue())
 
 
-Session = async_sessionmaker(engine, class_=AutoDecryptAsyncSession, expire_on_commit=False)
+Session = async_sessionmaker(engine, expire_on_commit=False)
 
 async with Session() as session:
     result = await session.execute(select(User))
@@ -155,19 +147,21 @@ async with Session() as session:
         print(user.email)
 ```
 
-`AutoDecryptAsyncSession.decrypt_pending_fields()` is an optional escape hatch when you need to pre-warm every encrypted column on every loaded row before leaving the session context (e.g. serializing outside a greenlet spawn):
+`decrypt_pending_fields(session)` is an optional escape hatch when you need to pre-warm every encrypted column on every loaded row before leaving the session context (e.g. serializing outside a greenlet spawn):
 
 ```python
+from pydantic_encryption import decrypt_pending_fields
+
 async with Session() as session:
     users = (await session.execute(select(User))).scalars().all()
 
     # Decrypt every encrypted column on every row loaded so far.
-    await session.decrypt_pending_fields()
+    await decrypt_pending_fields(session)
 
     payload = [{"id": u.id, "email": u.email} for u in users]
 ```
 
-**Manual helpers** for vanilla `AsyncSession` or rows loaded outside a session:
+**Manual helpers** for rows loaded outside a session or flat ciphertext lists:
 
 ```python
 from pydantic_encryption import async_decrypt_rows, async_decrypt_values
@@ -182,6 +176,16 @@ async with AsyncSession(engine) as session:
     await async_decrypt_rows(users, User.email, concurrency=8)  # InstrumentedAttribute or column names
     await async_decrypt_values(ciphertexts, concurrency=8)      # flat ciphertexts; preserves None positions
 ```
+
+### Safety: catching accidental ciphertext access
+
+`EncryptedValue` is a `bytes` subclass, so anything that bypasses the on-access descriptor (raw `state.dict[col]`, a detached row passed to a FastAPI response, a log line on a pickled row) could silently emit ciphertext that *looks* like a value. Three guards make that loud:
+
+- `repr(value)` returns `<EncryptedValue: N bytes>` instead of leaking raw ciphertext into logs.
+- `str(value)`, `f"{value}"`, `"%s" % value` raise `EncryptedValueAccessError` with a message pointing at the decrypt path. Use `bytes(value)` if you explicitly want the raw ciphertext (backups, transport).
+- `is_encrypted(value)` is a cheap public helper for boundary code that needs to guard a payload.
+
+For workloads that pass ORM rows across async boundaries (queue workers, pickled rows), set `DECRYPT_STRICT_DETACHED=true`. With strict mode enabled, reading an encrypted column on a detached instance raises `EncryptedValueAccessError` instead of silently falling back to synchronous decrypt — forcing the caller to `await instance.decrypt()` or `await decrypt_pending_fields(session)` up front.
 
 ## Manual Encryption or Hashing
 

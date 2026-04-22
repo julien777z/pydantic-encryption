@@ -15,7 +15,7 @@ class TestAsyncFernetAdapter:
         encrypted = await FernetAdapter.async_encrypt(plaintext)
 
         assert isinstance(encrypted, EncryptedValue)
-        assert encrypted.encrypted is True
+        assert isinstance(encrypted, EncryptedValue)
         assert encrypted != plaintext.encode("utf-8")
 
     @pytest.mark.asyncio
@@ -24,7 +24,7 @@ class TestAsyncFernetAdapter:
         encrypted = await FernetAdapter.async_encrypt(plaintext)
 
         assert isinstance(encrypted, EncryptedValue)
-        assert encrypted.encrypted is True
+        assert isinstance(encrypted, EncryptedValue)
 
     @pytest.mark.asyncio
     async def test_async_decrypt_returns_string(self):
@@ -97,7 +97,7 @@ class TestAsyncArgon2Adapter:
         hashed = await Argon2Adapter.async_hash(value)
 
         assert isinstance(hashed, HashedValue)
-        assert hashed.hashed is True
+        assert isinstance(hashed, HashedValue)
         assert hashed != value.encode("utf-8")
 
     @pytest.mark.asyncio
@@ -106,7 +106,7 @@ class TestAsyncArgon2Adapter:
         hashed = await Argon2Adapter.async_hash(value)
 
         assert isinstance(hashed, HashedValue)
-        assert hashed.hashed is True
+        assert isinstance(hashed, HashedValue)
 
     @pytest.mark.asyncio
     async def test_async_hash_already_hashed_returns_same(self):
@@ -135,7 +135,7 @@ class TestAsyncArgon2Adapter:
         hashed = await Argon2Adapter.async_hash(value)
 
         assert isinstance(hashed, HashedValue)
-        assert hashed.hashed is True
+        assert isinstance(hashed, HashedValue)
 
 
 class TestAsyncHMACSHA256Adapter:
@@ -147,7 +147,7 @@ class TestAsyncHMACSHA256Adapter:
     async def test_async_compute_blind_index_string(self):
         result = await HMACSHA256Adapter.async_compute_blind_index("test@example.com", self.TEST_KEY)
         assert isinstance(result, BlindIndexValue)
-        assert result.blind_indexed is True
+        assert isinstance(result, BlindIndexValue)
         assert len(result) == 32
 
     @pytest.mark.asyncio

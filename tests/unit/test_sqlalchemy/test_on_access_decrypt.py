@@ -1,19 +1,20 @@
 import asyncio
+from collections import defaultdict
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
+from weakref import WeakSet
 
 from sqlalchemy import inspect as sa_inspect, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, configure_mappers, mapped_column
 
+from pydantic_encryption.config import settings
 from pydantic_encryption.integrations.sqlalchemy import DeferredDecryptMixin, async_decrypt_rows
-from pydantic_encryption.integrations.sqlalchemy.bulk import (
-    _DecryptOnAccessDescriptor,
-    _decrypt_column_batch_sync,
-    _pending_siblings,
-    PENDING_DECRYPT_KEY,
-)
+from pydantic_encryption.integrations.sqlalchemy._state import PENDING_DECRYPT_KEY, pending_siblings
+from pydantic_encryption.integrations.sqlalchemy.bulk import _decrypt_rows_sync
+from pydantic_encryption.integrations.sqlalchemy.descriptor import DecryptOnAccessDescriptor
 from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue
-from pydantic_encryption.types import EncryptedValue
+from pydantic_encryption.types import EncryptedValue, EncryptedValueAccessError
 
 
 class _OnAccessBase(DeclarativeBase):
@@ -68,24 +69,20 @@ class TestDescriptorInstallation:
         for column_key in ("first_name", "last_name"):
             descriptor = _OnAccessContractor.__dict__[column_key]
 
-            assert isinstance(descriptor, _DecryptOnAccessDescriptor)
+            assert isinstance(descriptor, DecryptOnAccessDescriptor)
 
     def test_non_encrypted_columns_untouched(self):
-        assert not isinstance(
-            _OnAccessContractor.__dict__["id"], _DecryptOnAccessDescriptor
-        )
+        assert not isinstance(_OnAccessContractor.__dict__["id"], DecryptOnAccessDescriptor)
 
     def test_class_level_access_returns_instrumented_attribute(self):
         attr = _OnAccessContractor.first_name
 
-        assert not isinstance(attr, _DecryptOnAccessDescriptor)
+        assert not isinstance(attr, DecryptOnAccessDescriptor)
         assert hasattr(attr, "key")
         assert attr.key == "first_name"
 
     def test_orm_query_expressions_still_work(self):
-        stmt = select(_OnAccessContractor).where(
-            _OnAccessContractor.first_name == "Ada"
-        )
+        stmt = select(_OnAccessContractor).where(_OnAccessContractor.first_name == "Ada")
 
         compiled = str(stmt.compile(compile_kwargs={"literal_binds": False}))
         assert "first_name" in compiled
@@ -104,18 +101,13 @@ class TestDescriptorInstallation:
 
         assert "first_name" not in sa_inspect(a).dict
 
-    def test_descriptor_proxies_comparator_attributes_to_wrapped(self):
+    def test_descriptor_exposes_wrapped_key(self):
         descriptor = _OnAccessContractor.__dict__["first_name"]
 
         assert descriptor.key == "first_name"
 
     def test_descriptor_includes_current_instance_when_missing_from_siblings(self):
         """Reading current instance must decrypt it even when siblings list lacks it."""
-
-        from types import SimpleNamespace
-        from collections import defaultdict
-        from weakref import WeakSet
-        from unittest.mock import patch
 
         sibling = _OnAccessContractor(id=1, first_name=_wrap("Ada"))
         current = _OnAccessContractor(id=2, first_name=_wrap("Alan"))
@@ -125,7 +117,7 @@ class TestDescriptorInstallation:
         fake_session = SimpleNamespace(info={PENDING_DECRYPT_KEY: bucket})
 
         with patch(
-            "pydantic_encryption.integrations.sqlalchemy.bulk.object_session",
+            "pydantic_encryption.integrations.sqlalchemy.descriptor.object_session",
             return_value=fake_session,
         ):
             assert current.first_name == "Alan"
@@ -191,7 +183,7 @@ class TestSyncFallback:
         a = _OnAccessContractor(id=1, first_name=_wrap("Ada"))
         b = _OnAccessContractor(id=2, first_name=_wrap("Alan"))
 
-        _decrypt_column_batch_sync([a, b], "first_name")
+        _decrypt_rows_sync([a, b], "first_name")
 
         assert sa_inspect(a).dict["first_name"] == "Ada"
         assert sa_inspect(b).dict["first_name"] == "Alan"
@@ -199,25 +191,19 @@ class TestSyncFallback:
     def test_sync_fallback_noop_when_already_plaintext(self):
         a = _OnAccessContractor(id=1, first_name="Ada")
 
-        _decrypt_column_batch_sync([a], "first_name")
+        _decrypt_rows_sync([a], "first_name")
 
         assert sa_inspect(a).dict["first_name"] == "Ada"
 
 
 class TestPendingSiblings:
-    """Test that _pending_siblings extracts the bucket list for a given class."""
+    """Test that pending_siblings extracts the bucket list for a given class."""
 
     def test_returns_empty_list_when_session_has_no_bucket(self):
-        from types import SimpleNamespace
-
         session = SimpleNamespace(info={})
-        assert _pending_siblings(session, _OnAccessContractor) == []
+        assert pending_siblings(session, _OnAccessContractor) == []
 
     def test_returns_instances_when_class_present_in_bucket(self):
-        from types import SimpleNamespace
-        from collections import defaultdict
-        from weakref import WeakSet
-
         a = _OnAccessContractor(id=1)
         b = _OnAccessContractor(id=2)
         bucket: dict[type, WeakSet] = defaultdict(WeakSet)
@@ -225,11 +211,11 @@ class TestPendingSiblings:
         bucket[_OnAccessContractor].add(b)
         session = SimpleNamespace(info={PENDING_DECRYPT_KEY: bucket})
 
-        siblings = _pending_siblings(session, _OnAccessContractor)
+        siblings = pending_siblings(session, _OnAccessContractor)
         assert set(siblings) == {a, b}
 
     def test_returns_empty_list_when_session_is_none(self):
-        assert _pending_siblings(None, _OnAccessContractor) == []
+        assert pending_siblings(None, _OnAccessContractor) == []
 
 
 class TestDescriptorReadPath:
@@ -253,14 +239,14 @@ class TestDescriptorReadPath:
 
         call_count = {"n": 0}
 
-        original_sync = _decrypt_column_batch_sync
+        original_sync = _decrypt_rows_sync
 
-        def counting_sync(rows, column_key):
+        def counting_sync(rows, *columns):
             call_count["n"] += 1
-            return original_sync(rows, column_key)
+            return original_sync(rows, *columns)
 
         with patch(
-            "pydantic_encryption.integrations.sqlalchemy.bulk._decrypt_column_batch_sync",
+            "pydantic_encryption.integrations.sqlalchemy.descriptor._decrypt_rows_sync",
             side_effect=counting_sync,
         ):
             _ = a.first_name
@@ -275,3 +261,36 @@ class TestDescriptorReadPath:
         _ = a.first_name
 
         assert isinstance(sa_inspect(a).dict["last_name"], EncryptedValue)
+
+
+class TestStrictDetachedMode:
+    """Test that DECRYPT_STRICT_DETACHED raises when reading encrypted values on detached instances."""
+
+    @classmethod
+    def setup_class(cls):
+        configure_mappers()
+
+    def test_raises_when_strict_mode_and_no_session(self, monkeypatch):
+        monkeypatch.setattr(settings, "DECRYPT_STRICT_DETACHED", True)
+
+        a = _OnAccessContractor(id=1, first_name=_wrap("Ada"))
+
+        try:
+            _ = a.first_name
+        except EncryptedValueAccessError as exc:
+            assert "_OnAccessContractor" in str(exc)
+            assert "first_name" in str(exc)
+        else:
+            raise AssertionError("expected EncryptedValueAccessError")
+
+    def test_strict_mode_allows_read_when_session_attached(self, monkeypatch):
+        monkeypatch.setattr(settings, "DECRYPT_STRICT_DETACHED", True)
+
+        a = _OnAccessContractor(id=1, first_name=_wrap("Ada"))
+        fake_session = SimpleNamespace(info={})
+
+        with patch(
+            "pydantic_encryption.integrations.sqlalchemy.descriptor.object_session",
+            return_value=fake_session,
+        ):
+            assert a.first_name == "Ada"

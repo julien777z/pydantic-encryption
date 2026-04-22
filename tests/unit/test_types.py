@@ -7,12 +7,12 @@ from pydantic_encryption.types import (
 class TestEncryptedValue:
     """Test EncryptedValue type."""
 
-    def test_encrypted_flag(self):
-        """Test encrypted flag is True."""
+    def test_is_encrypted_value_instance(self):
+        """Test that the constructor returns an EncryptedValue instance."""
 
         value = EncryptedValue(b"encrypted")
 
-        assert value.encrypted is True
+        assert isinstance(value, EncryptedValue)
 
     def test_from_string(self):
         """Test creating from string."""
@@ -41,11 +41,12 @@ class TestEncryptedValue:
 class TestHashedValue:
     """Test HashedValue type."""
 
-    def test_hashed_flag(self):
-        """Test hashed flag is True."""
+    def test_is_hashed_value_instance(self):
+        """Test that the constructor returns a HashedValue instance."""
+
         value = HashedValue(b"hashed")
 
-        assert value.hashed is True
+        assert isinstance(value, HashedValue)
 
     def test_from_string(self):
         """Test creating from string."""

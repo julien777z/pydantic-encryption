@@ -25,6 +25,10 @@ class BlindIndexMethod(Enum):
     ARGON2 = "argon2"
 
 
+class EncryptedValueAccessError(RuntimeError):
+    """Raised when an encrypted ciphertext is coerced to str before decryption."""
+
+
 class _TaggedBytes(bytes):
     """Bytes subclass that UTF-8-encodes ``str`` inputs."""
 
@@ -33,23 +37,28 @@ class _TaggedBytes(bytes):
             value = value.encode("utf-8")
         return super().__new__(cls, value)
 
+    def __repr__(self) -> str:
+        return f"<{type(self).__name__}: {len(self)} bytes>"
+
 
 class EncryptedValue(_TaggedBytes):
-    """Bytes subclass representing an encrypted value."""
+    """Bytes subclass representing an encrypted ciphertext; ``str()`` raises to flag accidental coercion."""
 
-    encrypted: bool = True
+    def __str__(self) -> str:
+        raise EncryptedValueAccessError(
+            "Encrypted value coerced to str before decryption. Read the attribute via the ORM "
+            "instance to trigger on-access decrypt, or call "
+            "`await decrypt_pending_fields(session)` to materialize loaded rows. "
+            "Use `bytes(value)` if you explicitly need the raw ciphertext."
+        )
 
 
 class HashedValue(_TaggedBytes):
     """Bytes subclass representing a hashed value."""
 
-    hashed: bool = True
-
 
 class BlindIndexValue(_TaggedBytes):
     """Bytes subclass representing a blind index value."""
-
-    blind_indexed: bool = True
 
 
 class BlindIndex:
@@ -80,13 +89,21 @@ class BlindIndex:
         self.normalize_to_uppercase = normalize_to_uppercase
 
 
+def is_encrypted(value: object) -> bool:
+    """Return True if the value is a still-encrypted ciphertext wrapper."""
+
+    return isinstance(value, EncryptedValue)
+
+
 __all__ = [
     "Encrypted",
     "Hashed",
     "EncryptionMethod",
     "EncryptedValue",
+    "EncryptedValueAccessError",
     "HashedValue",
     "BlindIndex",
     "BlindIndexMethod",
     "BlindIndexValue",
+    "is_encrypted",
 ]

@@ -74,7 +74,7 @@ class TestSQLAlchemyBlindIndexValueHMAC:
         test_bytes = b"\x01\x02\x03\x04" * 8
         result = self.type_adapter.process_result_value(test_bytes, None)
         assert isinstance(result, BlindIndexValue)
-        assert result.blind_indexed is True
+        assert isinstance(result, BlindIndexValue)
         assert result == test_bytes
 
 

@@ -1,9 +1,10 @@
-from typing import Any, Awaitable, Callable, TypeVar
+from collections.abc import Awaitable, Callable
+from typing import Any, TypeVar
 
 try:
-    from sqlalchemy.util import await_  # type: ignore[attr-defined]  # SA 2.1+
+    from sqlalchemy.util import await_  # type: ignore[attr-defined]
 except ImportError:
-    from sqlalchemy.util import await_only as await_  # SA 2.0 fallback
+    from sqlalchemy.util import await_only as await_
 
 from sqlalchemy.exc import MissingGreenlet
 
@@ -22,6 +23,6 @@ def run_async_or_sync(
     try:
         return await_(coro)
     except MissingGreenlet:
-        if hasattr(coro, "close"):
-            coro.close()
+        coro.close()
+
         return sync_fn(*args, **kwargs)

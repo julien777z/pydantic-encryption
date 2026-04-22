@@ -11,21 +11,25 @@ from pydantic_encryption.types import (
     BlindIndexValue,
     Encrypted,
     EncryptedValue,
+    EncryptedValueAccessError,
     EncryptionMethod,
     Hashed,
     HashedValue,
+    is_encrypted,
 )
 
-# Lazy loading for optional dependencies
 if TYPE_CHECKING:
     from pydantic_encryption.adapters.encryption.aws import AWSAdapter
     from pydantic_encryption.integrations.sqlalchemy import (
+        DeferredDecryptMixin,
         SQLAlchemyBlindIndexValue,
         SQLAlchemyEncryptedValue,
         SQLAlchemyHashedValue,
         SQLAlchemyPGEncryptedArray,
+        async_decrypt_rows,
+        async_decrypt_values,
+        decrypt_pending_fields,
     )
-    from pydantic_encryption.integrations.sqlalchemy.bulk import DeferredDecryptMixin, async_decrypt_rows
 
 
 def __getattr__(name: str):
@@ -55,12 +59,22 @@ def __getattr__(name: str):
         return AWSAdapter
 
     if name == "async_decrypt_rows":
-        from pydantic_encryption.integrations.sqlalchemy.bulk import async_decrypt_rows
+        from pydantic_encryption.integrations.sqlalchemy import async_decrypt_rows
 
         return async_decrypt_rows
 
+    if name == "async_decrypt_values":
+        from pydantic_encryption.integrations.sqlalchemy import async_decrypt_values
+
+        return async_decrypt_values
+
+    if name == "decrypt_pending_fields":
+        from pydantic_encryption.integrations.sqlalchemy import decrypt_pending_fields
+
+        return decrypt_pending_fields
+
     if name == "DeferredDecryptMixin":
-        from pydantic_encryption.integrations.sqlalchemy.bulk import DeferredDecryptMixin
+        from pydantic_encryption.integrations.sqlalchemy import DeferredDecryptMixin
 
         return DeferredDecryptMixin
 
@@ -68,35 +82,31 @@ def __getattr__(name: str):
 
 
 __all__ = [
-    # Config
     "settings",
-    # Models
     "BaseModel",
     "SecureModel",
-    # Annotations
     "BlindIndex",
     "Encrypted",
     "Hashed",
-    # Types
     "BlindIndexMethod",
     "BlindIndexValue",
     "EncryptionMethod",
     "EncryptedValue",
+    "EncryptedValueAccessError",
     "HashedValue",
-    # Adapters (default)
+    "is_encrypted",
     "FernetAdapter",
     "Argon2Adapter",
-    # Adapter ABCs
     "EncryptionAdapter",
     "HashingAdapter",
     "BlindIndexAdapter",
-    # Adapters (optional - lazy loaded)
     "AWSAdapter",
-    # SQLAlchemy (optional - lazy loaded)
     "SQLAlchemyBlindIndexValue",
     "SQLAlchemyEncryptedValue",
     "SQLAlchemyPGEncryptedArray",
     "SQLAlchemyHashedValue",
     "async_decrypt_rows",
+    "async_decrypt_values",
+    "decrypt_pending_fields",
     "DeferredDecryptMixin",
 ]
