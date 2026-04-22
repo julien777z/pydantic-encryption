@@ -8,10 +8,13 @@ from pydantic_encryption._lazy import require_optional_dependency
 require_optional_dependency("sqlalchemy", "sqlalchemy")
 
 from sqlalchemy import event, inspect as sa_inspect
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import object_session
 from sqlalchemy.orm.attributes import InstrumentedAttribute, set_committed_value
 
 from pydantic_encryption.adapters.registry import get_encryption_backend
 from pydantic_encryption.config import settings
+from pydantic_encryption.integrations.sqlalchemy._async_bridge import run_async_or_sync
 from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue
 from pydantic_encryption.integrations.sqlalchemy.serialization import decode_value
 from pydantic_encryption.types import EncryptedValue
@@ -26,6 +29,24 @@ def _column_name(column: InstrumentedAttribute | str) -> str:
     return column.key
 
 
+def _read_raw_cell(row: Any, name: str) -> Any:
+    """Read a column's stored value from ORM state, bypassing any on-access descriptor."""
+
+    state = sa_inspect(row, raiseerr=False)
+    if state is not None and hasattr(state, "dict"):
+        return state.dict.get(name)
+    return getattr(row, name, None)
+
+
+def _resolve_concurrency(concurrency: int | None) -> int | None:
+    """Fall back to the global DECRYPT_CONCURRENCY setting when a caller doesn't pass one."""
+
+    if concurrency is not None:
+        return concurrency
+    default = settings.DECRYPT_CONCURRENCY
+    return default if default and default > 0 else None
+
+
 def _build_decrypt_cell(
     concurrency: int | None,
     caller_name: str,
@@ -36,7 +57,8 @@ def _build_decrypt_cell(
         raise ValueError(f"ENCRYPTION_METHOD must be set to use {caller_name}.")
 
     backend = get_encryption_backend(settings.ENCRYPTION_METHOD)
-    semaphore = asyncio.Semaphore(concurrency) if concurrency is not None else None
+    effective = _resolve_concurrency(concurrency)
+    semaphore = asyncio.Semaphore(effective) if effective is not None else None
 
     async def decrypt_cell(ciphertext: bytes) -> Any:
         if semaphore is not None:
@@ -58,14 +80,15 @@ async def async_decrypt_rows(
     """Bulk-decrypt deferred encrypted columns across many rows in parallel.
 
     Each non-``None`` ``(row, column)`` cell becomes one ``async_decrypt`` task.
-    All tasks run via a single ``asyncio.gather``. With ``concurrency=N`` the
-    tasks are wrapped in a ``Semaphore(N)``; with ``None`` (default) there is
-    no explicit limit — the backend's connection pool is the effective bound.
+    All tasks run via a single ``asyncio.gather``. Concurrency defaults to
+    ``settings.DECRYPT_CONCURRENCY`` (``32``) unless overridden; pass
+    ``concurrency=None`` explicitly and set ``DECRYPT_CONCURRENCY=0`` to disable
+    the cap entirely.
 
     Columns may be passed as SQLAlchemy ``InstrumentedAttribute`` (e.g.
     ``User.email``) or plain strings (``"email"``). Decrypted values are
-    ``setattr`` onto each row in-place; the row's SQLAlchemy state is not
-    otherwise touched.
+    written back via ``set_committed_value`` so they do not mark the row as
+    dirty for the next flush.
     """
 
     if not columns:
@@ -81,8 +104,8 @@ async def async_decrypt_rows(
     coros = []
     for row in rows:
         for name in column_names:
-            value = getattr(row, name, None)
-            if value is None:
+            value = _read_raw_cell(row, name)
+            if not isinstance(value, (bytes, bytearray)):
                 continue
             ciphertext = bytes(value) if not isinstance(value, bytes) else value
             coros.append(decrypt_cell(ciphertext))
@@ -223,14 +246,115 @@ def _collect_encrypted_cells(
                 _collect_encrypted_cells(related, collected, visited)
 
 
-def _mark_encrypted_columns_deferred(mapper, class_) -> None:
+def _pending_siblings(session: Any, cls: type) -> list[Any]:
+    """Pull pending-decrypt instances for `cls` from the session bucket (empty list if absent)."""
+
+    if session is None:
+        return []
+    info = getattr(session, "info", None)
+    if not info:
+        return []
+    bucket = info.get(PENDING_DECRYPT_KEY)
+    if not bucket:
+        return []
+    return list(bucket.get(cls, []))
+
+
+async def _decrypt_column_batch_async(rows: list[Any], column_key: str) -> None:
+    """Batch-decrypt one encrypted column across every row via a single asyncio.gather."""
+
+    await async_decrypt_rows(rows, column_key)
+
+
+def _decrypt_column_batch_sync(rows: list[Any], column_key: str) -> None:
+    """Sync fallback used when no greenlet context is available (tests, CLI scripts)."""
+
+    if settings.ENCRYPTION_METHOD is None:
+        raise ValueError("ENCRYPTION_METHOD must be set to decrypt on attribute access.")
+
+    backend = get_encryption_backend(settings.ENCRYPTION_METHOD)
+    for row in rows:
+        value = _read_raw_cell(row, column_key)
+        if not isinstance(value, (bytes, bytearray)):
+            continue
+        ciphertext = bytes(value) if not isinstance(value, bytes) else value
+        plaintext = decode_value(backend.decrypt(ciphertext))
+        _set_decrypted(row, column_key, plaintext)
+
+
+class _DecryptOnAccessDescriptor:
+    """Class-level wrapper around an encrypted column's ``InstrumentedAttribute`` that
+    batch-decrypts the column across all pending-session siblings on first read.
+
+    - Class-level access (e.g. ``Contractor.first_name == "x"``) returns the wrapped
+      ``InstrumentedAttribute`` unchanged, so ORM query construction is unaffected.
+    - Instance-level access triggers a per-column batch decrypt when the stored cell
+      is still an ``EncryptedValue``; subsequent reads get the plaintext for free.
+    """
+
+    __slots__ = ("_wrapped", "_cls", "_column_key")
+
+    def __init__(self, wrapped: Any, cls: type, column_key: str) -> None:
+        self._wrapped = wrapped
+        self._cls = cls
+        self._column_key = column_key
+
+    def __get__(self, instance: Any, owner: type | None = None) -> Any:
+        if instance is None:
+            return self._wrapped
+        value = self._wrapped.__get__(instance, owner)
+        if isinstance(value, EncryptedValue):
+            session = object_session(instance)
+            siblings = _pending_siblings(session, self._cls) or [instance]
+            run_async_or_sync(
+                _decrypt_column_batch_async,
+                _decrypt_column_batch_sync,
+                siblings,
+                self._column_key,
+            )
+            value = self._wrapped.__get__(instance, owner)
+        return value
+
+    def __set__(self, instance: Any, value: Any) -> None:
+        self._wrapped.__set__(instance, value)
+
+    def __delete__(self, instance: Any) -> None:
+        self._wrapped.__delete__(instance)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._wrapped, name)
+
+
+def _install_decrypt_hooks(mapper, class_) -> None:
+    """Mark encrypted columns as deferred and install on-access decrypt descriptors.
+
+    Replaces each encrypted column's class attribute with a descriptor that
+    delegates to the original ``InstrumentedAttribute`` but decrypts on first
+    read. Safe to call multiple times — already-installed descriptors are
+    left in place.
+    """
+
     for column in mapper.columns:
         if not isinstance(column.type, SQLAlchemyEncryptedValue):
             continue
-        if column.type._deferred:
+
+        if not column.type._deferred:
+            column.type = column.type.copy()
+            column.type._deferred = True
+
+        column_key = column.key
+        existing = class_.__dict__.get(column_key)
+        if isinstance(existing, _DecryptOnAccessDescriptor):
             continue
-        column.type = column.type.copy()
-        column.type._deferred = True
+
+        wrapped = getattr(class_, column_key, None)
+        if wrapped is None:
+            continue
+
+        try:
+            setattr(class_, column_key, _DecryptOnAccessDescriptor(wrapped, class_, column_key))
+        except (AttributeError, TypeError):
+            continue
 
 
 def _on_orm_load(instance: Any, context: Any) -> None:
@@ -239,7 +363,7 @@ def _on_orm_load(instance: Any, context: Any) -> None:
     if context is None:
         return
     session = context.session
-    if session is None or not session.info.get(AUTO_DECRYPT_ENABLED_KEY):
+    if session is None:
         return
     bucket: dict[type, list[Any]] = session.info.setdefault(PENDING_DECRYPT_KEY, defaultdict(list))
     bucket[type(instance)].append(instance)
@@ -252,20 +376,23 @@ def _on_orm_refresh(instance: Any, context: Any, attrs: Any) -> None:
 
 
 class DeferredDecryptMixin:
-    """Mixin that auto-defers SQLAlchemyEncryptedValue columns and adds async decrypt helpers.
+    """Mixin that defers decryption of ``SQLAlchemyEncryptedValue`` columns until the
+    first attribute access, then batch-decrypts each column across all sibling
+    instances loaded into the same session.
 
-    Every ``SQLAlchemyEncryptedValue`` column on a class that inherits this mixin returns
-    ``EncryptedValue(bytes)`` on read instead of plaintext; call ``decrypt()`` /
-    ``decrypt_many()`` to decrypt in bulk. ``SQLAlchemyPGEncryptedArray`` columns are not
-    affected and still decrypt inline.
+    No call-site changes are needed: reading ``contractor.first_name`` on any
+    loaded contractor decrypts ``first_name`` across every contractor in the
+    session in one ``asyncio.gather``; columns the response never reads stay
+    encrypted and cost nothing.
 
-    When loaded through :class:`AutoDecryptAsyncSession`, instances are batch-decrypted
-    automatically after each ``execute()`` and the explicit decrypt calls are unnecessary.
+    ``decrypt()`` / ``decrypt_many()`` remain available for the rare call sites
+    that want to pre-warm many columns at once (e.g. serializing a large
+    pre-built payload outside of any session context).
     """
 
     def __init_subclass__(cls, **kwargs) -> None:
         super().__init_subclass__(**kwargs)
-        event.listen(cls, "mapper_configured", _mark_encrypted_columns_deferred)
+        event.listen(cls, "mapper_configured", _install_decrypt_hooks)
         event.listen(cls, "load", _on_orm_load)
         event.listen(cls, "refresh", _on_orm_refresh)
 

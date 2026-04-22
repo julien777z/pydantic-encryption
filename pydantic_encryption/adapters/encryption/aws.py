@@ -1,3 +1,5 @@
+import threading
+from collections import OrderedDict
 from typing import Any, ClassVar
 
 from pydantic_encryption._lazy import require_optional_dependency
@@ -18,13 +20,23 @@ from pydantic_encryption.types import EncryptedValue
 
 
 class AWSAdapter(EncryptionAdapter):
-    """Adapter for AWS KMS encryption."""
+    """Adapter for AWS KMS encryption with a ciphertext->plaintext cache on decrypt.
+
+    AWS KMS decrypt is the dominant cost on read-heavy paths. The aws-encryption-sdk
+    uses a fresh data key per encrypt call, so CMM-level data-key caching rarely
+    hits on decrypt across different rows. A plaintext cache keyed by the full
+    ciphertext is far more effective: the same ciphertext produces the same
+    plaintext forever, and repeated reads of the same row (very common in
+    paginated list endpoints hit in succession) collapse to zero KMS calls.
+    """
 
     _kms_client: ClassVar[Any | None] = None
     _encryption_client: ClassVar[Any | None] = None
     _mat_prov: ClassVar[Any | None] = None
     _encrypt_keyring: ClassVar[Any | None] = None
     _decrypt_keyring: ClassVar[Any | None] = None
+    _plaintext_cache: ClassVar[OrderedDict[bytes, str] | None] = None
+    _plaintext_cache_lock: ClassVar[threading.Lock] = threading.Lock()
 
     @classmethod
     def _get_encrypt_key_arn(cls) -> str | None:
@@ -119,6 +131,51 @@ class AWSAdapter(EncryptionAdapter):
         return cls._decrypt_keyring
 
     @classmethod
+    def _cache_lookup(cls, ciphertext: bytes) -> str | None:
+        """Return the cached plaintext for a ciphertext, promoting it to MRU, or None on miss."""
+
+        if not settings.AWS_KMS_PLAINTEXT_CACHE_ENABLED:
+            return None
+
+        with cls._plaintext_cache_lock:
+            cache = cls._plaintext_cache
+            if cache is None:
+                return None
+            plaintext = cache.get(ciphertext)
+            if plaintext is None:
+                return None
+            cache.move_to_end(ciphertext)
+            return plaintext
+
+    @classmethod
+    def _cache_store(cls, ciphertext: bytes, plaintext: str) -> None:
+        """Insert a ciphertext->plaintext mapping, evicting the LRU entry when over capacity."""
+
+        if not settings.AWS_KMS_PLAINTEXT_CACHE_ENABLED:
+            return
+
+        capacity = settings.AWS_KMS_PLAINTEXT_CACHE_CAPACITY
+        if capacity <= 0:
+            return
+
+        with cls._plaintext_cache_lock:
+            cache = cls._plaintext_cache
+            if cache is None:
+                cache = OrderedDict()
+                cls._plaintext_cache = cache
+            cache[ciphertext] = plaintext
+            cache.move_to_end(ciphertext)
+            while len(cache) > capacity:
+                cache.popitem(last=False)
+
+    @classmethod
+    def _clear_plaintext_cache(cls) -> None:
+        """Reset the plaintext cache (test hook; not used by application code)."""
+
+        with cls._plaintext_cache_lock:
+            cls._plaintext_cache = None
+
+    @classmethod
     def encrypt(cls, plaintext: bytes | str | EncryptedValue, *, key: str | None = None) -> EncryptedValue:
         if isinstance(plaintext, EncryptedValue):
             return plaintext
@@ -141,7 +198,11 @@ class AWSAdapter(EncryptionAdapter):
         if isinstance(ciphertext, str):
             ciphertext_bytes = ciphertext.encode("utf-8")
         else:
-            ciphertext_bytes = ciphertext
+            ciphertext_bytes = bytes(ciphertext)
+
+        cached = cls._cache_lookup(ciphertext_bytes)
+        if cached is not None:
+            return cached
 
         cls._init_base_clients()
         keyring = cls._get_decrypt_keyring()
@@ -152,5 +213,7 @@ class AWSAdapter(EncryptionAdapter):
         )
 
         if isinstance(plaintext, bytes):
-            return plaintext.decode("utf-8")
+            plaintext = plaintext.decode("utf-8")
+
+        cls._cache_store(ciphertext_bytes, plaintext)
         return plaintext

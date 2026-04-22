@@ -14,45 +14,32 @@ from pydantic_encryption.integrations.sqlalchemy.bulk import (
 
 
 class AutoDecryptAsyncSession(AsyncSession):
-    """AsyncSession that batch-decrypts deferred DeferredDecryptMixin rows after each load.
+    """AsyncSession that defers decryption of ``DeferredDecryptMixin`` columns until first access.
 
-    Streaming queries (``stream``, ``stream_scalars``) bypass auto-decrypt — call
-    ``Model.decrypt_many(batch)`` per chunk or materialize the result with ``.all()``.
+    Historically this class eagerly drained every encrypted column after each
+    ``execute()`` / ``get()`` / ``refresh()`` / ``merge()``. That wasted KMS
+    round-trips on columns the response never reads. Decryption is now driven
+    by the on-access descriptor installed via :class:`DeferredDecryptMixin`:
+    reading ``instance.<encrypted_col>`` batch-decrypts that column across all
+    sibling instances loaded into the same session.
+
+    The class is preserved so existing ``async_sessionmaker(class_=...)``
+    wiring keeps working. ``drain_pending_decrypt()`` is still available for
+    callers that want to pre-warm every encrypted column before leaving the
+    session context.
     """
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.info[AUTO_DECRYPT_ENABLED_KEY] = True
 
-    async def execute(self, statement, *args, **kwargs):
-        """Run the query, then batch-decrypt every DeferredDecryptMixin row populated by it."""
+    async def drain_pending_decrypt(self) -> None:
+        """Decrypt every encrypted column on every instance currently in the session bucket.
 
-        result = await super().execute(statement, *args, **kwargs)
-        await self._drain_pending_decrypt()
-        return result
-
-    async def get(self, *args, **kwargs):
-        """Load by primary key, then batch-decrypt the populated row."""
-
-        result = await super().get(*args, **kwargs)
-        await self._drain_pending_decrypt()
-        return result
-
-    async def refresh(self, *args, **kwargs) -> None:
-        """Refresh attributes from the DB, then batch-decrypt the repopulated row."""
-
-        await super().refresh(*args, **kwargs)
-        await self._drain_pending_decrypt()
-
-    async def merge(self, *args, **kwargs):
-        """Merge state into the session, then batch-decrypt any rows loaded as a side effect."""
-
-        result = await super().merge(*args, **kwargs)
-        await self._drain_pending_decrypt()
-        return result
-
-    async def _drain_pending_decrypt(self) -> None:
-        """Pop the per-session pending bucket and decrypt every class's cells in one gather."""
+        Optional escape hatch for callers that need plaintext on every column
+        before leaving the async context (e.g. serializing outside a greenlet
+        spawn). Normal request flow does not need to call this.
+        """
 
         pending: dict[type, list[Any]] | None = self.info.pop(PENDING_DECRYPT_KEY, None)
         if not pending:

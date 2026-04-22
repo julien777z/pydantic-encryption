@@ -2,7 +2,6 @@ import asyncio
 from collections import defaultdict
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock
 
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import DeclarativeBase, Mapped, configure_mappers, mapped_column
@@ -60,14 +59,14 @@ def _wrap(value: Any) -> EncryptedValue:
 
 
 class TestOnOrmLoadListener:
-    """Test that _on_orm_load collects instances only when the auto-decrypt flag is set."""
+    """Test that _on_orm_load collects every loaded instance into the session bucket."""
 
     @classmethod
     def setup_class(cls):
         configure_mappers()
 
-    def test_collects_when_flag_enabled(self):
-        session = SimpleNamespace(info={AUTO_DECRYPT_ENABLED_KEY: True})
+    def test_collects_into_session_bucket(self):
+        session = SimpleNamespace(info={})
         context = SimpleNamespace(session=session)
         instance = _AutoDecryptUser(id=1)
 
@@ -76,24 +75,16 @@ class TestOnOrmLoadListener:
         bucket = session.info[PENDING_DECRYPT_KEY]
         assert bucket[_AutoDecryptUser] == [instance]
 
-    def test_noop_when_flag_missing(self):
-        session = SimpleNamespace(info={})
-        context = SimpleNamespace(session=session)
-
-        _on_orm_load(_AutoDecryptUser(id=1), context)
-
-        assert PENDING_DECRYPT_KEY not in session.info
-
     def test_noop_when_session_is_none(self):
         context = SimpleNamespace(session=None)
 
-        _on_orm_load(_AutoDecryptUser(id=1), context)  # no exception
+        _on_orm_load(_AutoDecryptUser(id=1), context)
 
     def test_noop_when_context_is_none(self):
-        _on_orm_load(_AutoDecryptUser(id=1), None)  # no exception
+        _on_orm_load(_AutoDecryptUser(id=1), None)
 
     def test_groups_by_class(self):
-        session = SimpleNamespace(info={AUTO_DECRYPT_ENABLED_KEY: True})
+        session = SimpleNamespace(info={})
         context = SimpleNamespace(session=session)
         user_a = _AutoDecryptUser(id=1)
         user_b = _AutoDecryptUser(id=2)
@@ -109,7 +100,7 @@ class TestOnOrmLoadListener:
 
 
 class TestAutoDecryptAsyncSession:
-    """Test AutoDecryptAsyncSession init and drain behavior."""
+    """Test that AutoDecryptAsyncSession exposes the manual drain escape hatch."""
 
     def test_init_sets_enabled_flag(self):
         session = AutoDecryptAsyncSession(bind=None)
@@ -126,7 +117,7 @@ class TestAutoDecryptAsyncSession:
         bucket[_AutoDecryptBlob].append(blob)
         session.info[PENDING_DECRYPT_KEY] = bucket
 
-        asyncio.run(session._drain_pending_decrypt())
+        asyncio.run(session.drain_pending_decrypt())
 
         assert user.email == "a@x.com"
         assert blob.payload == b"shh"
@@ -135,86 +126,9 @@ class TestAutoDecryptAsyncSession:
     def test_drain_noop_when_bucket_empty(self):
         session = AutoDecryptAsyncSession(bind=None)
 
-        asyncio.run(session._drain_pending_decrypt())  # no exception
+        asyncio.run(session.drain_pending_decrypt())
 
         assert PENDING_DECRYPT_KEY not in session.info
-
-    def test_execute_drains_after_super_execute(self):
-        session = AutoDecryptAsyncSession(bind=None)
-        user = _AutoDecryptUser(id=1, email=_wrap("a@x.com"))
-        bucket: dict[type, list[Any]] = defaultdict(list)
-        bucket[_AutoDecryptUser].append(user)
-        session.info[PENDING_DECRYPT_KEY] = bucket
-
-        sentinel_result = object()
-
-        async def fake_super_execute(*args, **kwargs):
-            return sentinel_result
-
-        session.__class__.__bases__[0].execute = AsyncMock(side_effect=fake_super_execute)
-        try:
-            result = asyncio.run(session.execute("SELECT 1"))
-        finally:
-            del session.__class__.__bases__[0].execute
-
-        assert result is sentinel_result
-        assert user.email == "a@x.com"
-
-    def test_get_drains_after_super_get(self):
-        session = AutoDecryptAsyncSession(bind=None)
-        user = _AutoDecryptUser(id=1, email=_wrap("a@x.com"))
-        bucket: dict[type, list[Any]] = defaultdict(list)
-        bucket[_AutoDecryptUser].append(user)
-        session.info[PENDING_DECRYPT_KEY] = bucket
-
-        async def fake_super_get(*args, **kwargs):
-            return user
-
-        session.__class__.__bases__[0].get = AsyncMock(side_effect=fake_super_get)
-        try:
-            result = asyncio.run(session.get(_AutoDecryptUser, 1))
-        finally:
-            del session.__class__.__bases__[0].get
-
-        assert result is user
-        assert user.email == "a@x.com"
-
-    def test_refresh_drains_after_super_refresh(self):
-        session = AutoDecryptAsyncSession(bind=None)
-        user = _AutoDecryptUser(id=1, email=_wrap("a@x.com"))
-        bucket: dict[type, list[Any]] = defaultdict(list)
-        bucket[_AutoDecryptUser].append(user)
-        session.info[PENDING_DECRYPT_KEY] = bucket
-
-        async def fake_super_refresh(*args, **kwargs):
-            return None
-
-        session.__class__.__bases__[0].refresh = AsyncMock(side_effect=fake_super_refresh)
-        try:
-            asyncio.run(session.refresh(user))
-        finally:
-            del session.__class__.__bases__[0].refresh
-
-        assert user.email == "a@x.com"
-
-    def test_merge_drains_after_super_merge(self):
-        session = AutoDecryptAsyncSession(bind=None)
-        user = _AutoDecryptUser(id=1, email=_wrap("a@x.com"))
-        bucket: dict[type, list[Any]] = defaultdict(list)
-        bucket[_AutoDecryptUser].append(user)
-        session.info[PENDING_DECRYPT_KEY] = bucket
-
-        async def fake_super_merge(*args, **kwargs):
-            return user
-
-        session.__class__.__bases__[0].merge = AsyncMock(side_effect=fake_super_merge)
-        try:
-            result = asyncio.run(session.merge(user))
-        finally:
-            del session.__class__.__bases__[0].merge
-
-        assert result is user
-        assert user.email == "a@x.com"
 
 
 class TestBytesColumnIdempotency:
@@ -240,7 +154,7 @@ class TestBytesColumnIdempotency:
 
 
 class TestDrainParallelism:
-    """Regression test: the drain must fan out every class's cells in a single gather."""
+    """Test that drain_pending_decrypt fans out every class's cells in a single gather."""
 
     @classmethod
     def setup_class(cls):
@@ -265,7 +179,7 @@ class TestDrainParallelism:
 
         asyncio.gather = counting_gather  # type: ignore[assignment]
         try:
-            asyncio.run(session._drain_pending_decrypt())
+            asyncio.run(session.drain_pending_decrypt())
         finally:
             asyncio.gather = original_gather  # type: ignore[assignment]
 
@@ -279,7 +193,7 @@ class TestDrainParallelism:
 
 
 class TestNoDirtyAfterDecrypt:
-    """Regression test: decrypted columns must not be marked dirty for the next flush."""
+    """Test that decrypted columns are not marked dirty for the next flush."""
 
     @classmethod
     def setup_class(cls):
