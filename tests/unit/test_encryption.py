@@ -1,6 +1,6 @@
 from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
 from pydantic_encryption.types import EncryptedValue
-from tests.models import User
+from tests.factories import User
 
 
 class TestUnitEncryptionModel:

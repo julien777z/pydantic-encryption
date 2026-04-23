@@ -8,7 +8,7 @@ Field-level encryption, hashing, and blind indexing for Pydantic models with SQL
 pip install pydantic-encryption
 ```
 
-### Optional extras
+### Optional Extras
 
 ```bash
 pip install "pydantic-encryption[sqlalchemy]"  # SQLAlchemy integration
@@ -177,11 +177,11 @@ async with AsyncSession(engine) as session:
     await decrypt_values(ciphertexts, concurrency=8)      # flat ciphertexts; preserves None positions
 ```
 
-### Safety: catching accidental ciphertext access
+### Safety: Catching Accidental Ciphertext Access
 
-Reads go through the on-access descriptor. If a `DeferredDecryptMixin` column is still encrypted when accessed on a **detached** instance (no session), the descriptor raises `EncryptedValueAccessError`; call `await instance.decrypt()` or `await decrypt_pending_fields(session)` first. Reads from plain async code (outside an SA greenlet) fall back to a synchronous batch decrypt across the session's pending siblings and return plaintext transparently.
+Reads go through the on-access descriptor. When the underlying cell is still an `EncryptedValue`, the descriptor prefers an async batch decrypt over the session's pending siblings (via SQLAlchemy's greenlet bridge), and transparently falls back to a synchronous decrypt either when the read happens outside a greenlet or when the instance is detached from any session.
 
-If anything bypasses the descriptor and hands you an `EncryptedValue` directly (raw `state.dict[col]`, a logged row), coercing it via `str(value)` / `f"{value}"` / `"%s" % value` raises the same error. `repr(value)` is a safe `<EncryptedValue: N bytes>` marker, and `bytes(value)` returns the raw ciphertext. Use `is_encrypted(value)` to guard at a boundary.
+An `EncryptedValue` only reaches user code if something bypasses the descriptor entirely (raw `state.dict[col]`, a logged row). Coercing it via `str(value)` / `f"{value}"` / `"%s" % value` raises `EncryptedValueAccessError`. `repr(value)` is a safe `<EncryptedValue: N bytes>` marker, and `bytes(value)` returns the raw ciphertext. Use `is_encrypted(value)` to guard at a boundary.
 
 ## Manual Encryption or Hashing
 
@@ -265,7 +265,7 @@ AWS_KMS_DECRYPT_KEY_ARN=arn:aws:kms:...decrypt-key
 
 Use one mode or the other — combining `AWS_KMS_KEY_ARN` with either split variant raises a validation error. A decrypt-only key alone is allowed (read-only workloads).
 
-#### Plaintext cache (opt-in)
+#### Plaintext Cache (Opt-In)
 
 For read-heavy workloads that repeatedly decrypt the same ciphertexts, AWS KMS round-trips dominate. An in-process LRU of ciphertext → plaintext is available as opt-in:
 

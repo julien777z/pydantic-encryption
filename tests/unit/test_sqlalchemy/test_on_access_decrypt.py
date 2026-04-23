@@ -13,17 +13,18 @@ from pydantic_encryption.integrations.sqlalchemy import DeferredDecryptMixin, de
 from pydantic_encryption.integrations.sqlalchemy.state import PENDING_DECRYPT_KEY, pending_siblings
 from pydantic_encryption.integrations.sqlalchemy.descriptor import DecryptOnAccessDescriptor
 from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue
-from pydantic_encryption.types import EncryptedValue, EncryptedValueAccessError
+from pydantic_encryption.types import EncryptedValue
+from tests.factories import User, UserFactory
 
 
 class _OnAccessBase(DeclarativeBase):
     """Isolated declarative base for on-access decrypt unit tests."""
 
 
-class _OnAccessContractor(_OnAccessBase, DeferredDecryptMixin):
+class _OnAccessRow(_OnAccessBase, DeferredDecryptMixin):
     """Two encrypted columns to verify per-column batching and scoped decrypts."""
 
-    __tablename__ = "_on_access_contractor"
+    __tablename__ = "_on_access_row"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     first_name: Mapped[str | None] = mapped_column(
@@ -57,51 +58,104 @@ def _wrap(value: Any) -> EncryptedValue:
     return EncryptedValue(_encrypt(value))
 
 
+def _build_row(user: User) -> _OnAccessRow:
+    """Build an _OnAccessRow with encrypted first_name / last_name from a User."""
+
+    return _OnAccessRow(
+        id=user.id,
+        first_name=_wrap(user.first_name),
+        last_name=_wrap(user.last_name),
+    )
+
+
+def _build_bytes_row(user: User) -> _OnAccessBytesRow:
+    """Build an _OnAccessBytesRow with an encrypted bytes payload from a User."""
+
+    return _OnAccessBytesRow(id=user.id, payload=_wrap(user.payload))
+
+
+@pytest.fixture
+def user_fixture() -> User:
+    """A single faker-backed user with name parts and a bytes payload."""
+
+    return UserFactory.build()
+
+
+@pytest.fixture
+def other_user_fixture() -> User:
+    """A second faker-backed user distinct from user_fixture."""
+
+    return UserFactory.build()
+
+
+@pytest.fixture
+def users_batch() -> list[User]:
+    """A batch of faker-backed users for multi-row scenarios."""
+
+    return UserFactory.batch(3)
+
+
 class TestDescriptorInstallation:
     """Test that the on-access descriptor is installed on every encrypted column."""
 
     @classmethod
     def setup_class(cls):
+        """Configure mappers before running tests in this class."""
+
         configure_mappers()
 
     def test_encrypted_columns_wrapped_in_descriptor(self):
+        """Test that each encrypted column is wrapped in the on-access descriptor."""
+
         for column_key in ("first_name", "last_name"):
-            descriptor = _OnAccessContractor.__dict__[column_key]
+            descriptor = _OnAccessRow.__dict__[column_key]
 
             assert isinstance(descriptor, DecryptOnAccessDescriptor)
 
     def test_non_encrypted_columns_untouched(self):
-        assert not isinstance(_OnAccessContractor.__dict__["id"], DecryptOnAccessDescriptor)
+        """Test that non-encrypted columns keep their default SA attribute."""
+
+        assert not isinstance(_OnAccessRow.__dict__["id"], DecryptOnAccessDescriptor)
 
     def test_class_level_access_returns_instrumented_attribute(self):
-        attr = _OnAccessContractor.first_name
+        """Test that class-level attribute access returns the SA InstrumentedAttribute."""
+
+        attr = _OnAccessRow.first_name
 
         assert not isinstance(attr, DecryptOnAccessDescriptor)
         assert hasattr(attr, "key")
         assert attr.key == "first_name"
 
-    def test_orm_query_expressions_still_work(self):
-        stmt = select(_OnAccessContractor).where(_OnAccessContractor.first_name == "Ada")
+    def test_orm_query_expressions_still_work(self, user_fixture: User):
+        """Test that ORM query expressions still compile against encrypted columns."""
+
+        stmt = select(_OnAccessRow).where(_OnAccessRow.first_name == user_fixture.first_name)
 
         compiled = str(stmt.compile(compile_kwargs={"literal_binds": False}))
         assert "first_name" in compiled
 
-    def test_descriptor_set_delegates_to_wrapped(self):
-        a = _OnAccessContractor(id=1)
+    def test_descriptor_set_delegates_to_wrapped(self, user_fixture: User):
+        """Test that assigning through the descriptor stores on SA state."""
 
-        a.first_name = "Grace"
+        row = _OnAccessRow(id=user_fixture.id)
 
-        assert sa_inspect(a).dict["first_name"] == "Grace"
+        row.first_name = user_fixture.first_name
 
-    def test_descriptor_delete_delegates_to_wrapped(self):
-        a = _OnAccessContractor(id=1, first_name=_wrap("Ada"))
+        assert sa_inspect(row).dict["first_name"] == user_fixture.first_name
 
-        del a.first_name
+    def test_descriptor_delete_delegates_to_wrapped(self, user_fixture: User):
+        """Test that deleting through the descriptor removes the column from SA state."""
 
-        assert "first_name" not in sa_inspect(a).dict
+        row = _build_row(user_fixture)
+
+        del row.first_name
+
+        assert "first_name" not in sa_inspect(row).dict
 
     def test_descriptor_exposes_wrapped_key(self):
-        descriptor = _OnAccessContractor.__dict__["first_name"]
+        """Test that the descriptor exposes the wrapped attribute's column key."""
+
+        descriptor = _OnAccessRow.__dict__["first_name"]
 
         assert descriptor.key == "first_name"
 
@@ -109,39 +163,40 @@ class TestDescriptorInstallation:
 class TestBatchAcrossSiblings:
     """Test that the async batch helper decrypts one column across every row in parallel."""
 
-    def test_batches_across_every_row(self):
-        a = _OnAccessContractor(id=1, first_name=_wrap("Ada"), last_name=_wrap("Lovelace"))
-        b = _OnAccessContractor(id=2, first_name=_wrap("Alan"), last_name=_wrap("Turing"))
-        c = _OnAccessContractor(id=3, first_name=_wrap("Grace"), last_name=_wrap("Hopper"))
+    def test_batches_across_every_row(self, users_batch: list[User]):
+        """Test that batch-decrypt touches only the requested column across all rows."""
 
-        asyncio.run(decrypt_rows([a, b, c], "first_name"))
+        rows = [_build_row(user) for user in users_batch]
 
-        assert sa_inspect(a).dict["first_name"] == "Ada"
-        assert sa_inspect(b).dict["first_name"] == "Alan"
-        assert sa_inspect(c).dict["first_name"] == "Grace"
+        asyncio.run(decrypt_rows(rows, "first_name"))
 
-        assert isinstance(sa_inspect(a).dict["last_name"], EncryptedValue)
-        assert isinstance(sa_inspect(b).dict["last_name"], EncryptedValue)
-        assert isinstance(sa_inspect(c).dict["last_name"], EncryptedValue)
+        for row, user in zip(rows, users_batch):
+            assert sa_inspect(row).dict["first_name"] == user.first_name
+            assert isinstance(sa_inspect(row).dict["last_name"], EncryptedValue)
 
-    def test_skips_rows_whose_column_is_already_decrypted(self):
-        """Decrypted bytes-typed columns look like plain bytes; must not be re-decrypted."""
+    def test_skips_rows_whose_column_is_already_decrypted(
+        self, user_fixture: User, other_user_fixture: User,
+    ):
+        """Test that already-decrypted bytes-typed columns are not re-decrypted."""
 
-        a = _OnAccessBytesRow(id=1, payload=_wrap(b"secret-a"))
-        b = _OnAccessBytesRow(id=2, payload=_wrap(b"secret-b"))
+        row_a = _build_bytes_row(user_fixture)
+        row_b = _build_bytes_row(other_user_fixture)
 
-        asyncio.run(decrypt_rows([a], "payload"))
+        asyncio.run(decrypt_rows([row_a], "payload"))
 
-        assert sa_inspect(a).dict["payload"] == b"secret-a"
+        assert sa_inspect(row_a).dict["payload"] == user_fixture.payload
 
-        asyncio.run(decrypt_rows([a, b], "payload"))
+        asyncio.run(decrypt_rows([row_a, row_b], "payload"))
 
-        assert sa_inspect(a).dict["payload"] == b"secret-a"
-        assert sa_inspect(b).dict["payload"] == b"secret-b"
+        assert sa_inspect(row_a).dict["payload"] == user_fixture.payload
+        assert sa_inspect(row_b).dict["payload"] == other_user_fixture.payload
 
-    def test_decrypt_call_count_equals_row_count(self):
-        a = _OnAccessContractor(id=1, first_name=_wrap("Ada"), last_name=_wrap("Lovelace"))
-        b = _OnAccessContractor(id=2, first_name=_wrap("Alan"), last_name=_wrap("Turing"))
+    def test_decrypt_call_count_equals_row_count(
+        self, user_fixture: User, other_user_fixture: User,
+    ):
+        """Test that one decrypt call is issued per row in the batch."""
+
+        rows = [_build_row(user_fixture), _build_row(other_user_fixture)]
 
         call_count = {"n": 0}
 
@@ -154,7 +209,7 @@ class TestBatchAcrossSiblings:
             return await original_async_decrypt(ciphertext, key=key)
 
         with patch.object(FernetAdapter, "async_decrypt", side_effect=counting_decrypt):
-            asyncio.run(decrypt_rows([a, b], "first_name"))
+            asyncio.run(decrypt_rows(rows, "first_name"))
 
         assert call_count["n"] == 2
 
@@ -163,68 +218,89 @@ class TestPendingSiblings:
     """Test that pending_siblings extracts the bucket list for a given class."""
 
     def test_returns_empty_list_when_session_has_no_bucket(self):
-        session = SimpleNamespace(info={})
-        assert pending_siblings(session, _OnAccessContractor) == []
+        """Test that pending_siblings returns an empty list for a fresh session."""
 
-    def test_returns_instances_when_class_present_in_bucket(self):
-        a = _OnAccessContractor(id=1)
-        b = _OnAccessContractor(id=2)
+        session = SimpleNamespace(info={})
+        assert pending_siblings(session, _OnAccessRow) == []
+
+    def test_returns_instances_when_class_present_in_bucket(
+        self, user_fixture: User, other_user_fixture: User,
+    ):
+        """Test that pending_siblings returns registered instances for a class."""
+
+        row_a = _OnAccessRow(id=user_fixture.id)
+        row_b = _OnAccessRow(id=other_user_fixture.id)
         bucket: dict[type, WeakSet] = defaultdict(WeakSet)
-        bucket[_OnAccessContractor].add(a)
-        bucket[_OnAccessContractor].add(b)
+        bucket[_OnAccessRow].add(row_a)
+        bucket[_OnAccessRow].add(row_b)
         session = SimpleNamespace(info={PENDING_DECRYPT_KEY: bucket})
 
-        siblings = pending_siblings(session, _OnAccessContractor)
-        assert set(siblings) == {a, b}
+        siblings = pending_siblings(session, _OnAccessRow)
+        assert set(siblings) == {row_a, row_b}
 
     def test_returns_empty_list_when_session_is_none(self):
-        assert pending_siblings(None, _OnAccessContractor) == []
+        """Test that pending_siblings returns an empty list when session is None."""
+
+        assert pending_siblings(None, _OnAccessRow) == []
 
 
-class TestDescriptorRaisesOnDetachedRead:
-    """Test that reading an encrypted attribute on a detached instance always raises."""
+class TestDescriptorOnDetachedRead:
+    """Test that reading an encrypted attribute on a detached instance decrypts in place."""
 
     @classmethod
     def setup_class(cls):
+        """Configure mappers before running tests in this class."""
+
         configure_mappers()
 
-    def test_detached_instance_raises_access_error(self):
-        a = _OnAccessContractor(id=1, first_name=_wrap("Ada"))
+    def test_detached_instance_decrypts_in_place(self, user_fixture: User):
+        """Test that reading an encrypted column on a detached instance returns plaintext."""
 
-        with pytest.raises(EncryptedValueAccessError) as exc_info:
-            _ = a.first_name
+        row = _build_row(user_fixture)
 
-        message = str(exc_info.value)
-        assert "_OnAccessContractor" in message
-        assert "first_name" in message
-        assert "detached" in message.lower()
+        assert row.first_name == user_fixture.first_name
+        assert sa_inspect(row).dict["first_name"] == user_fixture.first_name
 
-    def test_other_columns_still_readable_when_plaintext(self):
-        a = _OnAccessContractor(id=1, first_name="plain", last_name=None)
+    def test_detached_read_does_not_decrypt_other_columns(self, user_fixture: User):
+        """Test that reading one column on a detached row does not eagerly decrypt siblings."""
 
-        assert a.first_name == "plain"
-        assert a.last_name is None
+        row = _build_row(user_fixture)
 
-    def test_plain_integer_columns_never_raise(self):
-        a = _OnAccessContractor(id=42)
+        assert row.first_name == user_fixture.first_name
+        assert isinstance(sa_inspect(row).dict["last_name"], EncryptedValue)
 
-        assert a.id == 42
+    def test_other_columns_still_readable_when_plaintext(self, user_fixture: User):
+        """Test that plaintext values on a detached row read back unchanged."""
 
-    def test_no_greenlet_falls_back_to_sync_decrypt(self):
-        a = _OnAccessContractor(id=1, first_name=_wrap("Ada"))
+        row = _OnAccessRow(id=user_fixture.id, first_name=user_fixture.first_name, last_name=None)
+
+        assert row.first_name == user_fixture.first_name
+        assert row.last_name is None
+
+    def test_plain_integer_columns_never_raise(self, user_fixture: User):
+        """Test that non-encrypted columns are readable on a detached row."""
+
+        row = _OnAccessRow(id=user_fixture.id)
+
+        assert row.id == user_fixture.id
+
+    def test_no_greenlet_falls_back_to_sync_decrypt(self, user_fixture: User):
+        """Test that a session-bound row outside a greenlet falls back to sync decrypt."""
+
+        row = _build_row(user_fixture)
         fake_session = SimpleNamespace(info={})
 
         with patch(
             "pydantic_encryption.integrations.sqlalchemy.descriptor.object_session",
             return_value=fake_session,
         ):
-            assert a.first_name == "Ada"
+            assert row.first_name == user_fixture.first_name
 
-    def test_decrypt_method_unblocks_subsequent_reads(self):
-        """After awaiting instance.decrypt(), the attribute reads return plaintext."""
+    def test_decrypt_method_unblocks_subsequent_reads(self, user_fixture: User):
+        """Test that awaiting instance.decrypt() leaves the attribute as plaintext."""
 
-        a = _OnAccessContractor(id=1, first_name=_wrap("Ada"))
+        row = _build_row(user_fixture)
 
-        asyncio.run(a.decrypt())
+        asyncio.run(row.decrypt())
 
-        assert a.first_name == "Ada"
+        assert row.first_name == user_fixture.first_name
