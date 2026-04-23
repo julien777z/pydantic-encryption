@@ -1,3 +1,3 @@
-from .users import User
+from .users import User, UserNameFixture
 
-__all__ = ["User"]
+__all__ = ["User", "UserNameFixture"]
