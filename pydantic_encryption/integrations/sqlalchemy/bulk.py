@@ -2,6 +2,8 @@ import asyncio
 from collections.abc import Awaitable, Iterable
 from typing import Any
 
+from pydantic import ConfigDict, Field, validate_call
+
 from pydantic_encryption.lazy import require_optional_dependency
 
 require_optional_dependency("sqlalchemy", "sqlalchemy")
@@ -39,10 +41,14 @@ def _resolve_backend() -> Any:
 
 
 def _resolve_concurrency(concurrency: int | None) -> int | None:
-    """Pick the effective concurrency cap, falling back to settings.DECRYPT_CONCURRENCY when unset."""
+    """Pick the effective concurrency cap, falling back to settings.DECRYPT_CONCURRENCY when unset.
+
+    Explicit ``concurrency=0`` is normalized to ``1`` (serial); raw ``0`` would otherwise follow
+    ``_gather_with_limit``'s unlimited path (values ``<= 0``).
+    """
 
     if concurrency is not None:
-        return concurrency
+        return 1 if concurrency == 0 else concurrency
 
     default = settings.DECRYPT_CONCURRENCY
     return default if default and default > 0 else None
@@ -73,10 +79,11 @@ async def _gather_with_limit(
     return await asyncio.gather(*(guarded(c) for c in coros))
 
 
+@validate_call(config=ConfigDict(arbitrary_types_allowed=True))
 async def decrypt_rows(
     rows: Iterable[Any],
     *columns: InstrumentedAttribute | str,
-    concurrency: int | None = None,
+    concurrency: int | None = Field(default=None, ge=0),
 ) -> None:
     """Decrypt the given columns across every row in one asyncio.gather."""
 
@@ -133,10 +140,11 @@ def decrypt_rows_sync(
             set_decrypted(row, key, plaintext)
 
 
+@validate_call(config=ConfigDict(arbitrary_types_allowed=True))
 async def decrypt_values(
     values: Iterable[Any],
     *,
-    concurrency: int | None = None,
+    concurrency: int | None = Field(default=None, ge=0),
 ) -> list[Any]:
     """Decrypt a flat iterable of ciphertexts, preserving non-encrypted positions as-is."""
 
