@@ -1,18 +1,25 @@
 import asyncio
 from types import SimpleNamespace
 
-from pydantic import ValidationError
 import pytest
+from pydantic import ValidationError
 from sqlalchemy import ForeignKey
-from sqlalchemy.orm import DeclarativeBase, Mapped, configure_mappers, mapped_column, relationship
+from sqlalchemy.orm import (
+    DeclarativeBase,
+    Mapped,
+    configure_mappers,
+    mapped_column,
+    relationship,
+)
 
 from pydantic_encryption.integrations.sqlalchemy import (
     DeferredDecryptMixin,
     decrypt_rows,
     decrypt_values,
 )
-from pydantic_encryption.integrations.sqlalchemy import bulk as sqlalchemy_bulk
-from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue
+from pydantic_encryption.integrations.sqlalchemy.encryption import (
+    SQLAlchemyEncryptedValue,
+)
 from pydantic_encryption.types import EncryptedValue
 
 
@@ -123,21 +130,21 @@ class TestDecryptRows:
         for i, row in enumerate(rows):
             assert row.email == f"u{i}@x.com"
 
-    def test_decrypt_rows_explicit_concurrency_zero_is_strictly_serial(self):
+
+class TestDecryptConcurrencyValidation:
+    def test_decrypt_rows_concurrency_zero_raises_validation_error(self):
         rows = [
-            SimpleNamespace(email=EncryptedValue(self._make_ciphertext(f"u{i}@x.com")))
-            for i in range(3)
+            SimpleNamespace(email=EncryptedValue(SQLAlchemyEncryptedValue().process_bind_param("u0@x.com", None))),
         ]
 
-        asyncio.run(decrypt_rows(rows, "email", concurrency=0))
+        with pytest.raises(ValidationError):
+            asyncio.run(decrypt_rows(rows, "email", concurrency=0))
 
-        for i, row in enumerate(rows):
-            assert row.email == f"u{i}@x.com"
+    def test_decrypt_values_concurrency_zero_raises_validation_error(self):
+        values = [EncryptedValue(SQLAlchemyEncryptedValue().process_bind_param("v0", None))]
 
-
-class TestResolveConcurrency:
-    def test_explicit_zero_maps_to_one(self):
-        assert sqlalchemy_bulk._resolve_concurrency(0) == 1
+        with pytest.raises(ValidationError):
+            asyncio.run(decrypt_values(values, concurrency=0))
 
     def test_decrypt_rows_negative_concurrency_raises_validation_error(self):
         rows = [
@@ -311,10 +318,3 @@ class TestDecryptValues:
         result = asyncio.run(decrypt_values(values, concurrency=2))
 
         assert result == [f"v{i}" for i in range(5)]
-
-    def test_decrypt_values_explicit_concurrency_zero_is_strictly_serial(self):
-        values = [self._make_ciphertext(f"v{i}") for i in range(3)]
-
-        result = asyncio.run(decrypt_values(values, concurrency=0))
-
-        assert result == ["v0", "v1", "v2"]

@@ -45,20 +45,6 @@ def _resolve_backend() -> Any:
     return get_encryption_backend(method)
 
 
-def _resolve_concurrency(concurrency: int | None) -> int | None:
-    """Pick the effective concurrency cap, falling back to settings.DECRYPT_CONCURRENCY when unset.
-
-    Explicit ``concurrency=0`` is normalized to ``1`` (serial); raw ``0`` would otherwise follow
-    ``_gather_with_limit``'s unlimited path (values ``<= 0``).
-    """
-
-    if concurrency is not None:
-        return 1 if concurrency == 0 else concurrency
-
-    default = settings.DECRYPT_CONCURRENCY
-    return default if default and default > 0 else None
-
-
 async def _decrypt_cell(backend: Any, ciphertext: bytes) -> EncryptableValue:
     """Decrypt a single ciphertext and decode it to its original Python type."""
 
@@ -101,7 +87,9 @@ async def decrypt_rows(
 
     backend = _resolve_backend()
     column_keys = [_column_key(c) for c in columns]
-    effective_concurrency = _resolve_concurrency(concurrency)
+    effective_concurrency = (
+        concurrency if concurrency is not None else settings.DECRYPT_CONCURRENCY
+    )
 
     assignments: list[tuple[Any, str]] = []
     coros: list[Awaitable[Any]] = []
@@ -158,7 +146,9 @@ async def decrypt_values(
         return []
 
     backend = _resolve_backend()
-    effective_concurrency = _resolve_concurrency(concurrency)
+    effective_concurrency = (
+        concurrency if concurrency is not None else settings.DECRYPT_CONCURRENCY
+    )
 
     indexes: list[int] = []
     coros: list[Awaitable[Any]] = []
