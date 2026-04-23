@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     AWS_KMS_PLAINTEXT_CACHE_ENABLED: bool = False
     AWS_KMS_PLAINTEXT_CACHE_CAPACITY: int = 2048
 
-    DECRYPT_CONCURRENCY: int = Field(default=32, ge=0)
+    DECRYPT_CONCURRENCY: int = Field(default=32, gt=0)
 
     @model_validator(mode="after")
     def validate_aws_kms_keys(self) -> Self:

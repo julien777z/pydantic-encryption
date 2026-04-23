@@ -14,13 +14,18 @@ from sqlalchemy.orm.attributes import InstrumentedAttribute
 
 from pydantic_encryption.adapters.registry import get_encryption_backend
 from pydantic_encryption.config import settings
+from pydantic_encryption.integrations.sqlalchemy.encryption import (
+    SQLAlchemyEncryptedValue,
+)
+from pydantic_encryption.integrations.sqlalchemy.serialization import (
+    EncryptableValue,
+    decode_value,
+)
 from pydantic_encryption.integrations.sqlalchemy.state import (
     PENDING_DECRYPT_KEY,
     read_raw_cell,
     set_decrypted,
 )
-from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue
-from pydantic_encryption.integrations.sqlalchemy.serialization import EncryptableValue, decode_value
 from pydantic_encryption.types import EncryptedValue
 
 
@@ -83,7 +88,7 @@ async def _gather_with_limit(
 async def decrypt_rows(
     rows: Iterable[Any],
     *columns: InstrumentedAttribute | str,
-    concurrency: int | None = Field(default=None, ge=0),
+    concurrency: int | None = Field(default=None, gt=0),
 ) -> None:
     """Decrypt the given columns across every row in one asyncio.gather."""
 
@@ -144,7 +149,7 @@ def decrypt_rows_sync(
 async def decrypt_values(
     values: Iterable[Any],
     *,
-    concurrency: int | None = Field(default=None, ge=0),
+    concurrency: int | None = Field(default=None, gt=0),
 ) -> list[Any]:
     """Decrypt a flat iterable of ciphertexts, preserving non-encrypted positions as-is."""
 
