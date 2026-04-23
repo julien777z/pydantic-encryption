@@ -25,7 +25,6 @@ class TestBlindIndexAnnotationHMAC:
         user = UserModel(email_index="test@example.com")
 
         assert isinstance(user.email_index, BlindIndexValue)
-        assert user.email_index.blind_indexed is True
 
     def test_deterministic_output(self):
         class UserModel(BaseModel):

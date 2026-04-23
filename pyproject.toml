@@ -1,6 +1,6 @@
 [project]
 name = "pydantic_encryption"
-version = "0.8.0"
+version = "0.9.4"
 description = "Encryption, hashing, and blind indexing for Pydantic"
 authors = [
     { name = "Julien Kmec", email = "me@julien.dev" },
@@ -22,6 +22,7 @@ Repository = "https://github.com/julien777z/pydantic-encryption"
 aws = [
     "aws-encryption-sdk[mpl]>=4.0.1",
     "boto3>=1.38.8",
+    "cachetools>=5.3.0",
 ]
 sqlalchemy = [
     "sqlalchemy>=2.0.40",
@@ -29,6 +30,7 @@ sqlalchemy = [
 all = [
     "aws-encryption-sdk[mpl]>=4.0.1",
     "boto3>=1.38.8",
+    "cachetools>=5.3.0",
     "sqlalchemy>=2.0.40",
 ]
 dev = [

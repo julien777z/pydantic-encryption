@@ -3,6 +3,7 @@ from typing import Annotated
 from pydantic_super_model import AnnotatedFieldInfo
 
 from pydantic_encryption import BaseModel, Encrypted, Hashed
+from pydantic_encryption.types import EncryptedValue, HashedValue
 
 
 class TestModelEncryption:
@@ -18,9 +19,9 @@ class TestModelEncryption:
 
         model = _MultiEncrypt(field1="secret1", field2="secret2", field3="secret3")
 
-        assert getattr(model.field1, "encrypted", False)
-        assert getattr(model.field2, "encrypted", False)
-        assert getattr(model.field3, "encrypted", False)
+        assert isinstance(model.field1, EncryptedValue)
+        assert isinstance(model.field2, EncryptedValue)
+        assert isinstance(model.field3, EncryptedValue)
 
     def test_optional_encrypted_field_with_value(self):
         """Test optional encrypted field with value."""
@@ -30,7 +31,7 @@ class TestModelEncryption:
 
         model = _OptionalEncrypt(secret="my secret")
 
-        assert getattr(model.secret, "encrypted", False)
+        assert isinstance(model.secret, EncryptedValue)
 
     def test_optional_encrypted_field_none(self):
         """Test optional encrypted field with None."""
@@ -63,8 +64,8 @@ class TestModelEncryption:
         model = _MixedModel(username="john", email="john@example.com", password="secret123")
 
         assert model.username == "john"
-        assert getattr(model.email, "encrypted", False)
-        assert getattr(model.password, "hashed", False)
+        assert isinstance(model.email, EncryptedValue)
+        assert isinstance(model.password, HashedValue)
 
     def test_model_inheritance(self):
         """Test encryption works with model inheritance."""
@@ -79,8 +80,8 @@ class TestModelEncryption:
         model = _SecureUser(username="john", password="pass123", secret="my secret")
 
         assert model.username == "john"
-        assert getattr(model.password, "hashed", False)
-        assert getattr(model.secret, "encrypted", False)
+        assert isinstance(model.password, HashedValue)
+        assert isinstance(model.secret, EncryptedValue)
 
 
 
@@ -96,7 +97,7 @@ class TestModelDecryption:
         original = "secret data"
         model = _Model(data=original)
 
-        assert getattr(model.data, "encrypted", False)
+        assert isinstance(model.data, EncryptedValue)
 
         model.decrypt_data()
 
@@ -206,7 +207,7 @@ class TestEdgeCases:
 
         model = _Model(data="")
 
-        assert getattr(model.data, "encrypted", False)
+        assert isinstance(model.data, EncryptedValue)
 
     def test_whitespace_string_encryption(self):
         """Test encrypting whitespace string."""
@@ -216,7 +217,7 @@ class TestEdgeCases:
 
         model = _Model(data="   ")
 
-        assert getattr(model.data, "encrypted", False)
+        assert isinstance(model.data, EncryptedValue)
 
     def test_unicode_encryption(self):
         """Test encrypting unicode characters."""

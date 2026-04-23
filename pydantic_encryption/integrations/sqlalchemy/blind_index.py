@@ -1,4 +1,4 @@
-from pydantic_encryption._lazy import require_optional_dependency
+from pydantic_encryption.lazy import require_optional_dependency
 
 require_optional_dependency("sqlalchemy", "sqlalchemy")
 
@@ -6,18 +6,13 @@ from sqlalchemy.types import LargeBinary, TypeDecorator
 
 from pydantic_encryption.adapters.registry import get_blind_index_backend
 from pydantic_encryption.config import settings
-from pydantic_encryption.integrations.sqlalchemy._async_bridge import run_async_or_sync
+from pydantic_encryption.integrations.sqlalchemy.async_bridge import run_async_or_sync
 from pydantic_encryption.normalization import normalize_value, validate_normalization_flags
 from pydantic_encryption.types import BlindIndexMethod, BlindIndexValue
 
 
 class SQLAlchemyBlindIndexValue(TypeDecorator):
-    """SQLAlchemy column type that stores a deterministic blind index.
-
-    The Argon2 blind index backend is memory-hard. Under ``AsyncSession`` the
-    greenlet bridge is used so write-side index computation doesn't block the
-    event loop. Falls back to the sync path for plain ``Session``.
-    """
+    """SQLAlchemy column type that stores a deterministic blind index."""
 
     impl = LargeBinary
     cache_ok = True

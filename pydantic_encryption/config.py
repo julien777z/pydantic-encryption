@@ -1,6 +1,6 @@
 from typing import Self
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from pydantic_encryption.types import EncryptionMethod
@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     BLIND_INDEX_SECRET_KEY: str | None = None
 
     ENCRYPTION_METHOD: EncryptionMethod | None = None
+
+    AWS_KMS_PLAINTEXT_CACHE_ENABLED: bool = False
+    AWS_KMS_PLAINTEXT_CACHE_CAPACITY: int = 2048
+
+    DECRYPT_CONCURRENCY: int = Field(default=32, gt=0)
 
     @model_validator(mode="after")
     def validate_aws_kms_keys(self) -> Self:

@@ -1,5 +1,6 @@
 from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
-from tests.models import User
+from pydantic_encryption.types import EncryptedValue
+from tests.factories import User
 
 
 class TestUnitEncryptionModel:
@@ -9,7 +10,7 @@ class TestUnitEncryptionModel:
         """Test encrypting fields with Encrypted annotation."""
 
         assert user.username is not None
-        assert getattr(user.address, "encrypted", False)
+        assert isinstance(user.address, EncryptedValue)
 
     def test_double_encrypt_fails(self, user: User):
         """Test double encrypting returns same value."""
@@ -27,11 +28,11 @@ class TestUnitEncryptionModel:
         user.decrypt_data()
 
         assert user.username == original_username
-        assert not getattr(user.address, "encrypted", False)
+        assert not isinstance(user.address, EncryptedValue)
 
     def test_encrypt_multiple_users(self, users_batch: list[User]):
         """Test encrypting multiple users with batch."""
 
         for user in users_batch:
-            assert getattr(user.address, "encrypted", False)
+            assert isinstance(user.address, EncryptedValue)
             assert user.username is not None

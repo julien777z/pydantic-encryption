@@ -4,7 +4,13 @@ from typing import Annotated
 from pydantic_encryption import BaseModel, Encrypted, Hashed
 from pydantic_encryption.config import settings
 from pydantic_encryption.models.base import _defer_crypto_to_async
-from pydantic_encryption.types import BlindIndex, BlindIndexMethod
+from pydantic_encryption.types import (
+    BlindIndex,
+    BlindIndexMethod,
+    BlindIndexValue,
+    EncryptedValue,
+    HashedValue,
+)
 
 
 def _construct_without_crypto(cls, **data):
@@ -26,7 +32,7 @@ class TestAsyncInit:
 
         model = await _Model.async_init(secret="plaintext")
 
-        assert getattr(model.secret, "encrypted", False)
+        assert isinstance(model.secret, EncryptedValue)
 
     @pytest.mark.asyncio
     async def test_async_init_hashes_fields(self):
@@ -35,7 +41,7 @@ class TestAsyncInit:
 
         model = await _Model.async_init(password="secret123")
 
-        assert getattr(model.password, "hashed", False)
+        assert isinstance(model.password, HashedValue)
 
     @pytest.mark.asyncio
     async def test_async_init_mixed_encrypt_and_hash(self):
@@ -47,8 +53,8 @@ class TestAsyncInit:
         model = await _Model.async_init(username="john", email="john@example.com", password="secret123")
 
         assert model.username == "john"
-        assert getattr(model.email, "encrypted", False)
-        assert getattr(model.password, "hashed", False)
+        assert isinstance(model.email, EncryptedValue)
+        assert isinstance(model.password, HashedValue)
 
     @pytest.mark.asyncio
     async def test_async_init_multiple_encrypted_fields(self):
@@ -59,9 +65,9 @@ class TestAsyncInit:
 
         model = await _Model.async_init(field1="secret1", field2="secret2", field3="secret3")
 
-        assert getattr(model.field1, "encrypted", False)
-        assert getattr(model.field2, "encrypted", False)
-        assert getattr(model.field3, "encrypted", False)
+        assert isinstance(model.field1, EncryptedValue)
+        assert isinstance(model.field2, EncryptedValue)
+        assert isinstance(model.field3, EncryptedValue)
 
     @pytest.mark.asyncio
     async def test_async_init_optional_encrypted_field_with_value(self):
@@ -70,7 +76,7 @@ class TestAsyncInit:
 
         model = await _Model.async_init(secret="my secret")
 
-        assert getattr(model.secret, "encrypted", False)
+        assert isinstance(model.secret, EncryptedValue)
 
     @pytest.mark.asyncio
     async def test_async_init_optional_encrypted_field_none(self):
@@ -91,7 +97,7 @@ class TestAsyncInit:
         original = "secret data"
         model = await _Model.async_init(data=original)
 
-        assert getattr(model.data, "encrypted", False)
+        assert isinstance(model.data, EncryptedValue)
 
         await model.async_decrypt_data()
         assert model.data == original
@@ -117,8 +123,8 @@ class TestAsyncInit:
         async_model = await _Model.async_init(secret="async_secret")
         sync_model = _Model(secret="sync_secret")
 
-        assert getattr(async_model.secret, "encrypted", False)
-        assert getattr(sync_model.secret, "encrypted", False)
+        assert isinstance(async_model.secret, EncryptedValue)
+        assert isinstance(sync_model.secret, EncryptedValue)
 
 
 class TestAsyncEncryptData:
@@ -130,10 +136,10 @@ class TestAsyncEncryptData:
             secret: Annotated[bytes, Encrypted]
 
         model = _construct_without_crypto(_Model, secret="plaintext")
-        assert not getattr(model.secret, "encrypted", False)
+        assert not isinstance(model.secret, EncryptedValue)
 
         await model.async_encrypt_data()
-        assert getattr(model.secret, "encrypted", False)
+        assert isinstance(model.secret, EncryptedValue)
 
     @pytest.mark.asyncio
     async def test_async_encrypt_data_multiple_fields(self):
@@ -144,8 +150,8 @@ class TestAsyncEncryptData:
         model = _construct_without_crypto(_Model, field1="secret1", field2="secret2")
         await model.async_encrypt_data()
 
-        assert getattr(model.field1, "encrypted", False)
-        assert getattr(model.field2, "encrypted", False)
+        assert isinstance(model.field1, EncryptedValue)
+        assert isinstance(model.field2, EncryptedValue)
 
 
 class TestAsyncDecryptData:
@@ -191,10 +197,10 @@ class TestAsyncHashData:
             password: Annotated[str, Hashed]
 
         model = _construct_without_crypto(_Model, password="secret123")
-        assert not getattr(model.password, "hashed", False)
+        assert not isinstance(model.password, HashedValue)
 
         await model.async_hash_data()
-        assert getattr(model.password, "hashed", False)
+        assert isinstance(model.password, HashedValue)
 
     @pytest.mark.asyncio
     async def test_async_hash_data_multiple_fields(self):
@@ -205,8 +211,8 @@ class TestAsyncHashData:
         model = _construct_without_crypto(_Model, password1="secret1", password2="secret2")
         await model.async_hash_data()
 
-        assert getattr(model.password1, "hashed", False)
-        assert getattr(model.password2, "hashed", False)
+        assert isinstance(model.password1, HashedValue)
+        assert isinstance(model.password2, HashedValue)
 
 
 class TestAsyncPostInit:
@@ -219,13 +225,13 @@ class TestAsyncPostInit:
             password: Annotated[str, Hashed]
 
         model = _construct_without_crypto(_Model, email="user@example.com", password="secret123")
-        assert not getattr(model.email, "encrypted", False)
-        assert not getattr(model.password, "hashed", False)
+        assert not isinstance(model.email, EncryptedValue)
+        assert not isinstance(model.password, HashedValue)
 
         await model.async_post_init()
 
-        assert getattr(model.email, "encrypted", False)
-        assert getattr(model.password, "hashed", False)
+        assert isinstance(model.email, EncryptedValue)
+        assert isinstance(model.password, HashedValue)
 
     @pytest.mark.asyncio
     async def test_async_post_init_then_decrypt(self):
@@ -236,7 +242,7 @@ class TestAsyncPostInit:
 
         model = _construct_without_crypto(_Model, data="secret")
         await model.async_post_init()
-        assert getattr(model.data, "encrypted", False)
+        assert isinstance(model.data, EncryptedValue)
 
         await model.async_decrypt_data()
         assert model.data == "secret"
@@ -259,7 +265,7 @@ class TestAsyncInitNestedModels:
         user = await _User.async_init(name="John", address={"street": "123 Main St"})
 
         assert user.name == "John"
-        assert getattr(user.address.street, "encrypted", False)
+        assert isinstance(user.address.street, EncryptedValue)
 
     @pytest.mark.asyncio
     async def test_async_init_nested_model_hashes(self):
@@ -275,7 +281,7 @@ class TestAsyncInitNestedModels:
         user = await _User.async_init(name="John", credentials={"password": "secret123"})
 
         assert user.name == "John"
-        assert getattr(user.credentials.password, "hashed", False)
+        assert isinstance(user.credentials.password, HashedValue)
 
     @pytest.mark.asyncio
     async def test_async_init_nested_model_mixed(self):
@@ -290,8 +296,8 @@ class TestAsyncInitNestedModels:
 
         user = await _User.async_init(email="john@example.com", address={"street": "123 Main St"})
 
-        assert getattr(user.email, "encrypted", False)
-        assert getattr(user.address.street, "encrypted", False)
+        assert isinstance(user.email, EncryptedValue)
+        assert isinstance(user.address.street, EncryptedValue)
 
     @pytest.mark.asyncio
     async def test_async_init_pre_constructed_nested_model(self):
@@ -305,12 +311,12 @@ class TestAsyncInitNestedModels:
             address: _Address
 
         address = _Address(street="123 Main St")  # sync crypto already ran
-        assert getattr(address.street, "encrypted", False)
+        assert isinstance(address.street, EncryptedValue)
 
         user = await _User.async_init(name="John", address=address)
 
         assert user.name == "John"
-        assert getattr(user.address.street, "encrypted", False)
+        assert isinstance(user.address.street, EncryptedValue)
 
     @pytest.mark.asyncio
     async def test_async_init_nested_model_in_list(self):
@@ -329,8 +335,8 @@ class TestAsyncInitNestedModels:
         )
 
         assert user.name == "John"
-        assert getattr(user.addresses[0].street, "encrypted", False)
-        assert getattr(user.addresses[1].street, "encrypted", False)
+        assert isinstance(user.addresses[0].street, EncryptedValue)
+        assert isinstance(user.addresses[1].street, EncryptedValue)
 
     @pytest.mark.asyncio
     async def test_async_init_nested_model_in_dict(self):
@@ -349,8 +355,8 @@ class TestAsyncInitNestedModels:
         )
 
         assert user.name == "John"
-        assert getattr(user.addresses["home"].street, "encrypted", False)
-        assert getattr(user.addresses["work"].street, "encrypted", False)
+        assert isinstance(user.addresses["home"].street, EncryptedValue)
+        assert isinstance(user.addresses["work"].street, EncryptedValue)
 
     @pytest.mark.asyncio
     async def test_async_init_nested_model_in_nested_list(self):
@@ -369,9 +375,9 @@ class TestAsyncInitNestedModels:
         )
 
         assert user.name == "John"
-        assert getattr(user.address_groups[0][0].street, "encrypted", False)
-        assert getattr(user.address_groups[1][0].street, "encrypted", False)
-        assert getattr(user.address_groups[1][1].street, "encrypted", False)
+        assert isinstance(user.address_groups[0][0].street, EncryptedValue)
+        assert isinstance(user.address_groups[1][0].street, EncryptedValue)
+        assert isinstance(user.address_groups[1][1].street, EncryptedValue)
 
     @pytest.mark.asyncio
     async def test_async_init_nested_model_in_dict_of_lists(self):
@@ -393,9 +399,9 @@ class TestAsyncInitNestedModels:
         )
 
         assert user.name == "John"
-        assert getattr(user.addresses["home"][0].street, "encrypted", False)
-        assert getattr(user.addresses["home"][1].street, "encrypted", False)
-        assert getattr(user.addresses["work"][0].street, "encrypted", False)
+        assert isinstance(user.addresses["home"][0].street, EncryptedValue)
+        assert isinstance(user.addresses["home"][1].street, EncryptedValue)
+        assert isinstance(user.addresses["work"][0].street, EncryptedValue)
 
 
 @pytest.fixture(autouse=True)
@@ -412,10 +418,10 @@ class TestAsyncBlindIndexData:
             email: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
 
         model = _construct_without_crypto(_Model, email="test@example.com")
-        assert not getattr(model.email, "blind_indexed", False)
+        assert not isinstance(model.email, BlindIndexValue)
 
         await model.async_blind_index_data()
-        assert getattr(model.email, "blind_indexed", False)
+        assert isinstance(model.email, BlindIndexValue)
 
     @pytest.mark.asyncio
     async def test_async_blind_index_argon2(self):
@@ -425,7 +431,7 @@ class TestAsyncBlindIndexData:
         model = _construct_without_crypto(_Model, email="test@example.com")
 
         await model.async_blind_index_data()
-        assert getattr(model.email, "blind_indexed", False)
+        assert isinstance(model.email, BlindIndexValue)
 
     @pytest.mark.asyncio
     async def test_async_blind_index_multiple_fields(self):
@@ -436,8 +442,8 @@ class TestAsyncBlindIndexData:
         model = _construct_without_crypto(_Model, email="test@example.com", phone="1234567890")
         await model.async_blind_index_data()
 
-        assert getattr(model.email, "blind_indexed", False)
-        assert getattr(model.phone, "blind_indexed", False)
+        assert isinstance(model.email, BlindIndexValue)
+        assert isinstance(model.phone, BlindIndexValue)
 
     @pytest.mark.asyncio
     async def test_async_blind_index_deterministic(self):

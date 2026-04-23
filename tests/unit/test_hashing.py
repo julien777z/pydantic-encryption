@@ -1,5 +1,6 @@
 from pydantic_encryption.adapters.hashing.argon2 import Argon2Adapter
-from tests.models import User
+from pydantic_encryption.types import HashedValue
+from tests.factories import User
 
 
 class TestUnitHashing:
@@ -8,7 +9,7 @@ class TestUnitHashing:
     def test_hash_field(self, user: User):
         """Test hashing fields with Hash annotation."""
         assert user.username is not None
-        assert getattr(user.password, "hashed", False)
+        assert isinstance(user.password, HashedValue)
 
     def test_double_hash_fails(self, user: User):
         """Test double hashing returns same value."""
@@ -21,4 +22,4 @@ class TestUnitHashing:
     def test_hash_multiple_users(self, users_batch: list[User]):
         """Test hashing multiple users with batch."""
         for user in users_batch:
-            assert getattr(user.password, "hashed", False)
+            assert isinstance(user.password, HashedValue)
