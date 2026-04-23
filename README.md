@@ -179,9 +179,9 @@ async with AsyncSession(engine) as session:
 
 ### Safety: catching accidental ciphertext access
 
-Reads go through the on-access descriptor. If a `DeferredDecryptMixin` column is still encrypted when accessed on a **detached** instance (no session), the descriptor raises `EncryptedValueAccessError`; call `await instance.decrypt()` or `await decrypt_pending_fields(session)` first. Reads from plain async code (outside an SA greenlet) fall back to a synchronous batch decrypt across the session's pending siblings and return plaintext transparently.
+Reads go through the on-access descriptor. When the underlying cell is still an `EncryptedValue`, the descriptor prefers an async batch decrypt over the session's pending siblings (via SQLAlchemy's greenlet bridge), and transparently falls back to a synchronous decrypt either when the read happens outside a greenlet or when the instance is detached from any session.
 
-If anything bypasses the descriptor and hands you an `EncryptedValue` directly (raw `state.dict[col]`, a logged row), coercing it via `str(value)` / `f"{value}"` / `"%s" % value` raises the same error. `repr(value)` is a safe `<EncryptedValue: N bytes>` marker, and `bytes(value)` returns the raw ciphertext. Use `is_encrypted(value)` to guard at a boundary.
+An `EncryptedValue` only reaches user code if something bypasses the descriptor entirely (raw `state.dict[col]`, a logged row). Coercing it via `str(value)` / `f"{value}"` / `"%s" % value` raises `EncryptedValueAccessError`. `repr(value)` is a safe `<EncryptedValue: N bytes>` marker, and `bytes(value)` returns the raw ciphertext. Use `is_encrypted(value)` to guard at a boundary.
 
 ## Manual Encryption or Hashing
 

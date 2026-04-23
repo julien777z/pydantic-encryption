@@ -14,7 +14,7 @@ from sqlalchemy.orm import object_session
 
 from pydantic_encryption.integrations.sqlalchemy.state import pending_siblings
 from pydantic_encryption.integrations.sqlalchemy.bulk import decrypt_rows, decrypt_rows_sync
-from pydantic_encryption.types import EncryptedValue, EncryptedValueAccessError
+from pydantic_encryption.types import EncryptedValue
 
 
 class DecryptOnAccessDescriptor:
@@ -43,12 +43,10 @@ class DecryptOnAccessDescriptor:
 
         session = object_session(instance)
         if session is None:
-            raise EncryptedValueAccessError(
-                f"Cannot decrypt {self._cls.__name__}.{self._column_key} on a detached instance. "
-                "Call `await instance.decrypt()` or `await decrypt_pending_fields(session)` first."
-            )
+            rows: list[Any] | set[Any] = [instance]
+        else:
+            rows = {instance, *pending_siblings(session, self._cls)}
 
-        rows = {instance, *pending_siblings(session, self._cls)}
         try:
             await_(decrypt_rows(rows, self._column_key))
         except MissingGreenlet:
