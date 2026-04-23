@@ -1,4 +1,5 @@
 import asyncio
+import warnings
 from collections import defaultdict
 from types import SimpleNamespace
 from typing import Any
@@ -294,7 +295,13 @@ class TestDescriptorOnDetachedRead:
             "pydantic_encryption.integrations.sqlalchemy.descriptor.object_session",
             return_value=fake_session,
         ):
-            assert row.first_name == user_fixture.first_name
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                assert row.first_name == user_fixture.first_name
+
+            assert not any(
+                "never awaited" in str(w.message).lower() for w in caught
+            )
 
     def test_decrypt_method_unblocks_subsequent_reads(self, user_fixture: User):
         """Test that awaiting instance.decrypt() leaves the attribute as plaintext."""

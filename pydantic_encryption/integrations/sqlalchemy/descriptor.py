@@ -47,9 +47,12 @@ class DecryptOnAccessDescriptor:
         else:
             rows = {instance, *pending_siblings(session, self._cls)}
 
+        coro = decrypt_rows(rows, self._column_key)
         try:
-            await_(decrypt_rows(rows, self._column_key))
+            await_(coro)
         except MissingGreenlet:
+            coro.close()
+
             decrypt_rows_sync(rows, self._column_key)
 
         return self._wrapped.__get__(instance, owner)
