@@ -14,8 +14,7 @@ from pydantic_encryption.integrations.sqlalchemy.state import PENDING_DECRYPT_KE
 from pydantic_encryption.integrations.sqlalchemy.descriptor import DecryptOnAccessDescriptor
 from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue
 from pydantic_encryption.types import EncryptedValue
-from tests.factories import UserNameFactory
-from tests.models import UserNameFixture
+from tests.factories import User, UserFactory
 
 
 class _OnAccessBase(DeclarativeBase):
@@ -59,8 +58,8 @@ def _wrap(value: Any) -> EncryptedValue:
     return EncryptedValue(_encrypt(value))
 
 
-def _build_row(user: UserNameFixture) -> _OnAccessRow:
-    """Build an _OnAccessRow with encrypted first_name / last_name from a UserNameFixture."""
+def _build_row(user: User) -> _OnAccessRow:
+    """Build an _OnAccessRow with encrypted first_name / last_name from a User."""
 
     return _OnAccessRow(
         id=user.id,
@@ -69,31 +68,31 @@ def _build_row(user: UserNameFixture) -> _OnAccessRow:
     )
 
 
-def _build_bytes_row(user: UserNameFixture) -> _OnAccessBytesRow:
-    """Build an _OnAccessBytesRow with an encrypted bytes payload from a UserNameFixture."""
+def _build_bytes_row(user: User) -> _OnAccessBytesRow:
+    """Build an _OnAccessBytesRow with an encrypted bytes payload from a User."""
 
     return _OnAccessBytesRow(id=user.id, payload=_wrap(user.payload))
 
 
 @pytest.fixture
-def user_fixture() -> UserNameFixture:
+def user_fixture() -> User:
     """A single faker-backed user with name parts and a bytes payload."""
 
-    return UserNameFactory.build()
+    return UserFactory.build()
 
 
 @pytest.fixture
-def other_user_fixture() -> UserNameFixture:
+def other_user_fixture() -> User:
     """A second faker-backed user distinct from user_fixture."""
 
-    return UserNameFactory.build()
+    return UserFactory.build()
 
 
 @pytest.fixture
-def users_batch() -> list[UserNameFixture]:
+def users_batch() -> list[User]:
     """A batch of faker-backed users for multi-row scenarios."""
 
-    return UserNameFactory.batch(3)
+    return UserFactory.batch(3)
 
 
 class TestDescriptorInstallation:
@@ -127,7 +126,7 @@ class TestDescriptorInstallation:
         assert hasattr(attr, "key")
         assert attr.key == "first_name"
 
-    def test_orm_query_expressions_still_work(self, user_fixture: UserNameFixture):
+    def test_orm_query_expressions_still_work(self, user_fixture: User):
         """Test that ORM query expressions still compile against encrypted columns."""
 
         stmt = select(_OnAccessRow).where(_OnAccessRow.first_name == user_fixture.first_name)
@@ -135,7 +134,7 @@ class TestDescriptorInstallation:
         compiled = str(stmt.compile(compile_kwargs={"literal_binds": False}))
         assert "first_name" in compiled
 
-    def test_descriptor_set_delegates_to_wrapped(self, user_fixture: UserNameFixture):
+    def test_descriptor_set_delegates_to_wrapped(self, user_fixture: User):
         """Test that assigning through the descriptor stores on SA state."""
 
         row = _OnAccessRow(id=user_fixture.id)
@@ -144,7 +143,7 @@ class TestDescriptorInstallation:
 
         assert sa_inspect(row).dict["first_name"] == user_fixture.first_name
 
-    def test_descriptor_delete_delegates_to_wrapped(self, user_fixture: UserNameFixture):
+    def test_descriptor_delete_delegates_to_wrapped(self, user_fixture: User):
         """Test that deleting through the descriptor removes the column from SA state."""
 
         row = _build_row(user_fixture)
@@ -164,7 +163,7 @@ class TestDescriptorInstallation:
 class TestBatchAcrossSiblings:
     """Test that the async batch helper decrypts one column across every row in parallel."""
 
-    def test_batches_across_every_row(self, users_batch: list[UserNameFixture]):
+    def test_batches_across_every_row(self, users_batch: list[User]):
         """Test that batch-decrypt touches only the requested column across all rows."""
 
         rows = [_build_row(user) for user in users_batch]
@@ -176,7 +175,7 @@ class TestBatchAcrossSiblings:
             assert isinstance(sa_inspect(row).dict["last_name"], EncryptedValue)
 
     def test_skips_rows_whose_column_is_already_decrypted(
-        self, user_fixture: UserNameFixture, other_user_fixture: UserNameFixture,
+        self, user_fixture: User, other_user_fixture: User,
     ):
         """Test that already-decrypted bytes-typed columns are not re-decrypted."""
 
@@ -193,7 +192,7 @@ class TestBatchAcrossSiblings:
         assert sa_inspect(row_b).dict["payload"] == other_user_fixture.payload
 
     def test_decrypt_call_count_equals_row_count(
-        self, user_fixture: UserNameFixture, other_user_fixture: UserNameFixture,
+        self, user_fixture: User, other_user_fixture: User,
     ):
         """Test that one decrypt call is issued per row in the batch."""
 
@@ -225,7 +224,7 @@ class TestPendingSiblings:
         assert pending_siblings(session, _OnAccessRow) == []
 
     def test_returns_instances_when_class_present_in_bucket(
-        self, user_fixture: UserNameFixture, other_user_fixture: UserNameFixture,
+        self, user_fixture: User, other_user_fixture: User,
     ):
         """Test that pending_siblings returns registered instances for a class."""
 
@@ -254,7 +253,7 @@ class TestDescriptorOnDetachedRead:
 
         configure_mappers()
 
-    def test_detached_instance_decrypts_in_place(self, user_fixture: UserNameFixture):
+    def test_detached_instance_decrypts_in_place(self, user_fixture: User):
         """Test that reading an encrypted column on a detached instance returns plaintext."""
 
         row = _build_row(user_fixture)
@@ -262,7 +261,7 @@ class TestDescriptorOnDetachedRead:
         assert row.first_name == user_fixture.first_name
         assert sa_inspect(row).dict["first_name"] == user_fixture.first_name
 
-    def test_detached_read_does_not_decrypt_other_columns(self, user_fixture: UserNameFixture):
+    def test_detached_read_does_not_decrypt_other_columns(self, user_fixture: User):
         """Test that reading one column on a detached row does not eagerly decrypt siblings."""
 
         row = _build_row(user_fixture)
@@ -270,7 +269,7 @@ class TestDescriptorOnDetachedRead:
         assert row.first_name == user_fixture.first_name
         assert isinstance(sa_inspect(row).dict["last_name"], EncryptedValue)
 
-    def test_other_columns_still_readable_when_plaintext(self, user_fixture: UserNameFixture):
+    def test_other_columns_still_readable_when_plaintext(self, user_fixture: User):
         """Test that plaintext values on a detached row read back unchanged."""
 
         row = _OnAccessRow(id=user_fixture.id, first_name=user_fixture.first_name, last_name=None)
@@ -278,14 +277,14 @@ class TestDescriptorOnDetachedRead:
         assert row.first_name == user_fixture.first_name
         assert row.last_name is None
 
-    def test_plain_integer_columns_never_raise(self, user_fixture: UserNameFixture):
+    def test_plain_integer_columns_never_raise(self, user_fixture: User):
         """Test that non-encrypted columns are readable on a detached row."""
 
         row = _OnAccessRow(id=user_fixture.id)
 
         assert row.id == user_fixture.id
 
-    def test_no_greenlet_falls_back_to_sync_decrypt(self, user_fixture: UserNameFixture):
+    def test_no_greenlet_falls_back_to_sync_decrypt(self, user_fixture: User):
         """Test that a session-bound row outside a greenlet falls back to sync decrypt."""
 
         row = _build_row(user_fixture)
@@ -297,7 +296,7 @@ class TestDescriptorOnDetachedRead:
         ):
             assert row.first_name == user_fixture.first_name
 
-    def test_decrypt_method_unblocks_subsequent_reads(self, user_fixture: UserNameFixture):
+    def test_decrypt_method_unblocks_subsequent_reads(self, user_fixture: User):
         """Test that awaiting instance.decrypt() leaves the attribute as plaintext."""
 
         row = _build_row(user_fixture)

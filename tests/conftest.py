@@ -2,8 +2,7 @@ import pytest
 
 from pydantic_encryption.config import settings
 from pydantic_encryption.types import EncryptionMethod
-from tests.factories import UserFactory
-from tests.models import User
+from tests.factories import User, UserFactory
 
 
 @pytest.fixture(autouse=True)
