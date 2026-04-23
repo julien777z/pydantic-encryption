@@ -8,7 +8,7 @@ Field-level encryption, hashing, and blind indexing for Pydantic models with SQL
 pip install pydantic-encryption
 ```
 
-### Optional extras
+### Optional Extras
 
 ```bash
 pip install "pydantic-encryption[sqlalchemy]"  # SQLAlchemy integration
@@ -177,7 +177,7 @@ async with AsyncSession(engine) as session:
     await decrypt_values(ciphertexts, concurrency=8)      # flat ciphertexts; preserves None positions
 ```
 
-### Safety: catching accidental ciphertext access
+### Safety: Catching Accidental Ciphertext Access
 
 Reads go through the on-access descriptor. When the underlying cell is still an `EncryptedValue`, the descriptor prefers an async batch decrypt over the session's pending siblings (via SQLAlchemy's greenlet bridge), and transparently falls back to a synchronous decrypt either when the read happens outside a greenlet or when the instance is detached from any session.
 
@@ -265,7 +265,7 @@ AWS_KMS_DECRYPT_KEY_ARN=arn:aws:kms:...decrypt-key
 
 Use one mode or the other — combining `AWS_KMS_KEY_ARN` with either split variant raises a validation error. A decrypt-only key alone is allowed (read-only workloads).
 
-#### Plaintext cache (opt-in)
+#### Plaintext Cache (Opt-In)
 
 For read-heavy workloads that repeatedly decrypt the same ciphertexts, AWS KMS round-trips dominate. An in-process LRU of ciphertext → plaintext is available as opt-in:
 
