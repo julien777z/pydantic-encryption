@@ -29,7 +29,7 @@ if TYPE_CHECKING:
         decrypt_pending_fields,
         decrypt_rows,
         decrypt_values,
-        finalize_session,
+        finalize_sqlalchemy_session,
     )
 
 
@@ -74,10 +74,10 @@ def __getattr__(name: str):
 
         return decrypt_pending_fields
 
-    if name == "finalize_session":
-        from pydantic_encryption.integrations.sqlalchemy import finalize_session
+    if name == "finalize_sqlalchemy_session":
+        from pydantic_encryption.integrations.sqlalchemy import finalize_sqlalchemy_session
 
-        return finalize_session
+        return finalize_sqlalchemy_session
 
     if name == "DeferredDecryptMixin":
         from pydantic_encryption.integrations.sqlalchemy import DeferredDecryptMixin
@@ -115,5 +115,5 @@ __all__ = [
     "decrypt_pending_fields",
     "decrypt_rows",
     "decrypt_values",
-    "finalize_session",
+    "finalize_sqlalchemy_session",
 ]

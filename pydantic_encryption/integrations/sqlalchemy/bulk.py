@@ -249,7 +249,7 @@ async def decrypt_pending_fields(session: AsyncSession) -> None:
     await bulk_decrypt_entities([row for rows in pending.values() for row in rows])
 
 
-async def finalize_session(session: AsyncSession) -> None:
+async def finalize_sqlalchemy_session(session: AsyncSession) -> None:
     """Decrypt every pending encrypted field, then commit so the connection is released.
 
     Descriptor-driven decryption runs through SQLAlchemy's greenlet bridge, which keeps
@@ -274,5 +274,5 @@ __all__ = [
     "decrypt_rows",
     "decrypt_rows_sync",
     "decrypt_values",
-    "finalize_session",
+    "finalize_sqlalchemy_session",
 ]

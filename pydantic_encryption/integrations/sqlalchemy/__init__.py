@@ -3,7 +3,7 @@ from pydantic_encryption.integrations.sqlalchemy.bulk import (
     decrypt_pending_fields,
     decrypt_rows,
     decrypt_values,
-    finalize_session,
+    finalize_sqlalchemy_session,
 )
 from pydantic_encryption.integrations.sqlalchemy.deferred import DeferredDecryptMixin
 from pydantic_encryption.integrations.sqlalchemy.encryption import (
@@ -21,5 +21,5 @@ __all__ = [
     "decrypt_pending_fields",
     "decrypt_rows",
     "decrypt_values",
-    "finalize_session",
+    "finalize_sqlalchemy_session",
 ]

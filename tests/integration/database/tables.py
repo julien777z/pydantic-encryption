@@ -29,7 +29,7 @@ class User(Base, DeferredDecryptMixin):
     access. Under a sync ``Session`` the descriptor falls back to the
     synchronous decrypt path (no greenlet bridge available); under an
     ``AsyncSession`` it runs the batched ``asyncio.gather`` path used by
-    ``finalize_session``.
+    ``finalize_sqlalchemy_session``.
     """
 
     __tablename__ = "users"
