@@ -1,6 +1,6 @@
 [project]
 name = "pydantic_encryption"
-version = "0.9.5"
+version = "0.9.6"
 description = "Encryption, hashing, and blind indexing for Pydantic"
 authors = [
     { name = "Julien Kmec", email = "me@julien.dev" },
