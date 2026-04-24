@@ -9,7 +9,7 @@ from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import DeclarativeBase, Mapped, configure_mappers, mapped_column
 
 import pydantic_encryption
-from pydantic_encryption.integrations.sqlalchemy import finalize_session
+from pydantic_encryption.integrations.sqlalchemy import DeferredDecryptMixin, finalize_session
 from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue
 from pydantic_encryption.integrations.sqlalchemy.state import PENDING_DECRYPT_KEY
 from pydantic_encryption.types import EncryptedValue
@@ -19,8 +19,14 @@ class _FinalizeBase(DeclarativeBase):
     """Isolated declarative base for finalize_session tests."""
 
 
-class _FinalizeUser(_FinalizeBase):
-    """Mapped class with one deferred encrypted column."""
+class _FinalizeUser(_FinalizeBase, DeferredDecryptMixin):
+    """Mapped class with one deferred encrypted column.
+
+    Inherits DeferredDecryptMixin so the mapper_configured listener flips
+    the encrypted column's ``_deferred`` flag; without it, the drain path
+    in collect_encrypted_cells short-circuits and pending values stay
+    encrypted.
+    """
 
     __tablename__ = "_finalize_user"
 
