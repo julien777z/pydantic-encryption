@@ -6,6 +6,7 @@ import pytest_asyncio
 from sqlalchemy_utils import database_exists, create_database
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import Engine
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from tests.integration.database.tables import Base
 
 DATABASE_CONNECTION_MAX_TRIES: Final[int] = 10
@@ -37,6 +38,13 @@ def sqlalchemy_connect_url() -> str:
     """Return the SQLAlchemy connection URL."""
 
     return "postgresql://admin:admin123@localhost:5432/pydantic_encryption"
+
+
+@pytest.fixture(scope="session")
+def async_sqlalchemy_connect_url(sqlalchemy_connect_url: str) -> str:
+    """Return the asyncpg-flavoured connection URL for the same Postgres instance."""
+
+    return sqlalchemy_connect_url.replace("postgresql://", "postgresql+asyncpg://", 1)
 
 
 @pytest.fixture(scope="session")
@@ -73,3 +81,28 @@ def db_session(
     yield session()
 
     engine.dispose()
+
+
+@pytest_asyncio.fixture(scope="session")
+async def async_engine(
+    db_session,
+    async_sqlalchemy_connect_url: str,
+):
+    """Create an AsyncEngine against the docker-managed Postgres.
+
+    Depends on ``db_session`` so the docker stack is up and the sync side
+    has already created the schema before any async query runs.
+    """
+
+    engine = create_async_engine(async_sqlalchemy_connect_url)
+    yield engine
+    await engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def async_session(async_engine):
+    """Yield a fresh AsyncSession bound to the shared AsyncEngine."""
+
+    factory = async_sessionmaker(async_engine, expire_on_commit=False)
+    async with factory() as session:
+        yield session

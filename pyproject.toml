@@ -1,6 +1,6 @@
 [project]
 name = "pydantic_encryption"
-version = "0.9.6"
+version = "0.9.5"
 description = "Encryption, hashing, and blind indexing for Pydantic"
 authors = [
     { name = "Julien Kmec", email = "me@julien.dev" },
@@ -43,6 +43,7 @@ dev = [
     "pytest-sqlalchemy>=0.3.0",
     "sqlalchemy-utils>=0.41.2",
     "psycopg2-binary>=2.9.10",
+    "asyncpg>=0.29.0",
     "polyfactory>=2.0.0",
 ]
 
