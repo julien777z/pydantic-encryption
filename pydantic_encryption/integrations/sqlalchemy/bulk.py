@@ -249,6 +249,24 @@ async def decrypt_pending_fields(session: AsyncSession) -> None:
     await bulk_decrypt_entities([row for rows in pending.values() for row in rows])
 
 
+async def finalize_session(session: AsyncSession) -> None:
+    """Decrypt every pending encrypted field, then commit so the connection is released.
+
+    Descriptor-driven decryption runs through SQLAlchemy's greenlet bridge, which keeps
+    the current pooled connection checked out while each KMS round-trip is in flight. On
+    read endpoints that build a response body after querying, that can hold a connection
+    open for hundreds of milliseconds per request. Call this at the end of a service
+    function, after all DB work is done, to drain the pending bucket inside one batched
+    ``asyncio.gather`` and commit the transaction so the pool slot is returned before the
+    caller serializes its response.
+    """
+
+    await decrypt_pending_fields(session)
+
+    if session.in_transaction():
+        await session.commit()
+
+
 __all__ = [
     "bulk_decrypt_entities",
     "collect_encrypted_cells",
@@ -256,4 +274,5 @@ __all__ = [
     "decrypt_rows",
     "decrypt_rows_sync",
     "decrypt_values",
+    "finalize_session",
 ]
