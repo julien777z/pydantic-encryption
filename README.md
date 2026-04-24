@@ -161,6 +161,17 @@ async with Session() as session:
     payload = [{"id": u.id, "email": u.email} for u in users]
 ```
 
+`finalize_sqlalchemy_session(session)` combines the above with a `commit()`, returning the pooled connection before response construction. Handy on read endpoints that would otherwise hold a DB connection through descriptor-driven KMS decryption:
+
+```python
+from pydantic_encryption import finalize_sqlalchemy_session
+
+async with Session() as session:
+    users = (await session.execute(select(User))).scalars().all()
+    await finalize_sqlalchemy_session(session)  # decrypt pending + commit — connection released
+    return [{"id": u.id, "email": u.email} for u in users]
+```
+
 **Manual helpers** for rows loaded outside a session or flat ciphertext lists:
 
 ```python

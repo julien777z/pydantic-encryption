@@ -6,6 +6,7 @@ from sqlalchemy import String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from pydantic_encryption.integrations.sqlalchemy import (
+    DeferredDecryptMixin,
     SQLAlchemyBlindIndexValue,
     SQLAlchemyEncryptedValue,
     SQLAlchemyHashedValue,
@@ -20,8 +21,16 @@ class Base(DeclarativeBase):
     """Base model."""
 
 
-class User(Base):
-    """User model. Uses SQLAlchemyEncryptedValue and SQLAlchemyHashedValue types."""
+class User(Base, DeferredDecryptMixin):
+    """User model used across the sync and async integration tests.
+
+    Inherits ``DeferredDecryptMixin`` so that encrypted columns are returned
+    as ``EncryptedValue`` wrappers on read and decrypted on first attribute
+    access. Under a sync ``Session`` the descriptor falls back to the
+    synchronous decrypt path (no greenlet bridge available); under an
+    ``AsyncSession`` it runs the batched ``asyncio.gather`` path used by
+    ``finalize_sqlalchemy_session``.
+    """
 
     __tablename__ = "users"
 
