@@ -7,6 +7,7 @@ from sqlalchemy_utils import database_exists, create_database
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import Engine
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 from tests.integration.database.tables import Base
 
 DATABASE_CONNECTION_MAX_TRIES: Final[int] = 10
@@ -83,25 +84,29 @@ def db_session(
     engine.dispose()
 
 
-@pytest_asyncio.fixture(scope="session")
+@pytest_asyncio.fixture
 async def async_engine(
     db_session,
     async_sqlalchemy_connect_url: str,
 ):
     """Create an AsyncEngine against the docker-managed Postgres.
 
-    Depends on ``db_session`` so the docker stack is up and the sync side
-    has already created the schema before any async query runs.
+    Scoped per test with ``NullPool`` so asyncpg connections never outlive
+    the test's event loop - pytest-asyncio creates a fresh loop per test
+    under the default function scope, and a pooled connection opened on a
+    previous loop would otherwise raise "attached to a different loop" on
+    reuse. Depends on ``db_session`` so the docker stack is up and the sync
+    side has already created the schema before any async query runs.
     """
 
-    engine = create_async_engine(async_sqlalchemy_connect_url)
+    engine = create_async_engine(async_sqlalchemy_connect_url, poolclass=NullPool)
     yield engine
     await engine.dispose()
 
 
 @pytest_asyncio.fixture
 async def async_session(async_engine):
-    """Yield a fresh AsyncSession bound to the shared AsyncEngine."""
+    """Yield a fresh AsyncSession bound to the per-test AsyncEngine."""
 
     factory = async_sessionmaker(async_engine, expire_on_commit=False)
     async with factory() as session:
