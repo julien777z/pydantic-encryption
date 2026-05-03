@@ -22,9 +22,6 @@ class Settings(BaseSettings):
 
     ENCRYPTION_METHOD: EncryptionMethod | None = None
 
-    AWS_KMS_PLAINTEXT_CACHE_ENABLED: bool = False
-    AWS_KMS_PLAINTEXT_CACHE_CAPACITY: int = 2048
-
     DECRYPT_CONCURRENCY: int = Field(default=32, gt=0)
 
     @model_validator(mode="after")

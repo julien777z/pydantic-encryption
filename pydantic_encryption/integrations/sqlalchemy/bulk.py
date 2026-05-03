@@ -81,11 +81,7 @@ async def _decrypt_ciphertexts_chunked(
     ciphertexts: list[bytes],
     concurrency: int | None,
 ) -> list[EncryptableValue]:
-    """Decrypt many ciphertexts via N parallel thread workers, each running its chunk serially.
-
-    One ``asyncio.to_thread`` dispatch per chunk replaces one dispatch per cell, which removes
-    the per-cell scheduler/thread-pool overhead that dominates wall-clock under bulk loads.
-    """
+    """Decrypt many ciphertexts across N parallel thread workers, each running its chunk serially."""
 
     if not ciphertexts:
         return []
