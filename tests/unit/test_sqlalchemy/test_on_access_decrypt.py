@@ -203,13 +203,13 @@ class TestBatchAcrossSiblings:
 
         from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
 
-        original_async_decrypt = FernetAdapter.async_decrypt
+        original_decrypt = FernetAdapter.decrypt
 
-        async def counting_decrypt(ciphertext, *, key=None):
+        def counting_decrypt(ciphertext, *, key=None):
             call_count["n"] += 1
-            return await original_async_decrypt(ciphertext, key=key)
+            return original_decrypt(ciphertext, key=key)
 
-        with patch.object(FernetAdapter, "async_decrypt", side_effect=counting_decrypt):
+        with patch.object(FernetAdapter, "decrypt", side_effect=counting_decrypt):
             asyncio.run(decrypt_rows(rows, "first_name"))
 
         assert call_count["n"] == 2

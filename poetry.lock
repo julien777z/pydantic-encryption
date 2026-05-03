@@ -306,19 +306,6 @@ urllib3 = {version = ">=1.25.4,<2.2.0 || >2.2.0,<3", markers = "python_version >
 crt = ["awscrt (==0.31.2)"]
 
 [[package]]
-name = "cachetools"
-version = "7.0.6"
-description = "Extensible memoizing collections and decorators"
-optional = true
-python-versions = ">=3.10"
-groups = ["main"]
-markers = "extra == \"aws\" or extra == \"all\""
-files = [
-    {file = "cachetools-7.0.6-py3-none-any.whl", hash = "sha256:4e94956cfdd3086f12042cdd29318f5ced3893014f7d0d059bf3ead3f85b7f8b"},
-    {file = "cachetools-7.0.6.tar.gz", hash = "sha256:e5d524d36d65703a87243a26ff08ad84f73352adbeafb1cde81e207b456aaf24"},
-]
-
-[[package]]
 name = "cffi"
 version = "2.0.0"
 description = "Foreign Function Interface for Python calling C code."
@@ -1627,12 +1614,12 @@ files = [
 dev = ["pytest", "setuptools"]
 
 [extras]
-all = ["aws-encryption-sdk", "boto3", "cachetools", "sqlalchemy"]
-aws = ["aws-encryption-sdk", "boto3", "cachetools"]
+all = ["aws-encryption-sdk", "boto3", "sqlalchemy"]
+aws = ["aws-encryption-sdk", "boto3"]
 dev = ["asyncpg", "coverage", "polyfactory", "psycopg2-binary", "pytest", "pytest-asyncio", "pytest-cov", "pytest-docker", "pytest-env", "pytest-sqlalchemy", "sqlalchemy-utils"]
 sqlalchemy = ["sqlalchemy"]
 
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<3.15"
-content-hash = "1d9eb98d2a2cca0c11e911675cfc26d32b7b769a177ee48d3f92f326fe9d091f"
+content-hash = "a6bc7849990cbf84c41ff795e88df0004b36831d61691fb74b172acf3b58db48"

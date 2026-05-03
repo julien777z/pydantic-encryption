@@ -276,17 +276,6 @@ AWS_KMS_DECRYPT_KEY_ARN=arn:aws:kms:...decrypt-key
 
 Use one mode or the other — combining `AWS_KMS_KEY_ARN` with either split variant raises a validation error. A decrypt-only key alone is allowed (read-only workloads).
 
-#### Plaintext Cache (Opt-In)
-
-For read-heavy workloads that repeatedly decrypt the same ciphertexts, AWS KMS round-trips dominate. An in-process LRU of ciphertext → plaintext is available as opt-in:
-
-```bash
-AWS_KMS_PLAINTEXT_CACHE_ENABLED=true      # default: false
-AWS_KMS_PLAINTEXT_CACHE_CAPACITY=2048     # default: 2048 entries
-```
-
-Disabled by default because cache entries hold decrypted sensitive data in a process-wide `cachetools.LRUCache` for the lifetime of the process. Enable it when the perf win outweighs keeping plaintext resident in memory.
-
 ### Model-Level Config
 
 Override encryption settings per model instead of relying on environment variables:
