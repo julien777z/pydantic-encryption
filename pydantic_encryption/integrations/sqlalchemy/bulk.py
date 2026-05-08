@@ -1,5 +1,5 @@
 import asyncio
-from collections.abc import Awaitable, Iterable
+from collections.abc import Iterable
 from typing import Any
 
 from pydantic import ConfigDict, Field, validate_call
@@ -45,29 +45,53 @@ def _resolve_backend() -> Any:
     return get_encryption_backend(method)
 
 
-async def _decrypt_cell(backend: Any, ciphertext: bytes) -> EncryptableValue:
-    """Decrypt a single ciphertext and decode it to its original Python type."""
+def _resolve_chunk_count(concurrency: int | None) -> int:
+    """Return the number of parallel chunks to split a decrypt batch into."""
 
-    plaintext = await backend.async_decrypt(ciphertext)
+    if concurrency is None:
+        concurrency = settings.DECRYPT_CONCURRENCY
 
-    return decode_value(plaintext)
+    return max(1, concurrency)
 
 
-async def _gather_with_limit(
-    coros: list[Awaitable[Any]], concurrency: int | None
-) -> list[Any]:
-    """Gather coroutines with an optional semaphore-bounded concurrency cap."""
+def _split_into_chunks(items: list[bytes], chunk_count: int) -> list[list[bytes]]:
+    """Split items into ``chunk_count`` near-equal chunks; capped at ``len(items)``."""
 
-    if concurrency is None or concurrency <= 0:
-        return await asyncio.gather(*coros)
+    chunk_count = min(chunk_count, len(items))
+    base, extra = divmod(len(items), chunk_count)
 
-    semaphore = asyncio.Semaphore(concurrency)
+    chunks: list[list[bytes]] = []
+    start = 0
+    for index in range(chunk_count):
+        size = base + (1 if index < extra else 0)
+        chunks.append(items[start:start + size])
+        start += size
 
-    async def guarded(coro: Awaitable[Any]) -> Any:
-        async with semaphore:
-            return await coro
+    return chunks
 
-    return await asyncio.gather(*(guarded(c) for c in coros))
+
+def _decrypt_chunk_sync(backend: Any, ciphertexts: list[bytes]) -> list[EncryptableValue]:
+    """Decrypt a chunk of ciphertexts sequentially in one thread."""
+
+    return [decode_value(backend.decrypt(ciphertext)) for ciphertext in ciphertexts]
+
+
+async def _decrypt_ciphertexts_chunked(
+    backend: Any,
+    ciphertexts: list[bytes],
+    concurrency: int | None,
+) -> list[EncryptableValue]:
+    """Decrypt many ciphertexts across N parallel thread workers, each running its chunk serially."""
+
+    if not ciphertexts:
+        return []
+
+    chunks = _split_into_chunks(ciphertexts, _resolve_chunk_count(concurrency))
+    chunk_results = await asyncio.gather(
+        *(asyncio.to_thread(_decrypt_chunk_sync, backend, chunk) for chunk in chunks)
+    )
+
+    return [value for chunk_result in chunk_results for value in chunk_result]
 
 
 @validate_call(config=ConfigDict(arbitrary_types_allowed=True))
@@ -76,7 +100,7 @@ async def decrypt_rows(
     *columns: InstrumentedAttribute | str,
     concurrency: int | None = Field(default=None, gt=0),
 ) -> None:
-    """Decrypt the given columns across every row in one asyncio.gather."""
+    """Decrypt the given columns across every row using chunked thread workers."""
 
     if not columns:
         return
@@ -87,25 +111,22 @@ async def decrypt_rows(
 
     backend = _resolve_backend()
     column_keys = [_column_key(c) for c in columns]
-    effective_concurrency = (
-        concurrency if concurrency is not None else settings.DECRYPT_CONCURRENCY
-    )
 
     assignments: list[tuple[Any, str]] = []
-    coros: list[Awaitable[Any]] = []
+    ciphertexts: list[bytes] = []
     for row in rows_list:
         for key in column_keys:
             value = read_raw_cell(row, key)
             if not isinstance(value, EncryptedValue):
                 continue
-            coros.append(_decrypt_cell(backend, bytes(value)))
+            ciphertexts.append(bytes(value))
             assignments.append((row, key))
 
-    if not coros:
+    if not ciphertexts:
         return
 
-    results = await _gather_with_limit(coros, effective_concurrency)
-    for (row, key), plaintext in zip(assignments, results):
+    plaintexts = await _decrypt_ciphertexts_chunked(backend, ciphertexts, concurrency)
+    for (row, key), plaintext in zip(assignments, plaintexts):
         set_decrypted(row, key, plaintext)
 
 
@@ -146,23 +167,20 @@ async def decrypt_values(
         return []
 
     backend = _resolve_backend()
-    effective_concurrency = (
-        concurrency if concurrency is not None else settings.DECRYPT_CONCURRENCY
-    )
 
     indexes: list[int] = []
-    coros: list[Awaitable[Any]] = []
+    ciphertexts: list[bytes] = []
     for index, value in enumerate(values_list):
         if not isinstance(value, EncryptedValue):
             continue
-        coros.append(_decrypt_cell(backend, bytes(value)))
+        ciphertexts.append(bytes(value))
         indexes.append(index)
 
-    if not coros:
+    if not ciphertexts:
         return values_list
 
-    results = await _gather_with_limit(coros, effective_concurrency)
-    for index, plaintext in zip(indexes, results):
+    plaintexts = await _decrypt_ciphertexts_chunked(backend, ciphertexts, concurrency)
+    for index, plaintext in zip(indexes, plaintexts):
         values_list[index] = plaintext
 
     return values_list

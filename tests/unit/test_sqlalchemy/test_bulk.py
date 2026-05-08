@@ -130,6 +130,36 @@ class TestDecryptRows:
         for i, row in enumerate(rows):
             assert row.email == f"u{i}@x.com"
 
+    def test_decrypt_rows_preserves_order_across_chunks(self):
+        """Multi-chunk dispatch must reassemble plaintexts back onto their original (row, column)."""
+
+        rows = [
+            SimpleNamespace(
+                email=EncryptedValue(self._make_ciphertext(f"user-{i}@example.com")),
+                secret=EncryptedValue(self._make_ciphertext(f"secret-{i:03d}")),
+            )
+            for i in range(100)
+        ]
+
+        asyncio.run(decrypt_rows(rows, "email", "secret", concurrency=8))
+
+        for i, row in enumerate(rows):
+            assert row.email == f"user-{i}@example.com"
+            assert row.secret == f"secret-{i:03d}"
+
+    def test_decrypt_rows_caps_chunk_count_to_cell_count(self):
+        """When concurrency exceeds the cell count, chunking must not dispatch empty work."""
+
+        rows = [
+            SimpleNamespace(email=EncryptedValue(self._make_ciphertext(f"u{i}@x.com")))
+            for i in range(3)
+        ]
+
+        asyncio.run(decrypt_rows(rows, "email", concurrency=64))
+
+        for i, row in enumerate(rows):
+            assert row.email == f"u{i}@x.com"
+
 
 class TestDecryptConcurrencyValidation:
     def test_decrypt_rows_concurrency_zero_raises_validation_error(self):
@@ -318,3 +348,21 @@ class TestDecryptValues:
         result = asyncio.run(decrypt_values(values, concurrency=2))
 
         assert result == [f"v{i}" for i in range(5)]
+
+    def test_preserves_order_across_chunks(self):
+        """Multi-chunk dispatch must keep plaintexts at their original list positions."""
+
+        values: list[bytes | None] = []
+        for i in range(100):
+            values.append(self._make_ciphertext(f"v-{i:03d}"))
+            if i % 7 == 0:
+                values.append(None)
+
+        result = asyncio.run(decrypt_values(values, concurrency=8))
+
+        expected: list[str | None] = []
+        for i in range(100):
+            expected.append(f"v-{i:03d}")
+            if i % 7 == 0:
+                expected.append(None)
+        assert result == expected
