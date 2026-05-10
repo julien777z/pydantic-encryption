@@ -24,6 +24,10 @@ class Settings(BaseSettings):
 
     DECRYPT_CONCURRENCY: int = Field(default=32, gt=0)
 
+    AWS_KMS_DATA_KEY_REUSE_MAX_USES: int = Field(default=10_000, gt=0)
+    AWS_KMS_DATA_KEY_REUSE_MAX_AGE_SECONDS: int = Field(default=300, gt=0)
+    AWS_KMS_DATA_KEY_DECRYPT_CACHE_CAPACITY: int = Field(default=1024, ge=0)
+
     @model_validator(mode="after")
     def validate_aws_kms_keys(self) -> Self:
         global_key = self.AWS_KMS_KEY_ARN

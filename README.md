@@ -276,6 +276,19 @@ AWS_KMS_DECRYPT_KEY_ARN=arn:aws:kms:...decrypt-key
 
 Use one mode or the other — combining `AWS_KMS_KEY_ARN` with either split variant raises a validation error. A decrypt-only key alone is allowed (read-only workloads).
 
+The AWS adapter wraps a fresh AES-256 data key from `KMS.GenerateDataKey` and seals payloads with AES-GCM. To amortize KMS round-trips across bulk writes and reads, a per-process data-key cache reuses one wrapped/plaintext key for many encryptions and remembers unwrapped keys for many decryptions. Tunable via:
+
+```bash
+# How many encrypts may share one data key before a fresh GenerateDataKey is issued.
+AWS_KMS_DATA_KEY_REUSE_MAX_USES=10000
+# How long a data key stays active before it is rotated, in seconds.
+AWS_KMS_DATA_KEY_REUSE_MAX_AGE_SECONDS=300
+# LRU capacity for unwrapped data keys on the decrypt path. 0 disables caching.
+AWS_KMS_DATA_KEY_DECRYPT_CACHE_CAPACITY=1024
+```
+
+Random 96-bit nonces keep AES-GCM safe across the reuse window (NIST SP 800-38D allows ~2^32 messages per key). The decrypt cache is keyed by wrapped-key bytes (not plaintext), and capacity 0 disables it.
+
 ### Model-Level Config
 
 Override encryption settings per model instead of relying on environment variables:
