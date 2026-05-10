@@ -309,6 +309,19 @@ class TestAWSAdapterValidation:
         with pytest.raises(ValueError, match="AWS_KMS_REGION"):
             AWSAdapter.encrypt(b"payload")
 
+    def test_decrypt_accepts_str_ciphertext_via_latin1(
+        self, fake_sync_kms: _FakeSyncKMSClient
+    ) -> None:
+        """Test that decrypt() coerces a str ciphertext to bytes 1:1 (latin-1) for the EncryptionAdapter contract."""
+
+        sealed = AWSAdapter.encrypt("hello world")
+
+        as_str = bytes(sealed).decode("latin-1")
+
+        result = AWSAdapter.decrypt(as_str)
+
+        assert result == "hello world"
+
     def test_decrypt_rejects_truncated_ciphertext(self, fake_sync_kms: _FakeSyncKMSClient) -> None:
         """Test that decrypt() raises when the input is shorter than the envelope header."""
 

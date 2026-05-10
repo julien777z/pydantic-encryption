@@ -25,6 +25,15 @@ NONCE_LENGTH: Final[int] = 12
 DATA_KEY_SPEC: Final[str] = "AES_256"
 
 
+def _to_bytes(ciphertext: bytes | str | EncryptedValue) -> bytes:
+    """Coerce decrypt() inputs to raw bytes preserving every original byte value 1:1."""
+
+    if isinstance(ciphertext, str):
+        return ciphertext.encode("latin-1")
+
+    return bytes(ciphertext)
+
+
 def _kms_kwargs() -> dict[str, str]:
     """Return boto3/aioboto3 kwargs for the configured KMS region + credentials."""
 
@@ -192,16 +201,18 @@ class AWSAdapter(EncryptionAdapter):
         return _seal(response["Plaintext"], response["CiphertextBlob"], plaintext)
 
     @classmethod
-    def decrypt(cls, ciphertext: bytes | EncryptedValue, *, key: str | None = None) -> str:
-        wrapped, nonce, sealed = _open(bytes(ciphertext))
+    def decrypt(cls, ciphertext: bytes | str | EncryptedValue, *, key: str | None = None) -> str:
+        wrapped, nonce, sealed = _open(_to_bytes(ciphertext))
 
         plaintext_data_key = cls._sync_kms().decrypt(**cls._decrypt_kwargs(wrapped))["Plaintext"]
 
         return AESGCM(plaintext_data_key).decrypt(nonce, sealed, None).decode("utf-8")
 
     @classmethod
-    async def async_decrypt(cls, ciphertext: bytes | EncryptedValue, *, key: str | None = None) -> str:
-        wrapped, nonce, sealed = _open(bytes(ciphertext))
+    async def async_decrypt(
+        cls, ciphertext: bytes | str | EncryptedValue, *, key: str | None = None
+    ) -> str:
+        wrapped, nonce, sealed = _open(_to_bytes(ciphertext))
 
         kms = await cls._async_kms()
         response = await kms.decrypt(**cls._decrypt_kwargs(wrapped))
