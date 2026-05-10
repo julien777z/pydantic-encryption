@@ -33,58 +33,34 @@ if TYPE_CHECKING:
     )
 
 
+_LAZY_EXPORTS: dict[str, tuple[str, str]] = {
+    "AWSAdapter": ("pydantic_encryption.adapters.encryption.aws", "AWSAdapter"),
+    "DeferredDecryptMixin": ("pydantic_encryption.integrations.sqlalchemy", "DeferredDecryptMixin"),
+    "SQLAlchemyBlindIndexValue": ("pydantic_encryption.integrations.sqlalchemy", "SQLAlchemyBlindIndexValue"),
+    "SQLAlchemyEncryptedValue": ("pydantic_encryption.integrations.sqlalchemy", "SQLAlchemyEncryptedValue"),
+    "SQLAlchemyHashedValue": ("pydantic_encryption.integrations.sqlalchemy", "SQLAlchemyHashedValue"),
+    "SQLAlchemyPGEncryptedArray": ("pydantic_encryption.integrations.sqlalchemy", "SQLAlchemyPGEncryptedArray"),
+    "decrypt_pending_fields": ("pydantic_encryption.integrations.sqlalchemy", "decrypt_pending_fields"),
+    "decrypt_rows": ("pydantic_encryption.integrations.sqlalchemy", "decrypt_rows"),
+    "decrypt_values": ("pydantic_encryption.integrations.sqlalchemy", "decrypt_values"),
+    "finalize_sqlalchemy_session": (
+        "pydantic_encryption.integrations.sqlalchemy",
+        "finalize_sqlalchemy_session",
+    ),
+}
+
+
 def __getattr__(name: str):
-    if name == "SQLAlchemyEncryptedValue":
-        from pydantic_encryption.integrations.sqlalchemy import SQLAlchemyEncryptedValue
+    """Lazy-load optional symbols (SQLAlchemy / AWS) so the package imports without those extras."""
 
-        return SQLAlchemyEncryptedValue
+    target = _LAZY_EXPORTS.get(name)
+    if target is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
-    if name == "SQLAlchemyPGEncryptedArray":
-        from pydantic_encryption.integrations.sqlalchemy import SQLAlchemyPGEncryptedArray
+    module_name, attr = target
+    import importlib
 
-        return SQLAlchemyPGEncryptedArray
-
-    if name == "SQLAlchemyHashedValue":
-        from pydantic_encryption.integrations.sqlalchemy import SQLAlchemyHashedValue
-
-        return SQLAlchemyHashedValue
-
-    if name == "SQLAlchemyBlindIndexValue":
-        from pydantic_encryption.integrations.sqlalchemy import SQLAlchemyBlindIndexValue
-
-        return SQLAlchemyBlindIndexValue
-
-    if name == "AWSAdapter":
-        from pydantic_encryption.adapters.encryption.aws import AWSAdapter
-
-        return AWSAdapter
-
-    if name == "decrypt_rows":
-        from pydantic_encryption.integrations.sqlalchemy import decrypt_rows
-
-        return decrypt_rows
-
-    if name == "decrypt_values":
-        from pydantic_encryption.integrations.sqlalchemy import decrypt_values
-
-        return decrypt_values
-
-    if name == "decrypt_pending_fields":
-        from pydantic_encryption.integrations.sqlalchemy import decrypt_pending_fields
-
-        return decrypt_pending_fields
-
-    if name == "finalize_sqlalchemy_session":
-        from pydantic_encryption.integrations.sqlalchemy import finalize_sqlalchemy_session
-
-        return finalize_sqlalchemy_session
-
-    if name == "DeferredDecryptMixin":
-        from pydantic_encryption.integrations.sqlalchemy import DeferredDecryptMixin
-
-        return DeferredDecryptMixin
-
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return getattr(importlib.import_module(module_name), attr)
 
 
 __all__ = [

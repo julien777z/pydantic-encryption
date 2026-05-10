@@ -7,7 +7,7 @@ from tests.factories import User, UserFactory
 
 @pytest.fixture(autouse=True)
 def set_default_encryption_method(monkeypatch):
-    """Set ENCRYPTION_METHOD to FERNET for all tests (no longer a global default)."""
+    """Seed encryption + blind-index config for every test so individual tests can opt out."""
 
     monkeypatch.setattr(settings, "ENCRYPTION_METHOD", EncryptionMethod.FERNET)
 
@@ -20,6 +20,9 @@ def set_default_encryption_method(monkeypatch):
         from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
 
         FernetAdapter._clients.clear()
+
+    if settings.BLIND_INDEX_SECRET_KEY is None:
+        monkeypatch.setattr(settings, "BLIND_INDEX_SECRET_KEY", "test-blind-index-secret-key")
 
 
 @pytest.fixture

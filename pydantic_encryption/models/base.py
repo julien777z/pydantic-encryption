@@ -1,6 +1,7 @@
 import asyncio
 import contextvars
-from typing import Any, Awaitable, ClassVar, Self
+from collections.abc import Awaitable
+from typing import Any, ClassVar, Self
 
 from pydantic_super_model import AnnotatedFieldInfo, SuperModelPydanticMixin
 

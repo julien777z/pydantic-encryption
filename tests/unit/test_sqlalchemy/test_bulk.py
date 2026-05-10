@@ -2,7 +2,6 @@ import asyncio
 from types import SimpleNamespace
 
 import pytest
-from pydantic import ValidationError
 from sqlalchemy import ForeignKey
 from sqlalchemy.orm import (
     DeclarativeBase,
@@ -118,49 +117,6 @@ class TestDecryptRows:
         assert rows[0].secret is None
         assert rows[1].email is None
         assert rows[1].secret == "s1"
-
-    def test_decrypt_rows_respects_concurrency(self):
-        rows = [
-            SimpleNamespace(email=EncryptedValue(self._make_ciphertext(f"u{i}@x.com")))
-            for i in range(5)
-        ]
-
-        asyncio.run(decrypt_rows(rows, "email", concurrency=2))
-
-        for i, row in enumerate(rows):
-            assert row.email == f"u{i}@x.com"
-
-
-class TestDecryptConcurrencyValidation:
-    def test_decrypt_rows_concurrency_zero_raises_validation_error(self):
-        rows = [
-            SimpleNamespace(email=EncryptedValue(SQLAlchemyEncryptedValue().process_bind_param("u0@x.com", None))),
-        ]
-
-        with pytest.raises(ValidationError):
-            asyncio.run(decrypt_rows(rows, "email", concurrency=0))
-
-    def test_decrypt_values_concurrency_zero_raises_validation_error(self):
-        values = [EncryptedValue(SQLAlchemyEncryptedValue().process_bind_param("v0", None))]
-
-        with pytest.raises(ValidationError):
-            asyncio.run(decrypt_values(values, concurrency=0))
-
-    def test_decrypt_rows_negative_concurrency_raises_validation_error(self):
-        rows = [
-            SimpleNamespace(email=EncryptedValue(SQLAlchemyEncryptedValue().process_bind_param("x", None))),
-        ]
-
-        with pytest.raises(ValidationError):
-            asyncio.run(decrypt_rows(rows, "email", concurrency=-1))
-
-    def test_decrypt_values_negative_concurrency_raises_validation_error(self):
-        values = [
-            EncryptedValue(SQLAlchemyEncryptedValue().process_bind_param("a", None)),
-        ]
-
-        with pytest.raises(ValidationError):
-            asyncio.run(decrypt_values(values, concurrency=-1))
 
 
 class _BulkBase(DeclarativeBase):
@@ -312,9 +268,3 @@ class TestDecryptValues:
 
         assert result == ["a", 42, "plain", None]
 
-    def test_respects_concurrency(self):
-        values = [self._make_ciphertext(f"v{i}") for i in range(5)]
-
-        result = asyncio.run(decrypt_values(values, concurrency=2))
-
-        assert result == [f"v{i}" for i in range(5)]
