@@ -1,6 +1,7 @@
 import asyncio
 from collections.abc import AsyncIterator, Iterator
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 import pytest_asyncio
@@ -253,6 +254,19 @@ class TestAWSAdapterAsync:
         assert len(fake_async_kms.decrypt_calls) == 1
 
     @pytest.mark.asyncio
+    async def test_async_encrypt_passthrough_for_already_encrypted_value(
+        self, fake_async_kms: _FakeAsyncKMSClient
+    ) -> None:
+        """Test that async_encrypt() returns an existing EncryptedValue without invoking KMS."""
+
+        already_encrypted = EncryptedValue(b"already-sealed")
+
+        result = await AWSAdapter.async_encrypt(already_encrypted)
+
+        assert result is already_encrypted
+        assert fake_async_kms.generate_calls == []
+
+    @pytest.mark.asyncio
     async def test_async_decrypt_passes_decrypt_arn_when_configured(
         self,
         fake_async_kms: _FakeAsyncKMSClient,
@@ -268,3 +282,204 @@ class TestAWSAdapterAsync:
         await AWSAdapter.async_decrypt(sealed)
 
         assert fake_async_kms.decrypt_calls[-1]["KeyId"] == "arn:aws:kms:us-east-1:000:key/dec"
+
+
+class TestAWSAdapterValidation:
+    """Test the AWS settings validation and ciphertext-format guards."""
+
+    def test_encrypt_raises_when_no_credentials_configured(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that encrypt() raises a clear error when AWS_KMS env vars are missing."""
+
+        _reset_adapter_state()
+
+        from pydantic_encryption.config import settings
+
+        for attr in (
+            "AWS_KMS_KEY_ARN",
+            "AWS_KMS_ENCRYPT_KEY_ARN",
+            "AWS_KMS_DECRYPT_KEY_ARN",
+            "AWS_KMS_REGION",
+            "AWS_KMS_ACCESS_KEY_ID",
+            "AWS_KMS_SECRET_ACCESS_KEY",
+        ):
+            monkeypatch.setattr(settings, attr, None)
+
+        with pytest.raises(ValueError, match="AWS_KMS_REGION"):
+            AWSAdapter.encrypt(b"payload")
+
+    def test_encrypt_raises_when_only_decrypt_key_configured(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that encrypt() refuses to run with a decrypt-only key (no encrypt ARN)."""
+
+        _reset_adapter_state()
+
+        from pydantic_encryption.config import settings
+
+        monkeypatch.setattr(settings, "AWS_KMS_KEY_ARN", None)
+        monkeypatch.setattr(settings, "AWS_KMS_ENCRYPT_KEY_ARN", None)
+        monkeypatch.setattr(settings, "AWS_KMS_DECRYPT_KEY_ARN", "arn:aws:kms:us-east-1:000:key/dec")
+        monkeypatch.setattr(settings, "AWS_KMS_REGION", "us-east-1")
+        monkeypatch.setattr(settings, "AWS_KMS_ACCESS_KEY_ID", "test")
+        monkeypatch.setattr(settings, "AWS_KMS_SECRET_ACCESS_KEY", "test")
+        AWSAdapter._sync_client = MagicMock(name="kms-client")
+
+        with pytest.raises(ValueError, match="No encryption key configured"):
+            AWSAdapter.encrypt(b"payload")
+
+    def test_decrypt_rejects_truncated_ciphertext(self, fake_sync_kms: _FakeSyncKMSClient) -> None:
+        """Test that decrypt() raises when the input is shorter than the envelope header."""
+
+        with pytest.raises(ValueError, match="too short"):
+            AWSAdapter.decrypt(b"\xc0\x01")
+
+
+class TestAWSAdapterLazyInit:
+    """Test the lazy boto3 / aioboto3 client construction paths."""
+
+    def test_sync_kms_builds_boto3_client_on_first_use(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that the first call to ``encrypt()`` builds a boto3 KMS client and caches it."""
+
+        _reset_adapter_state()
+
+        from pydantic_encryption.config import settings
+
+        monkeypatch.setattr(settings, "AWS_KMS_KEY_ARN", "arn:aws:kms:us-east-1:000:key/test")
+        monkeypatch.setattr(settings, "AWS_KMS_ENCRYPT_KEY_ARN", None)
+        monkeypatch.setattr(settings, "AWS_KMS_DECRYPT_KEY_ARN", None)
+        monkeypatch.setattr(settings, "AWS_KMS_REGION", "us-east-1")
+        monkeypatch.setattr(settings, "AWS_KMS_ACCESS_KEY_ID", "test-access")
+        monkeypatch.setattr(settings, "AWS_KMS_SECRET_ACCESS_KEY", "test-secret")
+
+        captured_kwargs: list[dict[str, Any]] = []
+
+        def fake_boto3_client(service: str, **kwargs: Any) -> Any:
+            captured_kwargs.append({"service": service, **kwargs})
+            return _FakeSyncKMSClient(plaintext_data_key=b"\x00" * 32)
+
+        monkeypatch.setattr("pydantic_encryption.adapters.encryption.aws.boto3.client", fake_boto3_client)
+
+        AWSAdapter.encrypt(b"payload")
+
+        assert len(captured_kwargs) == 1
+        assert captured_kwargs[0]["service"] == "kms"
+        assert captured_kwargs[0]["region_name"] == "us-east-1"
+        assert AWSAdapter._sync_client is not None
+
+        AWSAdapter.encrypt(b"payload-2")
+
+        assert len(captured_kwargs) == 1
+
+        _reset_adapter_state()
+
+    @pytest.mark.asyncio
+    async def test_async_kms_opens_aioboto3_client_on_first_use(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that the first ``async_encrypt()`` opens an aioboto3 KMS client and caches it for the loop."""
+
+        _reset_adapter_state()
+
+        from pydantic_encryption.config import settings
+
+        monkeypatch.setattr(settings, "AWS_KMS_KEY_ARN", "arn:aws:kms:us-east-1:000:key/test")
+        monkeypatch.setattr(settings, "AWS_KMS_ENCRYPT_KEY_ARN", None)
+        monkeypatch.setattr(settings, "AWS_KMS_DECRYPT_KEY_ARN", None)
+        monkeypatch.setattr(settings, "AWS_KMS_REGION", "us-east-1")
+        monkeypatch.setattr(settings, "AWS_KMS_ACCESS_KEY_ID", "test-access")
+        monkeypatch.setattr(settings, "AWS_KMS_SECRET_ACCESS_KEY", "test-secret")
+
+        opened_clients: list[_FakeAsyncKMSClient] = []
+        session_kwargs: list[dict[str, Any]] = []
+
+        class _FakeClientCtx:
+            def __init__(self, client: _FakeAsyncKMSClient) -> None:
+                self._client = client
+
+            async def __aenter__(self) -> _FakeAsyncKMSClient:
+                opened_clients.append(self._client)
+                return self._client
+
+            async def __aexit__(self, *exc: Any) -> None:
+                pass
+
+        class _FakeAioSession:
+            def __init__(self, **kwargs: Any) -> None:
+                session_kwargs.append(kwargs)
+
+            def client(self, service: str) -> _FakeClientCtx:
+                assert service == "kms"
+                return _FakeClientCtx(_FakeAsyncKMSClient(plaintext_data_key=b"\x00" * 32))
+
+        monkeypatch.setattr(
+            "pydantic_encryption.adapters.encryption.aws.aioboto3.Session", _FakeAioSession
+        )
+
+        await AWSAdapter.async_encrypt(b"payload")
+
+        assert len(opened_clients) == 1
+        assert session_kwargs[0]["region_name"] == "us-east-1"
+        assert AWSAdapter._async_client is opened_clients[0]
+        assert AWSAdapter._async_loop is asyncio.get_running_loop()
+
+        await AWSAdapter.async_encrypt(b"payload-2")
+
+        assert len(opened_clients) == 1
+
+        _reset_adapter_state()
+
+    @pytest.mark.asyncio
+    async def test_async_kms_coalesces_concurrent_first_callers(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that concurrent first-time async_encrypt calls open the aioboto3 client exactly once."""
+
+        _reset_adapter_state()
+
+        from pydantic_encryption.config import settings
+
+        monkeypatch.setattr(settings, "AWS_KMS_KEY_ARN", "arn:aws:kms:us-east-1:000:key/test")
+        monkeypatch.setattr(settings, "AWS_KMS_ENCRYPT_KEY_ARN", None)
+        monkeypatch.setattr(settings, "AWS_KMS_DECRYPT_KEY_ARN", None)
+        monkeypatch.setattr(settings, "AWS_KMS_REGION", "us-east-1")
+        monkeypatch.setattr(settings, "AWS_KMS_ACCESS_KEY_ID", "test-access")
+        monkeypatch.setattr(settings, "AWS_KMS_SECRET_ACCESS_KEY", "test-secret")
+
+        opened_clients: list[_FakeAsyncKMSClient] = []
+
+        class _FakeClientCtx:
+            def __init__(self, client: _FakeAsyncKMSClient) -> None:
+                self._client = client
+
+            async def __aenter__(self) -> _FakeAsyncKMSClient:
+                await asyncio.sleep(0)
+                opened_clients.append(self._client)
+                return self._client
+
+            async def __aexit__(self, *exc: Any) -> None:
+                pass
+
+        class _FakeAioSession:
+            def __init__(self, **kwargs: Any) -> None:
+                pass
+
+            def client(self, service: str) -> _FakeClientCtx:
+                return _FakeClientCtx(_FakeAsyncKMSClient(plaintext_data_key=b"\x00" * 32))
+
+        monkeypatch.setattr(
+            "pydantic_encryption.adapters.encryption.aws.aioboto3.Session", _FakeAioSession
+        )
+
+        await asyncio.gather(
+            AWSAdapter.async_encrypt(b"a"),
+            AWSAdapter.async_encrypt(b"b"),
+            AWSAdapter.async_encrypt(b"c"),
+        )
+
+        assert len(opened_clients) == 1
+
+        _reset_adapter_state()

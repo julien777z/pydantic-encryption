@@ -174,9 +174,7 @@ class AWSAdapter(EncryptionAdapter):
         return _seal(response["Plaintext"], response["CiphertextBlob"], plaintext)
 
     @classmethod
-    def decrypt(cls, ciphertext: bytes | str | EncryptedValue, *, key: str | None = None) -> str:
-        if isinstance(ciphertext, str):
-            ciphertext = ciphertext.encode("utf-8")
+    def decrypt(cls, ciphertext: bytes | EncryptedValue, *, key: str | None = None) -> str:
         wrapped, nonce, sealed = _open(bytes(ciphertext))
 
         plaintext_data_key = cls._sync_kms().decrypt(**cls._decrypt_kwargs(wrapped))["Plaintext"]
@@ -184,9 +182,7 @@ class AWSAdapter(EncryptionAdapter):
         return AESGCM(plaintext_data_key).decrypt(nonce, sealed, None).decode("utf-8")
 
     @classmethod
-    async def async_decrypt(cls, ciphertext: bytes | str | EncryptedValue, *, key: str | None = None) -> str:
-        if isinstance(ciphertext, str):
-            ciphertext = ciphertext.encode("utf-8")
+    async def async_decrypt(cls, ciphertext: bytes | EncryptedValue, *, key: str | None = None) -> str:
         wrapped, nonce, sealed = _open(bytes(ciphertext))
 
         kms = await cls._async_kms()
