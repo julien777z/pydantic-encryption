@@ -77,6 +77,7 @@ class AWSAdapter(EncryptionAdapter):
 
     _sync_client: ClassVar[Any | None] = None
     _async_client: ClassVar[Any | None] = None
+    _async_client_ctx: ClassVar[Any | None] = None
     _async_loop: ClassVar[asyncio.AbstractEventLoop | None] = None
     _async_init_lock: ClassVar[asyncio.Lock | None] = None
 
@@ -128,11 +129,25 @@ class AWSAdapter(EncryptionAdapter):
             if cls._async_client is not None and cls._async_loop is loop:
                 return cls._async_client
 
-            ctx = aioboto3.Session(**_kms_kwargs()).client("kms", region_name=settings.AWS_KMS_REGION)
+            ctx = aioboto3.Session(**_kms_kwargs()).client("kms")
             cls._async_client = await ctx.__aenter__()
+            cls._async_client_ctx = ctx
             cls._async_loop = loop
 
             return cls._async_client
+
+    @classmethod
+    async def aclose_async_kms(cls) -> None:
+        """Close the active aioboto3 KMS client (must be called from the loop that opened it)."""
+
+        ctx = cls._async_client_ctx
+        if ctx is None:
+            return
+
+        cls._async_client = None
+        cls._async_client_ctx = None
+        cls._async_loop = None
+        await ctx.__aexit__(None, None, None)
 
     @classmethod
     def encrypt(cls, plaintext: bytes | str | EncryptedValue, *, key: str | None = None) -> EncryptedValue:

@@ -23,6 +23,7 @@ def _reset_adapter_state() -> None:
 
     AWSAdapter._sync_client = None
     AWSAdapter._async_client = None
+    AWSAdapter._async_client_ctx = None
     AWSAdapter._async_loop = None
     AWSAdapter._async_init_lock = None
 
@@ -455,5 +456,62 @@ class TestAWSAdapterLazyInit:
         )
 
         assert len(opened_clients) == 1
+
+        _reset_adapter_state()
+
+    @pytest.mark.asyncio
+    async def test_aclose_async_kms_exits_the_context_manager(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that aclose_async_kms() drives __aexit__ on the cached aioboto3 client context."""
+
+        _reset_adapter_state()
+
+        from pydantic_encryption.config import settings
+
+        monkeypatch.setattr(settings, "AWS_KMS_KEY_ARN", "arn:aws:kms:us-east-1:000:key/test")
+        monkeypatch.setattr(settings, "AWS_KMS_ENCRYPT_KEY_ARN", None)
+        monkeypatch.setattr(settings, "AWS_KMS_DECRYPT_KEY_ARN", None)
+        monkeypatch.setattr(settings, "AWS_KMS_REGION", "us-east-1")
+        monkeypatch.setattr(settings, "AWS_KMS_ACCESS_KEY_ID", "test-access")
+        monkeypatch.setattr(settings, "AWS_KMS_SECRET_ACCESS_KEY", "test-secret")
+
+        exit_calls: list[tuple[Any, ...]] = []
+
+        class _FakeClientCtx:
+            def __init__(self, client: _FakeAsyncKMSClient) -> None:
+                self._client = client
+
+            async def __aenter__(self) -> _FakeAsyncKMSClient:
+                return self._client
+
+            async def __aexit__(self, *exc: Any) -> None:
+                exit_calls.append(exc)
+
+        class _FakeAioSession:
+            def __init__(self, **kwargs: Any) -> None:
+                pass
+
+            def client(self, service: str, **client_kwargs: Any) -> _FakeClientCtx:
+                return _FakeClientCtx(_FakeAsyncKMSClient(plaintext_data_key=b"\x00" * 32))
+
+        monkeypatch.setattr(
+            "pydantic_encryption.adapters.encryption.aws.aioboto3.Session", _FakeAioSession
+        )
+
+        await AWSAdapter.async_encrypt(b"warm")
+
+        assert AWSAdapter._async_client is not None
+
+        await AWSAdapter.aclose_async_kms()
+
+        assert exit_calls == [(None, None, None)]
+        assert AWSAdapter._async_client is None
+        assert AWSAdapter._async_client_ctx is None
+        assert AWSAdapter._async_loop is None
+
+        await AWSAdapter.aclose_async_kms()
+
+        assert exit_calls == [(None, None, None)]
 
         _reset_adapter_state()
