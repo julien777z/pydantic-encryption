@@ -287,6 +287,28 @@ class TestAWSAdapterAsync:
 class TestAWSAdapterValidation:
     """Test the ciphertext-format guards on the decrypt path."""
 
+    def test_kms_client_build_raises_when_settings_unset(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that the lazy KMS client builder rejects unset AWS_KMS settings at use time."""
+
+        _reset_adapter_state()
+
+        from pydantic_encryption.config import settings
+
+        for attr in (
+            "AWS_KMS_KEY_ARN",
+            "AWS_KMS_ENCRYPT_KEY_ARN",
+            "AWS_KMS_DECRYPT_KEY_ARN",
+            "AWS_KMS_REGION",
+            "AWS_KMS_ACCESS_KEY_ID",
+            "AWS_KMS_SECRET_ACCESS_KEY",
+        ):
+            monkeypatch.setattr(settings, attr, None)
+
+        with pytest.raises(ValueError, match="AWS_KMS_REGION"):
+            AWSAdapter.encrypt(b"payload")
+
     def test_decrypt_rejects_truncated_ciphertext(self, fake_sync_kms: _FakeSyncKMSClient) -> None:
         """Test that decrypt() raises when the input is shorter than the envelope header."""
 
