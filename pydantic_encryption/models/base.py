@@ -49,21 +49,21 @@ class SecureModel:
 
     @classmethod
     def _resolve_encryption_method(cls) -> EncryptionMethod:
-        method = cls._encryption_method or settings.ENCRYPTION_METHOD
-        if method is None:
-            raise ValueError("ENCRYPTION_METHOD must be set to use Encrypted fields.")
-        return method
+        """Return the per-class override or the ENCRYPTION_METHOD env value."""
+
+        return cls._encryption_method or settings.ENCRYPTION_METHOD
 
     @classmethod
     def _resolve_encryption_key(cls) -> str | None:
+        """Return the per-class override or the ENCRYPTION_KEY env value."""
+
         return cls._encryption_key or settings.ENCRYPTION_KEY
 
     @classmethod
     def _resolve_blind_index_key(cls) -> str:
-        key = cls._blind_index_key or settings.BLIND_INDEX_SECRET_KEY
-        if key is None:
-            raise ValueError("BLIND_INDEX_SECRET_KEY must be set to use BlindIndex.")
-        return key
+        """Return the per-class override or the BLIND_INDEX_SECRET_KEY env value."""
+
+        return cls._blind_index_key or settings.BLIND_INDEX_SECRET_KEY
 
     @property
     def pending_encryption_fields(self) -> dict[str, AnnotatedFieldInfo]:

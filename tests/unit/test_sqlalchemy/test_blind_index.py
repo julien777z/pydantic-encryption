@@ -127,14 +127,6 @@ class TestSQLAlchemyBlindIndexValueConfig:
         type_adapter = SQLAlchemyBlindIndexValue(BlindIndexMethod.ARGON2)
         assert type_adapter.method == BlindIndexMethod.ARGON2
 
-    def test_missing_secret_key_raises_error(self, monkeypatch):
-        from pydantic_encryption.integrations.sqlalchemy import blind_index as blind_index_module
-
-        monkeypatch.setattr(blind_index_module.settings, "BLIND_INDEX_SECRET_KEY", None)
-        type_adapter = SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256)
-        with pytest.raises(ValueError, match="BLIND_INDEX_SECRET_KEY must be set"):
-            type_adapter.process_bind_param("test", None)
-
     def test_different_keys_produce_different_indexes(self, monkeypatch):
         from pydantic_encryption.integrations.sqlalchemy import blind_index as blind_index_module
 

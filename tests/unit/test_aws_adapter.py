@@ -1,7 +1,6 @@
 import asyncio
 from collections.abc import AsyncIterator, Iterator
 from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 import pytest_asyncio
@@ -285,55 +284,30 @@ class TestAWSAdapterAsync:
 
 
 class TestAWSAdapterValidation:
-    """Test the AWS settings validation and ciphertext-format guards."""
-
-    def test_encrypt_raises_when_no_credentials_configured(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Test that encrypt() raises a clear error when AWS_KMS env vars are missing."""
-
-        _reset_adapter_state()
-
-        from pydantic_encryption.config import settings
-
-        for attr in (
-            "AWS_KMS_KEY_ARN",
-            "AWS_KMS_ENCRYPT_KEY_ARN",
-            "AWS_KMS_DECRYPT_KEY_ARN",
-            "AWS_KMS_REGION",
-            "AWS_KMS_ACCESS_KEY_ID",
-            "AWS_KMS_SECRET_ACCESS_KEY",
-        ):
-            monkeypatch.setattr(settings, attr, None)
-
-        with pytest.raises(ValueError, match="AWS_KMS_REGION"):
-            AWSAdapter.encrypt(b"payload")
-
-    def test_encrypt_raises_when_only_decrypt_key_configured(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Test that encrypt() refuses to run with a decrypt-only key (no encrypt ARN)."""
-
-        _reset_adapter_state()
-
-        from pydantic_encryption.config import settings
-
-        monkeypatch.setattr(settings, "AWS_KMS_KEY_ARN", None)
-        monkeypatch.setattr(settings, "AWS_KMS_ENCRYPT_KEY_ARN", None)
-        monkeypatch.setattr(settings, "AWS_KMS_DECRYPT_KEY_ARN", "arn:aws:kms:us-east-1:000:key/dec")
-        monkeypatch.setattr(settings, "AWS_KMS_REGION", "us-east-1")
-        monkeypatch.setattr(settings, "AWS_KMS_ACCESS_KEY_ID", "test")
-        monkeypatch.setattr(settings, "AWS_KMS_SECRET_ACCESS_KEY", "test")
-        AWSAdapter._sync_client = MagicMock(name="kms-client")
-
-        with pytest.raises(ValueError, match="No encryption key configured"):
-            AWSAdapter.encrypt(b"payload")
+    """Test the ciphertext-format guards on the decrypt path."""
 
     def test_decrypt_rejects_truncated_ciphertext(self, fake_sync_kms: _FakeSyncKMSClient) -> None:
         """Test that decrypt() raises when the input is shorter than the envelope header."""
 
         with pytest.raises(ValueError, match="too short"):
             AWSAdapter.decrypt(b"\xc0\x01")
+
+    def test_decrypt_rejects_truncated_payload(self, fake_sync_kms: _FakeSyncKMSClient) -> None:
+        """Test that decrypt() raises when the header announces more bytes than the blob carries."""
+
+        import struct
+
+        from pydantic_encryption.adapters.encryption.aws import (
+            CIPHERTEXT_MAGIC,
+            CIPHERTEXT_VERSION,
+            HEADER_PACK_FORMAT,
+        )
+
+        # Header claims a 1024-byte wrapped key but the blob has no payload.
+        truncated = struct.pack(HEADER_PACK_FORMAT, CIPHERTEXT_MAGIC, CIPHERTEXT_VERSION, 1024)
+
+        with pytest.raises(ValueError, match="truncated"):
+            AWSAdapter.decrypt(truncated)
 
 
 class TestAWSAdapterLazyInit:

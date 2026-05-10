@@ -23,7 +23,9 @@ class Settings(BaseSettings):
     ENCRYPTION_METHOD: EncryptionMethod | None = None
 
     @model_validator(mode="after")
-    def validate_aws_kms_keys(self) -> Self:
+    def validate_encryption_settings(self) -> Self:
+        """Validate every encryption-related env combination at import time, once."""
+
         global_key = self.AWS_KMS_KEY_ARN
         encrypt_key = self.AWS_KMS_ENCRYPT_KEY_ARN
         decrypt_key = self.AWS_KMS_DECRYPT_KEY_ARN
@@ -41,6 +43,21 @@ class Settings(BaseSettings):
                 "You can specify decrypt key alone for read-only scenarios, "
                 "but encrypt key requires a corresponding decrypt key."
             )
+
+        if self.ENCRYPTION_METHOD is EncryptionMethod.AWS and not (
+            (global_key or encrypt_key or decrypt_key)
+            and self.AWS_KMS_REGION
+            and self.AWS_KMS_ACCESS_KEY_ID
+            and self.AWS_KMS_SECRET_ACCESS_KEY
+        ):
+            raise ValueError(
+                "AWS KMS requires AWS_KMS_REGION, AWS_KMS_ACCESS_KEY_ID, "
+                "AWS_KMS_SECRET_ACCESS_KEY, and at least one key ARN "
+                "(AWS_KMS_KEY_ARN, AWS_KMS_ENCRYPT_KEY_ARN, or AWS_KMS_DECRYPT_KEY_ARN) to be set."
+            )
+
+        if self.ENCRYPTION_METHOD is EncryptionMethod.FERNET and not self.ENCRYPTION_KEY:
+            raise ValueError("ENCRYPTION_METHOD=fernet requires ENCRYPTION_KEY to be set.")
 
         return self
 

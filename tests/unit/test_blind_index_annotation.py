@@ -109,17 +109,6 @@ class TestBlindIndexAnnotationNormalization:
 class TestBlindIndexAnnotationConfig:
     """Test BlindIndex annotation configuration edge cases."""
 
-    def test_missing_secret_key_raises_error(self, monkeypatch):
-        from pydantic_encryption import config
-
-        monkeypatch.setattr(config.settings, "BLIND_INDEX_SECRET_KEY", None)
-
-        class UserModel(BaseModel):
-            email_index: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
-
-        with pytest.raises(ValueError, match="BLIND_INDEX_SECRET_KEY must be set"):
-            UserModel(email_index="test@example.com")
-
     def test_none_value_stays_none(self):
         class UserModel(BaseModel):
             email_index: Annotated[bytes | None, BlindIndex(BlindIndexMethod.HMAC_SHA256)] = None

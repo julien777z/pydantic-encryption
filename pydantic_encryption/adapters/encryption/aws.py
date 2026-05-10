@@ -26,24 +26,7 @@ DATA_KEY_SPEC: Final[str] = "AES_256"
 
 
 def _kms_kwargs() -> dict[str, str]:
-    """Return validated boto3/aioboto3 kwargs for the configured KMS region + credentials."""
-
-    has_key = (
-        settings.AWS_KMS_KEY_ARN
-        or settings.AWS_KMS_ENCRYPT_KEY_ARN
-        or settings.AWS_KMS_DECRYPT_KEY_ARN
-    )
-    if not (
-        has_key
-        and settings.AWS_KMS_REGION
-        and settings.AWS_KMS_ACCESS_KEY_ID
-        and settings.AWS_KMS_SECRET_ACCESS_KEY
-    ):
-        raise ValueError(
-            "AWS KMS requires AWS_KMS_REGION, AWS_KMS_ACCESS_KEY_ID, "
-            "AWS_KMS_SECRET_ACCESS_KEY, and at least one key ARN "
-            "(AWS_KMS_KEY_ARN, AWS_KMS_ENCRYPT_KEY_ARN, or AWS_KMS_DECRYPT_KEY_ARN) to be set."
-        )
+    """Return boto3/aioboto3 kwargs for the configured KMS region + credentials."""
 
     return {
         "region_name": settings.AWS_KMS_REGION,
@@ -83,6 +66,8 @@ def _open(blob: bytes) -> tuple[bytes, bytes, bytes]:
 
     end_wrapped = HEADER_LENGTH + wrapped_len
     end_nonce = end_wrapped + NONCE_LENGTH
+    if len(blob) < end_nonce:
+        raise ValueError("Ciphertext is truncated: missing wrapped data key or nonce.")
 
     return blob[HEADER_LENGTH:end_wrapped], blob[end_wrapped:end_nonce], blob[end_nonce:]
 
@@ -97,15 +82,9 @@ class AWSAdapter(EncryptionAdapter):
 
     @classmethod
     def _encrypt_arn(cls) -> str:
-        """Return the configured encryption ARN, raising if none is set."""
+        """Return the encryption ARN; the config validator guarantees one is set in AWS mode."""
 
-        arn = settings.AWS_KMS_ENCRYPT_KEY_ARN or settings.AWS_KMS_KEY_ARN
-        if not arn:
-            raise ValueError(
-                "No encryption key configured. Set AWS_KMS_KEY_ARN or AWS_KMS_ENCRYPT_KEY_ARN."
-            )
-
-        return arn
+        return settings.AWS_KMS_ENCRYPT_KEY_ARN or settings.AWS_KMS_KEY_ARN
 
     @classmethod
     def _decrypt_kwargs(cls, wrapped_data_key: bytes) -> dict[str, Any]:

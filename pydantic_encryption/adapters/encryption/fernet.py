@@ -15,15 +15,13 @@ class FernetAdapter(EncryptionAdapter):
 
     @classmethod
     def _get_client(cls, key: str | None = None) -> Fernet:
-        if key is None:
-            key = settings.ENCRYPTION_KEY
-        if not key:
-            raise ValueError("Fernet requires ENCRYPTION_KEY to be set.")
+        """Return a cached Fernet client for the given key (defaults to settings.ENCRYPTION_KEY)."""
 
-        if key not in cls._clients:
-            cls._clients[key] = Fernet(key)
+        resolved = key or settings.ENCRYPTION_KEY
+        if resolved not in cls._clients:
+            cls._clients[resolved] = Fernet(resolved)
 
-        return cls._clients[key]
+        return cls._clients[resolved]
 
     @classmethod
     def encrypt(cls, plaintext: bytes | str | EncryptedValue, *, key: str | None = None) -> EncryptedValue:

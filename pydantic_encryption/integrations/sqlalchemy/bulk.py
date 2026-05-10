@@ -33,13 +33,9 @@ def _column_key(column: InstrumentedAttribute | str) -> str:
 
 
 def _resolve_backend() -> Any:
-    """Return the configured encryption backend, raising if ENCRYPTION_METHOD is unset."""
+    """Return the encryption backend for the configured ENCRYPTION_METHOD."""
 
-    method = settings.ENCRYPTION_METHOD
-    if method is None:
-        raise ValueError("ENCRYPTION_METHOD must be set to decrypt values.")
-
-    return get_encryption_backend(method)
+    return get_encryption_backend(settings.ENCRYPTION_METHOD)
 
 
 async def _decrypt_assignments(
@@ -194,14 +190,7 @@ async def decrypt_pending_fields(session: AsyncSession) -> None:
 
 
 async def finalize_sqlalchemy_session(session: AsyncSession) -> None:
-    """Commit so the pooled DB connection is released, then decrypt pending encrypted fields.
-
-    The pending-decrypt bucket is captured from ``session.info`` first, then the open
-    transaction is committed so the pooled DB connection is returned to the pool, and
-    only then does the batched KMS decrypt run. This keeps the pool slot held for SQL
-    work only -- the network-bound KMS round-trips no longer hold a connection -- which
-    matters under concurrent read load where decrypt time dominates request duration.
-    """
+    """Commit to release the pooled connection, then run the captured pending decrypt batch."""
 
     pending = session.info.pop(PENDING_DECRYPT_KEY, None)
 

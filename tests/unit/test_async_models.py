@@ -461,17 +461,6 @@ class TestAsyncBlindIndexData:
         assert sync_model.email == async_model.email
 
     @pytest.mark.asyncio
-    async def test_async_blind_index_missing_key_raises(self, monkeypatch):
-        class _Model(BaseModel):
-            email: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
-
-        model = _construct_without_crypto(_Model, email="test@example.com")
-        monkeypatch.setattr(settings, "BLIND_INDEX_SECRET_KEY", None)
-
-        with pytest.raises(ValueError, match="BLIND_INDEX_SECRET_KEY must be set"):
-            await model.async_blind_index_data()
-
-    @pytest.mark.asyncio
     async def test_async_blind_index_optional_none_no_key_succeeds(self, monkeypatch):
         """Optional blind index fields with None value succeed even without key configured."""
 
@@ -488,28 +477,6 @@ class TestAsyncBlindIndexData:
 
 class TestAsyncEncryptDataErrors:
     """Test error branches in async encrypt/decrypt methods."""
-
-    @pytest.mark.asyncio
-    async def test_async_encrypt_data_missing_method_raises(self, monkeypatch):
-        class _Model(BaseModel):
-            secret: Annotated[bytes, Encrypted]
-
-        model = _construct_without_crypto(_Model, secret="plaintext")
-        monkeypatch.setattr(settings, "ENCRYPTION_METHOD", None)
-
-        with pytest.raises(ValueError, match="ENCRYPTION_METHOD must be set"):
-            await model.async_encrypt_data()
-
-    @pytest.mark.asyncio
-    async def test_async_decrypt_data_missing_method_raises(self, monkeypatch):
-        class _Model(BaseModel):
-            data: Annotated[bytes, Encrypted]
-
-        model = _Model(data="secret")
-        monkeypatch.setattr(settings, "ENCRYPTION_METHOD", None)
-
-        with pytest.raises(ValueError, match="ENCRYPTION_METHOD must be set"):
-            await model.async_decrypt_data()
 
     @pytest.mark.asyncio
     async def test_async_encrypt_no_pending_fields_is_noop(self):

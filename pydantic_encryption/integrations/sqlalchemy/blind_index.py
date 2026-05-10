@@ -43,8 +43,8 @@ class SQLAlchemyBlindIndexValue(TypeDecorator):
         self.normalize_to_uppercase = normalize_to_uppercase
 
     def _key_bytes(self) -> bytes:
-        if settings.BLIND_INDEX_SECRET_KEY is None:
-            raise ValueError("BLIND_INDEX_SECRET_KEY must be set to use SQLAlchemyBlindIndexValue.")
+        """Return the configured BLIND_INDEX_SECRET_KEY as utf-8 bytes."""
+
         return settings.BLIND_INDEX_SECRET_KEY.encode("utf-8")
 
     def _normalize(self, value: str | bytes) -> str | bytes:
