@@ -33,6 +33,9 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
         if isinstance(value, EncryptedValue):
             return value
 
+        if settings.ENCRYPTION_METHOD is None:
+            raise ValueError("ENCRYPTION_METHOD must be set to use SQLAlchemyEncryptedValue.")
+
         backend = get_encryption_backend(settings.ENCRYPTION_METHOD)
 
         return run_async_or_sync(backend.async_encrypt, backend.encrypt, encode_value(value))
@@ -42,6 +45,9 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
 
         if value is None:
             return None
+
+        if settings.ENCRYPTION_METHOD is None:
+            raise ValueError("ENCRYPTION_METHOD must be set to use SQLAlchemyEncryptedValue.")
 
         backend = get_encryption_backend(settings.ENCRYPTION_METHOD)
 

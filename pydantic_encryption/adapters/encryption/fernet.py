@@ -18,6 +18,8 @@ class FernetAdapter(EncryptionAdapter):
         """Return a cached Fernet client for the given key (defaults to settings.ENCRYPTION_KEY)."""
 
         resolved = key or settings.ENCRYPTION_KEY
+        if not resolved:
+            raise ValueError("Fernet requires ENCRYPTION_KEY to be set.")
         if resolved not in cls._clients:
             cls._clients[resolved] = Fernet(resolved)
 

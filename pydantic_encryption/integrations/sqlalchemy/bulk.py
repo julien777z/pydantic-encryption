@@ -33,9 +33,13 @@ def _column_key(column: InstrumentedAttribute | str) -> str:
 
 
 def _resolve_backend() -> Any:
-    """Return the encryption backend for the configured ENCRYPTION_METHOD."""
+    """Return the configured encryption backend, raising if ENCRYPTION_METHOD is unset."""
 
-    return get_encryption_backend(settings.ENCRYPTION_METHOD)
+    method = settings.ENCRYPTION_METHOD
+    if method is None:
+        raise ValueError("ENCRYPTION_METHOD must be set to decrypt values.")
+
+    return get_encryption_backend(method)
 
 
 async def _decrypt_assignments(

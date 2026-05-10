@@ -45,6 +45,9 @@ class SQLAlchemyBlindIndexValue(TypeDecorator):
     def _key_bytes(self) -> bytes:
         """Return the configured BLIND_INDEX_SECRET_KEY as utf-8 bytes."""
 
+        if settings.BLIND_INDEX_SECRET_KEY is None:
+            raise ValueError("BLIND_INDEX_SECRET_KEY must be set to use SQLAlchemyBlindIndexValue.")
+
         return settings.BLIND_INDEX_SECRET_KEY.encode("utf-8")
 
     def _normalize(self, value: str | bytes) -> str | bytes:
