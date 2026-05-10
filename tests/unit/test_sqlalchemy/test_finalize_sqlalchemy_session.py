@@ -3,6 +3,7 @@ import importlib
 from collections import defaultdict
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import patch
 from weakref import WeakSet
 
 from sqlalchemy import inspect as sa_inspect
@@ -97,6 +98,35 @@ class TestFinalizeSession:
         assert sa_inspect(user).dict["email"] == "b@x.com"
         assert PENDING_DECRYPT_KEY not in session.info
         assert session.commit_calls == 0
+
+    def test_commits_before_running_bulk_decrypt(self):
+        """Test that commit (releasing the pool slot) runs before the KMS-bound bulk decrypt."""
+
+        events: list[str] = []
+
+        class _RecordingSession(_FakeAsyncSession):
+            async def commit(self_inner) -> None:
+                events.append("commit")
+                await super().commit()
+
+        async def _recording_bulk_decrypt(_entities: Any) -> None:
+            events.append("bulk_decrypt")
+
+        session = _RecordingSession(in_transaction=True)
+        user = _FinalizeUser(id=1, email=_wrap("c@x.com"))
+
+        bucket: dict[type, WeakSet] = defaultdict(WeakSet)
+        bucket[_FinalizeUser].add(user)
+        session.info[PENDING_DECRYPT_KEY] = bucket
+
+        with patch(
+            "pydantic_encryption.integrations.sqlalchemy.bulk.bulk_decrypt_entities",
+            _recording_bulk_decrypt,
+        ):
+            asyncio.run(finalize_sqlalchemy_session(session))
+
+        assert events == ["commit", "bulk_decrypt"]
+        assert PENDING_DECRYPT_KEY not in session.info
 
 
 class TestFinalizeSessionLazyImport:
