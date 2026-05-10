@@ -135,6 +135,14 @@ class TestEncryptionMethodValidation:
 
         assert settings.ENCRYPTION_METHOD.value == "aws"
 
+    def test_fernet_method_requires_encryption_key(self):
+        """Test that selecting ENCRYPTION_METHOD=fernet without ENCRYPTION_KEY raises a validation error."""
+
+        with pytest.raises(ValidationError) as exc_info:
+            Settings(_env_file=None, ENCRYPTION_METHOD="fernet")
+
+        assert "ENCRYPTION_KEY" in str(exc_info.value)
+
     def test_fernet_method_with_encryption_key_valid(self):
         """Test that ENCRYPTION_METHOD=fernet with ENCRYPTION_KEY constructs cleanly."""
 
