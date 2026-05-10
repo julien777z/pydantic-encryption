@@ -462,6 +462,8 @@ class TestAsyncBlindIndexData:
 
     @pytest.mark.asyncio
     async def test_async_blind_index_missing_key_raises(self, monkeypatch):
+        """Test that async_blind_index_data raises a clear error without BLIND_INDEX_SECRET_KEY."""
+
         class _Model(BaseModel):
             email: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
 
@@ -491,6 +493,8 @@ class TestAsyncEncryptDataErrors:
 
     @pytest.mark.asyncio
     async def test_async_encrypt_data_missing_method_raises(self, monkeypatch):
+        """Test that async_encrypt_data raises a clear error without ENCRYPTION_METHOD."""
+
         class _Model(BaseModel):
             secret: Annotated[bytes, Encrypted]
 
@@ -502,6 +506,8 @@ class TestAsyncEncryptDataErrors:
 
     @pytest.mark.asyncio
     async def test_async_decrypt_data_missing_method_raises(self, monkeypatch):
+        """Test that async_decrypt_data raises a clear error without ENCRYPTION_METHOD."""
+
         class _Model(BaseModel):
             data: Annotated[bytes, Encrypted]
 

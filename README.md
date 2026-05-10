@@ -184,8 +184,8 @@ async with AsyncSession(engine) as session:
 
     await users[0].decrypt()                              # one mixin instance
     await User.decrypt_many(users)                        # batch of one class
-    await decrypt_rows(users, User.email, concurrency=8)  # InstrumentedAttribute or column names
-    await decrypt_values(ciphertexts, concurrency=8)      # flat ciphertexts; preserves None positions
+    await decrypt_rows(users, User.email)                 # InstrumentedAttribute or column names
+    await decrypt_values(ciphertexts)                     # flat ciphertexts; preserves None positions
 ```
 
 ### Safety: Catching Accidental Ciphertext Access

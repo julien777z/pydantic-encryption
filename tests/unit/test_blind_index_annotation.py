@@ -110,6 +110,8 @@ class TestBlindIndexAnnotationConfig:
     """Test BlindIndex annotation configuration edge cases."""
 
     def test_missing_secret_key_raises_error(self, monkeypatch):
+        """Test that BlindIndex without BLIND_INDEX_SECRET_KEY raises a clear error."""
+
         from pydantic_encryption import config
 
         monkeypatch.setattr(config.settings, "BLIND_INDEX_SECRET_KEY", None)

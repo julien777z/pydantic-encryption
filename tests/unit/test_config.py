@@ -104,3 +104,54 @@ class TestAWSKMSKeyValidation:
         assert settings.AWS_KMS_KEY_ARN is None
         assert settings.AWS_KMS_ENCRYPT_KEY_ARN is None
         assert settings.AWS_KMS_DECRYPT_KEY_ARN is None
+
+
+class TestEncryptionMethodValidation:
+    """Test that the validator gates encryption-method-specific env requirements."""
+
+    def test_aws_method_requires_full_aws_settings(self):
+        """Test that selecting ENCRYPTION_METHOD=aws without creds raises a validation error."""
+
+        with pytest.raises(ValidationError) as exc_info:
+            Settings(
+                _env_file=None,
+                ENCRYPTION_METHOD="aws",
+                AWS_KMS_KEY_ARN="arn:aws:kms:us-east-1:123456789:key/test",
+            )
+
+        assert "AWS KMS requires" in str(exc_info.value)
+
+    def test_aws_method_with_full_aws_settings_valid(self):
+        """Test that ENCRYPTION_METHOD=aws with all required env values constructs cleanly."""
+
+        settings = Settings(
+            _env_file=None,
+            ENCRYPTION_METHOD="aws",
+            AWS_KMS_KEY_ARN="arn:aws:kms:us-east-1:123456789:key/test",
+            AWS_KMS_REGION="us-east-1",
+            AWS_KMS_ACCESS_KEY_ID="test-access",
+            AWS_KMS_SECRET_ACCESS_KEY="test-secret",
+        )
+
+        assert settings.ENCRYPTION_METHOD.value == "aws"
+
+    def test_fernet_method_requires_encryption_key(self, monkeypatch):
+        """Test that selecting ENCRYPTION_METHOD=fernet without ENCRYPTION_KEY raises a validation error."""
+
+        monkeypatch.delenv("ENCRYPTION_KEY", raising=False)
+
+        with pytest.raises(ValidationError) as exc_info:
+            Settings(_env_file=None, ENCRYPTION_METHOD="fernet")
+
+        assert "ENCRYPTION_KEY" in str(exc_info.value)
+
+    def test_fernet_method_with_encryption_key_valid(self):
+        """Test that ENCRYPTION_METHOD=fernet with ENCRYPTION_KEY constructs cleanly."""
+
+        settings = Settings(
+            _env_file=None,
+            ENCRYPTION_METHOD="fernet",
+            ENCRYPTION_KEY="test-key",
+        )
+
+        assert settings.ENCRYPTION_METHOD.value == "fernet"

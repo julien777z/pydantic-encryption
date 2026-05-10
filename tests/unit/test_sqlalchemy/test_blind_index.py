@@ -128,6 +128,8 @@ class TestSQLAlchemyBlindIndexValueConfig:
         assert type_adapter.method == BlindIndexMethod.ARGON2
 
     def test_missing_secret_key_raises_error(self, monkeypatch):
+        """Test that SQLAlchemyBlindIndexValue.process_bind_param raises without BLIND_INDEX_SECRET_KEY."""
+
         from pydantic_encryption.integrations.sqlalchemy import blind_index as blind_index_module
 
         monkeypatch.setattr(blind_index_module.settings, "BLIND_INDEX_SECRET_KEY", None)

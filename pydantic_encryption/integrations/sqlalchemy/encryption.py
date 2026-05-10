@@ -30,7 +30,6 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
 
         if value is None:
             return None
-
         if isinstance(value, EncryptedValue):
             return value
 
@@ -38,9 +37,8 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
             raise ValueError("ENCRYPTION_METHOD must be set to use SQLAlchemyEncryptedValue.")
 
         backend = get_encryption_backend(settings.ENCRYPTION_METHOD)
-        serialized = encode_value(value)
 
-        return run_async_or_sync(backend.async_encrypt, backend.encrypt, serialized)
+        return run_async_or_sync(backend.async_encrypt, backend.encrypt, encode_value(value))
 
     def _decrypt_cell(self, value: str | bytes | None) -> str | bytes | None:
         """Decrypt a single ciphertext; callers are responsible for decoding."""
