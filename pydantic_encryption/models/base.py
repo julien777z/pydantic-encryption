@@ -170,15 +170,16 @@ class SecureModel:
         return tasks or None
 
     async def _async_apply(self, items: list[tuple[str, Awaitable[Any]]]) -> None:
-        """Await each coroutine concurrently and ``setattr`` its result onto ``self``."""
+        """Await each coroutine under a TaskGroup and ``setattr`` its result onto ``self``."""
 
         if not items:
             return
 
-        names = [name for name, _ in items]
-        results = await asyncio.gather(*(coro for _, coro in items))
-        for name, value in zip(names, results):
-            setattr(self, name, value)
+        async with asyncio.TaskGroup() as tg:
+            tasks = [(name, tg.create_task(coro)) for name, coro in items]
+
+        for name, task in tasks:
+            setattr(self, name, task.result())
 
     def encrypt_data(self) -> None:
         """Encrypt fields annotated with ``Encrypted`` in-place."""
@@ -292,24 +293,25 @@ class SecureModel:
         if isinstance(value, SecureModel):
             await value.async_post_init()
         elif isinstance(value, dict):
-            await asyncio.gather(*(SecureModel._async_post_init_nested(v) for v in value.values()))
+            async with asyncio.TaskGroup() as tg:
+                for v in value.values():
+                    tg.create_task(SecureModel._async_post_init_nested(v))
         elif isinstance(value, (list, tuple, set, frozenset)):
-            await asyncio.gather(*(SecureModel._async_post_init_nested(v) for v in value))
+            async with asyncio.TaskGroup() as tg:
+                for v in value:
+                    tg.create_task(SecureModel._async_post_init_nested(v))
 
     async def async_post_init(self) -> None:
         """Run async encrypt + hash + blind-index, including on nested models."""
 
-        children = [
-            self._async_post_init_nested(value)
-            for name in getattr(type(self), "model_fields", {})
-            if (value := getattr(self, name, None)) is not None
-        ]
-        await asyncio.gather(
-            *children,
-            self.async_encrypt_data(),
-            self.async_hash_data(),
-            self.async_blind_index_data(),
-        )
+        async with asyncio.TaskGroup() as tg:
+            for name in getattr(type(self), "model_fields", {}):
+                value = getattr(self, name, None)
+                if value is not None:
+                    tg.create_task(self._async_post_init_nested(value))
+            tg.create_task(self.async_encrypt_data())
+            tg.create_task(self.async_hash_data())
+            tg.create_task(self.async_blind_index_data())
 
 
 class BaseModel(SuperModelPydanticMixin, SecureModel):

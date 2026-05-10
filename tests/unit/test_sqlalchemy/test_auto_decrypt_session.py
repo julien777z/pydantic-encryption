@@ -2,11 +2,13 @@ import asyncio
 from collections import defaultdict
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import patch
 from weakref import WeakSet
 
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import DeclarativeBase, Mapped, configure_mappers, mapped_column
 
+from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
 from pydantic_encryption.integrations.sqlalchemy import DeferredDecryptMixin, decrypt_pending_fields
 from pydantic_encryption.integrations.sqlalchemy.state import PENDING_DECRYPT_KEY
 from pydantic_encryption.integrations.sqlalchemy.bulk import collect_encrypted_cells
@@ -156,13 +158,13 @@ class TestBytesColumnIdempotency:
 
 
 class TestDrainParallelism:
-    """Test that decrypt_pending_fields fans out every class's cells in a single gather."""
+    """Test that decrypt_pending_fields fans out every class's cells under one TaskGroup."""
 
     @classmethod
     def setup_class(cls):
         configure_mappers()
 
-    def test_drain_gathers_cells_across_classes_in_parallel(self):
+    def test_drain_dispatches_cells_across_classes_in_parallel(self):
         session = SimpleNamespace(info={})
         user = _AutoDecryptUser(id=1, email=_wrap("a@x.com"))
         blob = _AutoDecryptBlob(id=1, payload=_wrap(b"shh"))
@@ -172,25 +174,28 @@ class TestDrainParallelism:
         bucket[_AutoDecryptBlob].add(blob)
         session.info[PENDING_DECRYPT_KEY] = bucket
 
-        gather_calls: list[int] = []
-        original_gather = asyncio.gather
+        live_overlap = 0
+        peak_overlap = 0
+        original_decrypt = FernetAdapter.decrypt
 
-        async def counting_gather(*coros, **kwargs):
-            gather_calls.append(len(coros))
-            return await original_gather(*coros, **kwargs)
+        async def overlapping_async_decrypt(ciphertext, *, key=None):
+            nonlocal live_overlap, peak_overlap
+            live_overlap += 1
+            peak_overlap = max(peak_overlap, live_overlap)
+            try:
+                await asyncio.sleep(0)
+                return original_decrypt(ciphertext, key=key)
+            finally:
+                live_overlap -= 1
 
-        asyncio.gather = counting_gather  # type: ignore[assignment]
-        try:
+        with patch.object(FernetAdapter, "async_decrypt", side_effect=overlapping_async_decrypt):
             asyncio.run(decrypt_pending_fields(session))
-        finally:
-            asyncio.gather = original_gather  # type: ignore[assignment]
 
         assert sa_inspect(user).dict["email"] == "a@x.com"
         assert sa_inspect(blob).dict["payload"] == b"shh"
-        assert gather_calls, "expected asyncio.gather to be invoked by the drain"
-        assert max(gather_calls) >= 2, (
-            "expected at least one gather to span both classes' cells; "
-            f"got gather widths {gather_calls}"
+        assert peak_overlap >= 2, (
+            "expected at least two decrypts to be in flight together across classes; "
+            f"observed peak overlap {peak_overlap}"
         )
 
 

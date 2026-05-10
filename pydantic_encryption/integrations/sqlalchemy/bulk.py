@@ -45,20 +45,29 @@ def _resolve_backend() -> Any:
 async def _decrypt_assignments(
     backend: Any, assignments: list[tuple[Any, str, bytes]]
 ) -> None:
-    """Decrypt every ``(row, key, ciphertext)`` triple in one ``asyncio.gather`` and write results back."""
+    """Decrypt every ``(row, key, ciphertext)`` triple under a TaskGroup and write results back.
+
+    Concurrent KMS calls are bounded by the aiobotocore connection pool
+    (default ``max_pool_connections=10``), so an explicit per-call
+    semaphore here would just duplicate the transport's natural backpressure.
+    Failures surface as a ``BaseExceptionGroup`` of per-cell errors.
+    """
 
     if not assignments:
         return
 
-    plaintexts = await asyncio.gather(
-        *(backend.async_decrypt(ciphertext) for _, _, ciphertext in assignments)
-    )
-    for (row, key, _), plaintext in zip(assignments, plaintexts):
-        set_decrypted(row, key, decode_value(plaintext))
+    async with asyncio.TaskGroup() as tg:
+        tasks = [
+            tg.create_task(backend.async_decrypt(ciphertext))
+            for _, _, ciphertext in assignments
+        ]
+
+    for (row, key, _), task in zip(assignments, tasks):
+        set_decrypted(row, key, decode_value(task.result()))
 
 
 async def decrypt_rows(rows: Iterable[Any], *columns: InstrumentedAttribute | str) -> None:
-    """Decrypt the given columns across every row in one ``asyncio.gather``."""
+    """Decrypt the given columns across every row in one TaskGroup."""
 
     if not columns:
         return
@@ -99,18 +108,20 @@ async def decrypt_values(values: Iterable[Any]) -> list[Any]:
 
     backend = _resolve_backend()
     indexes: list[int] = []
-    coros: list[Any] = []
+    encrypted_blobs: list[bytes] = []
     for index, value in enumerate(values_list):
         if isinstance(value, EncryptedValue):
-            coros.append(backend.async_decrypt(bytes(value)))
+            encrypted_blobs.append(bytes(value))
             indexes.append(index)
 
-    if not coros:
+    if not encrypted_blobs:
         return values_list
 
-    plaintexts = await asyncio.gather(*coros)
-    for index, plaintext in zip(indexes, plaintexts):
-        values_list[index] = decode_value(plaintext)
+    async with asyncio.TaskGroup() as tg:
+        tasks = [tg.create_task(backend.async_decrypt(blob)) for blob in encrypted_blobs]
+
+    for index, task in zip(indexes, tasks):
+        values_list[index] = decode_value(task.result())
 
     return values_list
 
