@@ -385,7 +385,7 @@ class TestAWSAdapterLazyInit:
             def __init__(self, **kwargs: Any) -> None:
                 session_kwargs.append(kwargs)
 
-            def client(self, service: str) -> _FakeClientCtx:
+            def client(self, service: str, **client_kwargs: Any) -> _FakeClientCtx:
                 assert service == "kms"
                 return _FakeClientCtx(_FakeAsyncKMSClient(plaintext_data_key=b"\x00" * 32))
 
@@ -441,7 +441,7 @@ class TestAWSAdapterLazyInit:
             def __init__(self, **kwargs: Any) -> None:
                 pass
 
-            def client(self, service: str) -> _FakeClientCtx:
+            def client(self, service: str, **client_kwargs: Any) -> _FakeClientCtx:
                 return _FakeClientCtx(_FakeAsyncKMSClient(plaintext_data_key=b"\x00" * 32))
 
         monkeypatch.setattr(

@@ -82,9 +82,16 @@ class AWSAdapter(EncryptionAdapter):
 
     @classmethod
     def _encrypt_arn(cls) -> str:
-        """Return the encryption ARN; the config validator guarantees one is set in AWS mode."""
+        """Return the encryption ARN, rejecting decrypt-only (read-only) configurations."""
 
-        return settings.AWS_KMS_ENCRYPT_KEY_ARN or settings.AWS_KMS_KEY_ARN
+        arn = settings.AWS_KMS_ENCRYPT_KEY_ARN or settings.AWS_KMS_KEY_ARN
+        if not arn:
+            raise ValueError(
+                "encrypt() requires AWS_KMS_KEY_ARN or AWS_KMS_ENCRYPT_KEY_ARN; "
+                "AWS_KMS_DECRYPT_KEY_ARN alone is decrypt-only."
+            )
+
+        return arn
 
     @classmethod
     def _decrypt_kwargs(cls, wrapped_data_key: bytes) -> dict[str, Any]:
@@ -121,7 +128,7 @@ class AWSAdapter(EncryptionAdapter):
             if cls._async_client is not None and cls._async_loop is loop:
                 return cls._async_client
 
-            ctx = aioboto3.Session(**_kms_kwargs()).client("kms")
+            ctx = aioboto3.Session(**_kms_kwargs()).client("kms", region_name=settings.AWS_KMS_REGION)
             cls._async_client = await ctx.__aenter__()
             cls._async_loop = loop
 

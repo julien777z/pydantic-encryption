@@ -56,9 +56,6 @@ class Settings(BaseSettings):
                 "(AWS_KMS_KEY_ARN, AWS_KMS_ENCRYPT_KEY_ARN, or AWS_KMS_DECRYPT_KEY_ARN) to be set."
             )
 
-        if self.ENCRYPTION_METHOD is EncryptionMethod.FERNET and not self.ENCRYPTION_KEY:
-            raise ValueError("ENCRYPTION_METHOD=fernet requires ENCRYPTION_KEY to be set.")
-
         return self
 
     model_config = SettingsConfigDict(
