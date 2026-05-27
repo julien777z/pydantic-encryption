@@ -14,9 +14,12 @@ is_active=$(
   printf '%s' "$input" \
     | python3 -c 'import json,sys; print(str(json.load(sys.stdin).get("stop_hook_active", False)).lower())' \
     2>/dev/null \
-  || echo "false"
+  || echo "true"
 )
 
+# Default to "true" (allow stop) on parse failure. The dangerous default is
+# "false" — that would block every Stop, including the re-invocation where
+# we cannot read stop_hook_active, producing an infinite block loop.
 if [ "$is_active" = "true" ]; then
   exit 0
 fi
