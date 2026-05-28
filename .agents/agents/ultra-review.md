@@ -1,8 +1,7 @@
 ---
 name: ultra-review
 description: Ultra code quality audit (maintainability, structure, 1k-line rule, spaghetti, code-judo). Invoked via Task after a parent gathers diff and file contents. Uses the `ultra-review` skill as the complete rubric.
-skills:
-- ultra-review
+skills: [ultra-review]
 ---
 
 # Ultra Code Quality Review

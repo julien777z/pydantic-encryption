@@ -1,0 +1,892 @@
+import argparse
+import difflib
+import hashlib
+import json
+import re
+import shutil
+import sys
+from pathlib import Path
+from typing import Final
+
+import yaml
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+
+console = Console()
+ROOT_DIR: Final[Path] = Path.cwd()
+AGENTS_DIR: Final[Path] = ROOT_DIR / ".agents"
+SETTINGS_DIR: Final[Path] = AGENTS_DIR / "settings"
+MODELS_DIR: Final[Path] = AGENTS_DIR / "models"
+MAX_DIFF_LINES: Final[int] = 20
+SAFE_SLUG_PATTERN: Final[re.Pattern[str]] = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+_TEXT_CACHE: dict[Path, str | None] = {}
+
+
+class OutputFile(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    target_path: Path
+    content: str
+    kind: str
+    slug: str
+    source_path: Path | None
+
+
+class DiffEntry(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    output: OutputFile
+    existing: str | None
+
+
+class PlatformSettings(BaseModel):
+    model_config = ConfigDict(extra="allow", strict=True)
+
+    model: str | None = None
+
+
+class AgentModelOverride(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    claude: str | None = None
+    cursor: str | None = None
+    codex: str | None = None
+
+
+class SkillFrontMatter(BaseModel):
+    model_config = ConfigDict(extra="allow", strict=True)
+
+    name: str | None = None
+    description: str | None = None
+
+
+class CommandFrontMatter(BaseModel):
+    model_config = ConfigDict(extra="allow", strict=True, populate_by_name=True)
+
+    allowed_tools: str | None = Field(default=None, alias="allowed-tools")
+    variants: dict[str, str] | None = None
+
+
+class AgentFrontMatter(BaseModel):
+    model_config = ConfigDict(extra="allow", strict=True)
+
+    name: str | None = None
+    description: str | None = None
+    tools: str | None = None
+    model: str | None = None
+
+
+class RuleFrontMatter(BaseModel):
+    model_config = ConfigDict(extra="allow", strict=True)
+
+    starlark: str | None = None
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Sync .agents into Claude/Cursor/Codex folders.")
+    parser.add_argument("--dry-run", action="store_true", help="Report diffs without writing.")
+    args = parser.parse_args()
+
+    if not AGENTS_DIR.exists():
+        console.print(f"[red]Error:[/red] Missing .agents directory in {ROOT_DIR}")
+        return 2
+
+    platform_settings = load_platform_settings()
+    agent_model_overrides = load_agent_model_overrides()
+    outputs = generate_outputs(platform_settings, agent_model_overrides)
+    diffs = compute_diffs(outputs)
+    stale_paths = compute_stale_paths(outputs)
+
+    if not diffs and not stale_paths:
+        console.print(Panel("No differences found.", style="green"))
+        return 0
+
+    if args.dry_run:
+        report_diffs(diffs, stale_paths)
+        return 1
+
+    for diff in diffs:
+        write_text(diff.output.target_path, diff.output.content)
+        status = "created" if diff.existing is None else "updated"
+        console.print(f"  [green]✓[/green] {status}: {diff.output.target_path}")
+
+    for stale_path in stale_paths:
+        delete_path(stale_path)
+        console.print(f"  [green]✓[/green] deleted: {stale_path}")
+
+    dedupe_outputs()
+
+    console.print()
+    console.print(
+        Panel(
+            f"Sync complete. {len(diffs)} file(s) written, {len(stale_paths)} stale path(s) deleted.",
+            style="green",
+        )
+    )
+    return 0
+
+
+def load_platform_settings() -> dict[str, dict]:
+    """Load each `.agents/settings/<platform>.json`, validating its top-level shape."""
+
+    settings: dict[str, dict] = {}
+    if not SETTINGS_DIR.exists():
+        return settings
+
+    for path in sorted(SETTINGS_DIR.glob("*.json")):
+        platform = path.stem
+        raw = read_text(path)
+        if raw is None:
+            continue
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            console.print(f"[yellow]Warning:[/yellow] Invalid JSON in {path}: {exc}")
+            continue
+        if not isinstance(data, dict):
+            console.print(f"[yellow]Warning:[/yellow] {path} is not a JSON object; ignoring.")
+            continue
+        validate_front_matter(data, PlatformSettings, str(path))
+        settings[platform] = data
+
+    return settings
+
+
+def load_agent_model_overrides() -> dict[str, dict[str, str]]:
+    """Load each `.agents/models/<agent-slug>.json` mapping agent slug to per-platform model."""
+
+    overrides: dict[str, dict[str, str]] = {}
+    if not MODELS_DIR.exists():
+        return overrides
+
+    for path in sorted(MODELS_DIR.glob("*.json")):
+        slug = validate_slug(path.stem, path)
+        raw = read_text(path)
+        if raw is None:
+            continue
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            console.print(f"[yellow]Warning:[/yellow] Invalid JSON in {path}: {exc}")
+            continue
+        if not isinstance(data, dict):
+            console.print(f"[yellow]Warning:[/yellow] {path} is not a JSON object; ignoring.")
+            continue
+        validate_front_matter(data, AgentModelOverride, str(path))
+        overrides[slug] = {k: v for k, v in data.items() if isinstance(v, str) and v}
+
+    return overrides
+
+
+def validate_front_matter(data: dict, model: type[BaseModel], source: str) -> dict:
+    """Validate front matter data against a Pydantic model."""
+
+    try:
+        model.model_validate(data)
+    except ValidationError as exc:
+        console.print(f"[yellow]Warning:[/yellow] Invalid front matter in {source}: {exc}")
+        return {}
+
+    return data
+
+
+def parse_markdown_file(path: Path, model: type[BaseModel] | None = None) -> tuple[dict, str]:
+    """Parse markdown front matter and body content."""
+
+    content = read_text(path)
+    if content is None:
+        return {}, ""
+
+    front_matter: dict = {}
+    body = content
+
+    lines = content.splitlines()
+    if lines and lines[0] == "---":
+        end_index = -1
+        for index, line in enumerate(lines[1:], start=1):
+            if line == "---":
+                end_index = index
+                break
+
+        if end_index == -1:
+            console.print(f"[yellow]Warning:[/yellow] Unterminated front matter in {path}.")
+        else:
+            front_matter_content = "\n".join(lines[1:end_index]).strip()
+            body = "\n".join(lines[end_index + 1 :])
+            if front_matter_content:
+                raw_data = yaml.safe_load(front_matter_content) or {}
+                if isinstance(raw_data, dict):
+                    if model is None:
+                        front_matter = raw_data
+                    else:
+                        data = validate_front_matter(raw_data, model, str(path))
+                        front_matter = data if isinstance(data, dict) else {}
+                else:
+                    console.print(f"[yellow]Warning:[/yellow] Invalid front matter in {path}.")
+
+    return front_matter, normalize_text(body)
+
+
+def generate_outputs(
+    platform_settings: dict[str, dict],
+    agent_model_overrides: dict[str, dict[str, str]],
+) -> list[OutputFile]:
+    """Generate all output files from .agents sources."""
+
+    outputs: list[OutputFile] = []
+    outputs.extend(generate_skill_outputs())
+    outputs.extend(generate_command_outputs())
+    outputs.extend(generate_project_outputs())
+    outputs.extend(generate_agent_outputs(platform_settings, agent_model_overrides))
+    outputs.extend(generate_rule_outputs())
+    outputs.extend(generate_codex_rule_outputs())
+    outputs.extend(generate_hook_outputs())
+    outputs.extend(generate_settings_outputs(platform_settings))
+    return outputs
+
+
+def generate_skill_outputs() -> list[OutputFile]:
+    """Sync .agents/skills/<slug>/SKILL.md to .claude/skills/, .cursor/skills/, and .codex/skills/."""
+
+    outputs: list[OutputFile] = []
+    skills_dir = AGENTS_DIR / "skills"
+    if not skills_dir.exists():
+        return outputs
+
+    for skill_dir in sorted(skills_dir.iterdir()):
+        if not skill_dir.is_dir():
+            continue
+
+        slug = validate_slug(skill_dir.name, skill_dir)
+        source_path = skill_dir / "SKILL.md"
+        if not source_path.exists():
+            console.print(f"[yellow]Warning:[/yellow] Missing SKILL.md in {skill_dir}.")
+            continue
+
+        front_matter, content = parse_markdown_file(source_path, SkillFrontMatter)
+        source_content = read_text(source_path) or ""
+
+        codex_name_raw = front_matter.get("name")
+        codex_name = codex_name_raw if isinstance(codex_name_raw, str) and codex_name_raw else slug_to_codex_name(slug)
+        if not SAFE_SLUG_PATTERN.match(codex_name):
+            console.print(
+                f"[yellow]Warning:[/yellow] Invalid codex skill name '{codex_name}' in {source_path}; using '{slug_to_codex_name(slug)}'."
+            )
+            codex_name = slug_to_codex_name(slug)
+
+        codex_description_raw = front_matter.get("description")
+        codex_description = (
+            codex_description_raw
+            if isinstance(codex_description_raw, str) and codex_description_raw
+            else derive_description(content)
+        )
+
+        outputs.append(
+            OutputFile(
+                target_path=ROOT_DIR / ".cursor" / "skills" / slug / "SKILL.md",
+                content=ensure_trailing_newline(source_content),
+                kind="cursor_skill",
+                slug=slug,
+                source_path=source_path,
+            )
+        )
+
+        outputs.append(
+            OutputFile(
+                target_path=ROOT_DIR / ".claude" / "skills" / slug / "SKILL.md",
+                content=ensure_trailing_newline(source_content),
+                kind="claude_skill",
+                slug=slug,
+                source_path=source_path,
+            )
+        )
+
+        codex_output = assemble_codex_skill(content, codex_name, codex_description)
+        outputs.append(
+            OutputFile(
+                target_path=ROOT_DIR / ".codex" / "skills" / codex_name / "SKILL.md",
+                content=codex_output,
+                kind="codex_skill",
+                slug=slug,
+                source_path=source_path,
+            )
+        )
+
+        for asset_path in sorted(skill_dir.rglob("*")):
+            if not asset_path.is_file() or asset_path.name == "SKILL.md":
+                continue
+            asset_content = read_text(asset_path)
+            if asset_content is None:
+                continue
+            relative = asset_path.relative_to(skill_dir)
+            outputs.append(
+                OutputFile(
+                    target_path=ROOT_DIR / ".cursor" / "skills" / slug / relative,
+                    content=ensure_trailing_newline(asset_content),
+                    kind="cursor_skill_asset",
+                    slug=slug,
+                    source_path=asset_path,
+                )
+            )
+            outputs.append(
+                OutputFile(
+                    target_path=ROOT_DIR / ".claude" / "skills" / slug / relative,
+                    content=ensure_trailing_newline(asset_content),
+                    kind="claude_skill_asset",
+                    slug=slug,
+                    source_path=asset_path,
+                )
+            )
+            outputs.append(
+                OutputFile(
+                    target_path=ROOT_DIR / ".codex" / "skills" / codex_name / relative,
+                    content=ensure_trailing_newline(asset_content),
+                    kind="codex_skill_asset",
+                    slug=slug,
+                    source_path=asset_path,
+                )
+            )
+
+    return outputs
+
+
+def generate_command_outputs() -> list[OutputFile]:
+    """Generate Claude and Cursor command files for each command markdown file."""
+
+    outputs: list[OutputFile] = []
+    commands_dir = AGENTS_DIR / "commands"
+    if not commands_dir.exists():
+        return outputs
+
+    for path in sorted(commands_dir.glob("*.md")):
+        slug = validate_slug(path.stem, path)
+        front_matter, content = parse_markdown_file(path, CommandFrontMatter)
+        variants = front_matter.get("variants", {}) if isinstance(front_matter.get("variants"), dict) else {}
+
+        claude_body = normalize_text(variants.get("claude", content) or content)
+        cursor_body = normalize_text(variants.get("cursor", content) or content)
+        claude_front_matter = dict(front_matter)
+        claude_front_matter.pop("variants", None)
+
+        if claude_front_matter:
+            claude_output = render_front_matter(claude_front_matter, claude_body)
+        else:
+            claude_output = ensure_trailing_newline(claude_body)
+
+        outputs.append(
+            OutputFile(
+                target_path=ROOT_DIR / ".claude" / "commands" / f"{slug}.md",
+                content=claude_output,
+                kind="claude_command",
+                slug=slug,
+                source_path=path,
+            )
+        )
+        outputs.append(
+            OutputFile(
+                target_path=ROOT_DIR / ".cursor" / "commands" / f"{slug}.md",
+                content=ensure_trailing_newline(cursor_body),
+                kind="cursor_command",
+                slug=slug,
+                source_path=path,
+            )
+        )
+
+    return outputs
+
+
+def generate_project_outputs() -> list[OutputFile]:
+    """Generate CLAUDE.md and Cursor project.md from project markdown."""
+
+    outputs: list[OutputFile] = []
+    project_dir = AGENTS_DIR / "project"
+    if not project_dir.exists():
+        return outputs
+
+    for path in sorted(project_dir.glob("*.md")):
+        slug = validate_slug(path.stem, path)
+        _, content = parse_markdown_file(path)
+
+        outputs.extend(
+            [
+                OutputFile(
+                    target_path=ROOT_DIR / ".claude" / "CLAUDE.md",
+                    content=ensure_trailing_newline(content),
+                    kind="project",
+                    slug=slug,
+                    source_path=path,
+                ),
+                OutputFile(
+                    target_path=ROOT_DIR / ".cursor" / "project.md",
+                    content=ensure_trailing_newline(content),
+                    kind="project",
+                    slug=slug,
+                    source_path=path,
+                ),
+            ]
+        )
+
+    return outputs
+
+
+def generate_agent_outputs(
+    platform_settings: dict[str, dict],
+    agent_model_overrides: dict[str, dict[str, str]],
+) -> list[OutputFile]:
+    """Generate Claude and Cursor agent files with per-platform model resolution."""
+
+    outputs: list[OutputFile] = []
+    agents_dir = AGENTS_DIR / "agents"
+    if not agents_dir.exists():
+        return outputs
+
+    for path in sorted(agents_dir.glob("*.md")):
+        slug = validate_slug(path.stem, path)
+        front_matter, content = parse_markdown_file(path, AgentFrontMatter)
+        source_front_matter = dict(front_matter)
+        source_front_matter.pop("model", None)
+
+        for platform in ("claude", "cursor"):
+            platform_front_matter = dict(source_front_matter)
+            model = resolve_agent_model(slug, platform, platform_settings, agent_model_overrides)
+            if model:
+                platform_front_matter["model"] = model
+
+            agent_content = render_front_matter(platform_front_matter, content)
+            outputs.append(
+                OutputFile(
+                    target_path=ROOT_DIR / f".{platform}" / "agents" / f"{slug}.md",
+                    content=agent_content,
+                    kind=f"{platform}_agent",
+                    slug=slug,
+                    source_path=path,
+                )
+            )
+
+    return outputs
+
+
+def generate_rule_outputs() -> list[OutputFile]:
+    """Sync .agents/rules/<name>.md to .claude/rules/<name>.md and .cursor/rules/<name>.mdc."""
+
+    outputs: list[OutputFile] = []
+    rules_dir = AGENTS_DIR / "rules"
+    if not rules_dir.exists():
+        return outputs
+
+    for path in sorted(rules_dir.glob("*.md")):
+        slug = validate_slug(path.stem, path)
+        _, body = parse_markdown_file(path)
+        if not body.strip():
+            continue
+        outputs.append(
+            OutputFile(
+                target_path=ROOT_DIR / ".claude" / "rules" / f"{slug}.md",
+                content=ensure_trailing_newline(body),
+                kind="claude_rule",
+                slug=slug,
+                source_path=path,
+            )
+        )
+        outputs.append(
+            OutputFile(
+                target_path=ROOT_DIR / ".cursor" / "rules" / f"{slug}.mdc",
+                content=assemble_cursor_rule(body, always_apply=True),
+                kind="cursor_rule",
+                slug=slug,
+                source_path=path,
+            )
+        )
+
+    return outputs
+
+
+def generate_codex_rule_outputs() -> list[OutputFile]:
+    """Generate Codex .rules files from rule markdown content/front matter."""
+
+    outputs: list[OutputFile] = []
+    rules_dir = AGENTS_DIR / "rules"
+    if not rules_dir.exists():
+        return outputs
+
+    for path in sorted(rules_dir.glob("*.md")):
+        slug = validate_slug(path.stem, path)
+        front_matter, body = parse_markdown_file(path, RuleFrontMatter)
+        starlark = front_matter.get("starlark") if isinstance(front_matter.get("starlark"), str) else body
+        if not isinstance(starlark, str) or not starlark.strip():
+            console.print(f"[yellow]Warning:[/yellow] No starlark content in {path}.")
+            continue
+
+        outputs.append(
+            OutputFile(
+                target_path=ROOT_DIR / ".codex" / "rules" / f"{slug}.rules",
+                content=ensure_trailing_newline(starlark.strip()),
+                kind="codex_rule",
+                slug=slug,
+                source_path=path,
+            )
+        )
+
+    return outputs
+
+
+def generate_hook_outputs() -> list[OutputFile]:
+    """Sync .agents/hooks/* scripts to .claude/hooks/ and .cursor/hooks/."""
+
+    outputs: list[OutputFile] = []
+    hooks_dir = AGENTS_DIR / "hooks"
+    if not hooks_dir.exists():
+        return outputs
+
+    for path in sorted(hooks_dir.iterdir()):
+        if not path.is_file():
+            continue
+        content = read_text(path)
+        if content is None:
+            continue
+        for platform in ("claude", "cursor"):
+            outputs.append(
+                OutputFile(
+                    target_path=ROOT_DIR / f".{platform}" / "hooks" / path.name,
+                    content=ensure_trailing_newline(content),
+                    kind=f"{platform}_hook",
+                    slug=path.stem,
+                    source_path=path,
+                )
+            )
+
+    return outputs
+
+
+def generate_settings_outputs(platform_settings: dict[str, dict]) -> list[OutputFile]:
+    """Sync .agents/settings/claude.json verbatim to .claude/settings.json."""
+
+    outputs: list[OutputFile] = []
+    claude_settings = platform_settings.get("claude")
+    if claude_settings is None:
+        return outputs
+
+    outputs.append(
+        OutputFile(
+            target_path=ROOT_DIR / ".claude" / "settings.json",
+            content=ensure_trailing_newline(json.dumps(claude_settings, indent=2)),
+            kind="claude_settings",
+            slug="claude",
+            source_path=SETTINGS_DIR / "claude.json",
+        )
+    )
+
+    return outputs
+
+
+def assemble_cursor_rule(body: str, always_apply: bool) -> str:
+    """Build a Cursor .mdc file with alwaysApply front matter."""
+
+    front_matter = "---\n" + f"alwaysApply: {str(always_apply).lower()}" + "\n---\n\n"
+    return front_matter + ensure_trailing_newline(body)
+
+
+def assemble_codex_skill(body: str, name: str, description: str) -> str:
+    """Build a Codex SKILL.md file with name/description front matter."""
+
+    front_matter = "---\n" f"name: {yaml_quote(name)}\n" f"description: {yaml_quote(description)}\n" "---\n\n"
+    return front_matter + ensure_trailing_newline(body)
+
+
+def render_front_matter(front_matter: dict, body: str) -> str:
+    """Serialize a dict as YAML front matter wrapped in --- delimiters."""
+
+    if front_matter:
+        front = yaml.safe_dump(
+            front_matter,
+            sort_keys=False,
+            default_flow_style=False,
+            width=10_000,
+            allow_unicode=True,
+        ).strip()
+    else:
+        front = ""
+
+    output = f"---\n{front}\n---\n"
+    if body:
+        output += "\n" + body
+
+    return ensure_trailing_newline(output)
+
+
+def normalize_text(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    return value.strip()
+
+
+def slug_to_codex_name(slug: str) -> str:
+    normalized = re.sub(r"[^a-zA-Z0-9]+", "-", slug).strip("-").lower()
+    return normalized or slug
+
+
+def derive_description(content: str) -> str:
+    """Extract a description from content, preferring the first non-header line then falling back to headers."""
+
+    for line in content.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith("#"):
+            continue
+        return " ".join(line.split())
+
+    for line in content.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith("#"):
+            return " ".join(line.lstrip("#").strip().split())
+
+    return "VaultGig conventions."
+
+
+def ensure_trailing_newline(text: str) -> str:
+    if not text.endswith("\n"):
+        return text + "\n"
+    return text
+
+
+def compute_diffs(outputs: list[OutputFile]) -> list[DiffEntry]:
+    """Compare generated outputs against on-disk files and return entries that differ."""
+
+    diffs: list[DiffEntry] = []
+    for output in outputs:
+        existing = read_text(output.target_path)
+        if existing is None or existing != output.content:
+            diffs.append(DiffEntry(output=output, existing=existing))
+    return diffs
+
+
+def compute_stale_paths(outputs: list[OutputFile]) -> list[Path]:
+    """Find generated files/directories that no longer map to .agents sources."""
+
+    expected_paths = {output.target_path for output in outputs}
+    expected_skill_dirs = {
+        output.target_path.parent
+        for output in outputs
+        if output.kind in {"codex_skill", "claude_skill", "cursor_skill"}
+    }
+    stale_paths: set[Path] = set()
+
+    managed_file_globs = (
+        (ROOT_DIR / ".cursor" / "rules", "*.mdc"),
+        (ROOT_DIR / ".claude" / "rules", "*.md"),
+        (ROOT_DIR / ".cursor" / "commands", "*.md"),
+        (ROOT_DIR / ".claude" / "commands", "*.md"),
+        (ROOT_DIR / ".cursor" / "agents", "*.md"),
+        (ROOT_DIR / ".claude" / "agents", "*.md"),
+        (ROOT_DIR / ".cursor" / "hooks", "*"),
+        (ROOT_DIR / ".claude" / "hooks", "*"),
+        (ROOT_DIR / ".cursor" / "skills", "**/*.md"),
+        (ROOT_DIR / ".claude" / "skills", "**/*.md"),
+        (ROOT_DIR / ".codex" / "rules", "*.rules"),
+    )
+
+    for directory, pattern in managed_file_globs:
+        if not directory.exists():
+            continue
+
+        for path in directory.glob(pattern):
+            if path.is_file() and path not in expected_paths:
+                stale_paths.add(path)
+
+    managed_single_files = (
+        ROOT_DIR / ".claude" / "CLAUDE.md",
+        ROOT_DIR / ".cursor" / "project.md",
+        ROOT_DIR / ".claude" / "settings.json",
+    )
+    for path in managed_single_files:
+        if path.exists() and path not in expected_paths:
+            stale_paths.add(path)
+
+    for platform in ("codex", "claude", "cursor"):
+        skills_dir = ROOT_DIR / f".{platform}" / "skills"
+        if not skills_dir.exists():
+            continue
+        for path in skills_dir.iterdir():
+            if path.is_dir() and path not in expected_skill_dirs:
+                stale_paths.add(path)
+
+    return sorted(stale_paths, key=str)
+
+
+def read_text(path: Path) -> str | None:
+    """Read a file with caching to avoid repeated disk reads."""
+
+    if path in _TEXT_CACHE:
+        return _TEXT_CACHE[path]
+
+    if not path.exists():
+        _TEXT_CACHE[path] = None
+        return None
+
+    content = path.read_text(encoding="utf-8")
+    _TEXT_CACHE[path] = content
+    return content
+
+
+def write_text(path: Path, content: str) -> None:
+    """Write content to a file, creating parent directories and updating the read cache."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    if path.suffix == ".sh" or content.startswith("#!"):
+        path.chmod(0o755)
+    _TEXT_CACHE[path] = content
+
+
+def delete_path(path: Path) -> None:
+    """Delete a file or directory and clear any cached text entries."""
+
+    if not path.exists():
+        return
+
+    if path.is_dir():
+        shutil.rmtree(path)
+        stale_keys = [cached_path for cached_path in _TEXT_CACHE if cached_path.is_relative_to(path)]
+        for stale_key in stale_keys:
+            _TEXT_CACHE.pop(stale_key, None)
+        return
+
+    path.unlink(missing_ok=True)
+    _TEXT_CACHE.pop(path, None)
+
+
+def report_diffs(diffs: list[DiffEntry], stale_paths: list[Path]) -> None:
+    console.print(Panel("Differences detected", style="yellow"))
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("Target")
+    table.add_column("Kind")
+    table.add_column("Status")
+
+    for diff in diffs:
+        status = "missing" if diff.existing is None else "changed"
+        table.add_row(str(diff.output.target_path), diff.output.kind, status)
+
+    for stale_path in stale_paths:
+        kind = "directory" if stale_path.is_dir() else "generated"
+        table.add_row(str(stale_path), kind, "stale")
+
+    console.print(table)
+
+    for diff in diffs:
+        console.print()
+        console.print(Panel(diff_summary(diff), title=str(diff.output.target_path)))
+
+    for stale_path in stale_paths:
+        console.print()
+        console.print(Panel("will be deleted", title=str(stale_path)))
+
+
+def diff_summary(diff: DiffEntry) -> str:
+    """Produce a unified diff between existing and expected content."""
+
+    existing = diff.existing or ""
+    expected = diff.output.content
+    lines = list(
+        difflib.unified_diff(
+            existing.splitlines(),
+            expected.splitlines(),
+            fromfile="current",
+            tofile="expected",
+            lineterm="",
+        )
+    )
+
+    if not lines:
+        if existing != expected:
+            return "(trailing newline difference)"
+        return "(no changes)"
+
+    return "\n".join(lines[:MAX_DIFF_LINES])
+
+
+def resolve_agent_model(
+    agent_slug: str,
+    platform: str,
+    platform_settings: dict[str, dict],
+    agent_model_overrides: dict[str, dict[str, str]],
+) -> str | None:
+    """Pick the per-agent override for this platform; fall back to the platform-wide default."""
+
+    override = agent_model_overrides.get(agent_slug, {}).get(platform)
+    if isinstance(override, str) and override:
+        return override
+
+    default = platform_settings.get(platform, {}).get("model")
+    if isinstance(default, str) and default:
+        return default
+
+    return None
+
+
+def validate_slug(slug: str, source_path: Path) -> str:
+    if not SAFE_SLUG_PATTERN.match(slug):
+        raise ValueError(f"Invalid slug '{slug}' from {source_path}")
+    return slug
+
+
+def yaml_quote(value: str) -> str:
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
+def dedupe_outputs() -> None:
+    for directory in (ROOT_DIR / ".cursor" / "rules", ROOT_DIR / ".claude" / "rules"):
+        dedupe_directory(directory)
+
+
+def dedupe_directory(directory: Path) -> None:
+    """Remove duplicate files in a directory by comparing whitespace-normalized content hashes."""
+
+    if not directory.exists():
+        return
+
+    seen: dict[str, Path] = {}
+    for path in sorted(directory.iterdir()):
+        if not path.is_file():
+            continue
+
+        content = read_text(path)
+        if content is None:
+            continue
+
+        digest = hash_normalized(content)
+        if digest not in seen:
+            seen[digest] = path
+            continue
+
+        keep = choose_preferred(seen[digest], path)
+        remove = path if keep == seen[digest] else seen[digest]
+        remove.unlink(missing_ok=True)
+        _TEXT_CACHE.pop(remove, None)
+        seen[digest] = keep
+
+
+def hash_normalized(content: str) -> str:
+    """Produce a SHA-256 hash of content with all whitespace removed."""
+
+    normalized = re.sub(r"\s+", "", content)
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def choose_preferred(first: Path, second: Path) -> Path:
+    """Prefer files without ' 2' in the stem, which indicates an OS-created duplicate."""
+
+    first_score = 0 if " 2" in first.stem else 1
+    second_score = 0 if " 2" in second.stem else 1
+    if first_score != second_score:
+        return first if first_score > second_score else second
+    return first
+
+
+if __name__ == "__main__":
+    sys.exit(main())
