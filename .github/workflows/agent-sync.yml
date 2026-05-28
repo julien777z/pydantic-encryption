@@ -8,13 +8,7 @@ on:
       - ".agents/**"
       - ".github/scripts/agent_sync.py"
       - ".github/scripts/requirements-agent-sync.txt"
-
-  pull_request:
-    types: [opened, synchronize, reopened]
-    paths:
-      - ".agents/**"
-      - ".github/scripts/agent_sync.py"
-      - ".github/scripts/requirements-agent-sync.txt"
+      - ".github/workflows/agent-sync.yml"
 
 concurrency:
   group: agent-sync-${{ github.ref }}
@@ -48,7 +42,6 @@ jobs:
         run: python .github/scripts/agent_sync.py --dry-run
 
       - name: Commit and push generated changes
-        if: github.event_name == 'push'
         shell: bash
         run: |
           set -euo pipefail
