@@ -10,6 +10,16 @@
         ],
         "matcher": ""
       }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/simplify-on-start.sh"
+          }
+        ]
+      }
     ]
   }
 }
