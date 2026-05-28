@@ -2,21 +2,12 @@
   "hooks": {
     "Stop": [
       {
+        "matcher": "",
         "hooks": [
           {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/simplify-on-stop.sh"
-          }
-        ],
-        "matcher": ""
-      }
-    ],
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/simplify-on-start.sh"
+            "type": "prompt",
+            "prompt": "If the main agent modified code this session \u2014 used Edit, Write, MultiEdit, or NotebookEdit, or ran `git commit` via Bash \u2014 respond with: {\"decision\": \"block\", \"reason\": \"Before stopping, invoke the simplify-code skill in default/session mode to review and refine the code you modified. Apply project standards in .agents/rules/ or .claude/rules/, preserve behavior, then conclude.\"}. Otherwise (pure Q&A or planning with no code changes), or if stop_hook_active=true, respond with {} to allow stop.",
+            "timeout": 30
           }
         ]
       }
