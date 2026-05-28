@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "If the main agent modified code this session \u2014 used Edit, Write, MultiEdit, or NotebookEdit, or ran `git commit` via Bash \u2014 respond with: {\"decision\": \"block\", \"reason\": \"Before stopping, invoke the simplify-code skill in default/session mode to review and refine the code you modified. Apply project standards in .agents/rules/ or .claude/rules/, preserve behavior, then conclude.\"}. Otherwise (pure Q&A or planning with no code changes), or if stop_hook_active=true, respond with {} to allow stop.",
+            "prompt": "If the session modified code, return {\"decision\": \"block\", \"reason\": \"Invoke the simplify-code skill before stopping.\"}; otherwise return {}.",
             "timeout": 30
           }
         ]
