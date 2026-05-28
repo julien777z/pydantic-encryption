@@ -5,9 +5,8 @@
         "matcher": "",
         "hooks": [
           {
-            "type": "prompt",
-            "prompt": "If the session modified code, return {\"decision\": \"block\", \"reason\": \"Invoke the simplify-code skill before stopping.\"}; otherwise return {}.",
-            "timeout": 30
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/simplify-on-stop.sh"
           }
         ]
       }
