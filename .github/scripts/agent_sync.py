@@ -15,7 +15,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 console = Console()
-ROOT_DIR: Final[Path] = Path.cwd()
+ROOT_DIR: Final[Path] = Path(__file__).resolve().parents[2]
 AGENTS_DIR: Final[Path] = ROOT_DIR / ".agents"
 SETTINGS_DIR: Final[Path] = AGENTS_DIR / "settings"
 MODELS_DIR: Final[Path] = AGENTS_DIR / "models"
@@ -148,8 +148,10 @@ def load_platform_settings() -> dict[str, dict]:
         if not isinstance(data, dict):
             console.print(f"[yellow]Warning:[/yellow] {path} is not a JSON object; ignoring.")
             continue
-        validate_front_matter(data, PlatformSettings, str(path))
-        settings[platform] = data
+        validated = validate_front_matter(data, PlatformSettings, str(path))
+        if validated is None:
+            continue
+        settings[platform] = validated
 
     return settings
 
@@ -174,20 +176,22 @@ def load_agent_model_overrides() -> dict[str, dict[str, str]]:
         if not isinstance(data, dict):
             console.print(f"[yellow]Warning:[/yellow] {path} is not a JSON object; ignoring.")
             continue
-        validate_front_matter(data, AgentModelOverride, str(path))
-        overrides[slug] = {k: v for k, v in data.items() if isinstance(v, str) and v}
+        validated = validate_front_matter(data, AgentModelOverride, str(path))
+        if validated is None:
+            continue
+        overrides[slug] = {k: v for k, v in validated.items() if isinstance(v, str) and v}
 
     return overrides
 
 
-def validate_front_matter(data: dict, model: type[BaseModel], source: str) -> dict:
-    """Validate front matter data against a Pydantic model."""
+def validate_front_matter(data: dict, model: type[BaseModel], source: str) -> dict | None:
+    """Validate front matter data against a Pydantic model. Returns None on failure so callers can skip."""
 
     try:
         model.model_validate(data)
     except ValidationError as exc:
         console.print(f"[yellow]Warning:[/yellow] Invalid front matter in {source}: {exc}")
-        return {}
+        return None
 
     return data
 
@@ -222,7 +226,7 @@ def parse_markdown_file(path: Path, model: type[BaseModel] | None = None) -> tup
                         front_matter = raw_data
                     else:
                         data = validate_front_matter(raw_data, model, str(path))
-                        front_matter = data if isinstance(data, dict) else {}
+                        front_matter = data if data is not None else {}
                 else:
                     console.print(f"[yellow]Warning:[/yellow] Invalid front matter in {path}.")
 
@@ -513,10 +517,12 @@ def generate_codex_rule_outputs() -> list[OutputFile]:
 
     for path in sorted(rules_dir.glob("*.md")):
         slug = validate_slug(path.stem, path)
-        front_matter, body = parse_markdown_file(path, RuleFrontMatter)
-        starlark = front_matter.get("starlark") if isinstance(front_matter.get("starlark"), str) else body
+        front_matter, _ = parse_markdown_file(path, RuleFrontMatter)
+        # Codex execution-policy files must be Starlark, not Markdown. Only emit
+        # when the source explicitly provides `starlark:` front matter; otherwise
+        # skip silently — the Markdown body is not valid policy syntax.
+        starlark = front_matter.get("starlark")
         if not isinstance(starlark, str) or not starlark.strip():
-            console.print(f"[yellow]Warning:[/yellow] No starlark content in {path}.")
             continue
 
         outputs.append(
@@ -685,9 +691,11 @@ def compute_stale_paths(outputs: list[OutputFile]) -> list[Path]:
         (ROOT_DIR / ".claude" / "agents", "*.md"),
         (ROOT_DIR / ".cursor" / "hooks", "*"),
         (ROOT_DIR / ".claude" / "hooks", "*"),
-        (ROOT_DIR / ".cursor" / "skills", "**/*.md"),
-        (ROOT_DIR / ".claude" / "skills", "**/*.md"),
-        (ROOT_DIR / ".codex" / "rules", "*.rules"),
+        # Skills use `**/*` so non-markdown assets (metadata.json, scripts, plugin
+        # manifests, etc.) get cleaned up when removed from .agents/skills/.
+        (ROOT_DIR / ".cursor" / "skills", "**/*"),
+        (ROOT_DIR / ".claude" / "skills", "**/*"),
+        (ROOT_DIR / ".codex" / "skills", "**/*"),
     )
 
     for directory, pattern in managed_file_globs:
@@ -698,13 +706,42 @@ def compute_stale_paths(outputs: list[OutputFile]) -> list[Path]:
             if path.is_file() and path not in expected_paths:
                 stale_paths.add(path)
 
-    managed_single_files = (
-        ROOT_DIR / ".claude" / "CLAUDE.md",
-        ROOT_DIR / ".cursor" / "project.md",
-        ROOT_DIR / ".claude" / "settings.json",
-    )
+    # `.codex/rules/*.rules` are only managed when a matching `.agents/rules/<stem>.md`
+    # source exists. Hand-maintained Starlark policies with no .agents source are
+    # left alone (sync no longer wipes them).
+    agent_rule_stems: set[str] = set()
+    rules_src_dir = AGENTS_DIR / "rules"
+    if rules_src_dir.exists():
+        agent_rule_stems = {p.stem for p in rules_src_dir.glob("*.md")}
+    codex_rules_dir = ROOT_DIR / ".codex" / "rules"
+    if codex_rules_dir.exists():
+        for path in codex_rules_dir.glob("*.rules"):
+            if path.is_file() and path.stem in agent_rule_stems and path not in expected_paths:
+                stale_paths.add(path)
+
+    # Single-file outputs are only "managed" when their source exists. If the source
+    # is missing (or invalidates and produces no output), don't delete the existing
+    # target — it may be hand-maintained or left over from a previous design.
+    project_dir = AGENTS_DIR / "project"
+    project_has_source = project_dir.exists() and any(project_dir.glob("*.md"))
+    settings_has_source = (SETTINGS_DIR / "claude.json").exists()
+
+    managed_single_files: list[Path] = []
+    if project_has_source:
+        managed_single_files.append(ROOT_DIR / ".claude" / "CLAUDE.md")
+        managed_single_files.append(ROOT_DIR / ".cursor" / "project.md")
+    if settings_has_source:
+        managed_single_files.append(ROOT_DIR / ".claude" / "settings.json")
     for path in managed_single_files:
         if path.exists() and path not in expected_paths:
+            stale_paths.add(path)
+
+    # Always considered stale: legacy outputs the sync no longer emits.
+    legacy_orphans = (
+        ROOT_DIR / ".codex.md",
+    )
+    for path in legacy_orphans:
+        if path.exists():
             stale_paths.add(path)
 
     for platform in ("codex", "claude", "cursor"):
