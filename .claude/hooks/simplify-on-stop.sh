@@ -30,6 +30,8 @@ session_id=$(printf '%s' "$input" | python3 -c \
 
 lock="${TMPDIR:-/tmp}/simplify-on-stop-${session_id}.lock"
 [ -e "$lock" ] && exit 0
-: > "$lock" 2>/dev/null || exit 0
 
+# Emit the block payload first, then commit the lock. If the JSON output fails
+# the lock is never written and a later Stop attempt can retry the nudge.
 echo '{"decision":"block","reason":"Before stopping, invoke the code-simplify skill to review the code you modified this session. If no code was modified, skip the skill and conclude."}'
+: > "$lock" 2>/dev/null || true
