@@ -681,7 +681,18 @@ def compute_diffs(outputs: list[OutputFile]) -> list[DiffEntry]:
         existing = read_text(output.target_path)
         if existing is None or existing != output.content:
             diffs.append(DiffEntry(output=output, existing=existing))
+            continue
+        # Content matches but the exec bit may be missing — rewrite so write_text
+        # re-applies chmod. Without this, a Stop hook command pointing at a bare
+        # script path can fail.
+        if _output_needs_exec_bit(output) and output.target_path.exists() \
+                and not output.target_path.stat().st_mode & 0o111:
+            diffs.append(DiffEntry(output=output, existing=existing))
     return diffs
+
+
+def _output_needs_exec_bit(output: OutputFile) -> bool:
+    return output.target_path.suffix == ".sh" or output.content.startswith("#!")
 
 
 def compute_stale_paths(
