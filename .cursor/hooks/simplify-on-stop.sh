@@ -8,6 +8,8 @@
 #    this flag is true — exit clean.
 # 2. /tmp lock keyed by session_id: belt-and-suspenders for the case where
 #    `stop_hook_active` fails to propagate (anthropics/claude-code#54360).
+#    If we can't establish a lock (missing session_id, unwritable tmp),
+#    exit clean rather than risk an infinite block loop.
 
 set -euo pipefail
 
@@ -23,10 +25,11 @@ session_id=$(printf '%s' "$input" | python3 -c \
 
 [ "$is_active" = "true" ] && exit 0
 
-if [ -n "$session_id" ]; then
-  lock="${TMPDIR:-/tmp}/simplify-on-stop-${session_id}.lock"
-  [ -e "$lock" ] && exit 0
-  : > "$lock" 2>/dev/null || true
-fi
+# Require session_id + writable lock; otherwise exit clean to avoid loops.
+[ -z "$session_id" ] && exit 0
+
+lock="${TMPDIR:-/tmp}/simplify-on-stop-${session_id}.lock"
+[ -e "$lock" ] && exit 0
+: > "$lock" 2>/dev/null || exit 0
 
 echo '{"decision":"block","reason":"Before stopping, invoke the code-simplify skill to review the code you modified this session. If no code was modified, skip the skill and conclude."}'
