@@ -755,13 +755,9 @@ def compute_stale_paths(
         if path.exists() and path not in expected_paths:
             stale_paths.add(path)
 
-    # Always considered stale: legacy outputs the sync no longer emits.
-    legacy_orphans = (
-        ROOT_DIR / ".codex.md",
-    )
-    for path in legacy_orphans:
-        if path.exists():
-            stale_paths.add(path)
+    # Note: we deliberately don't auto-delete legacy generated files (e.g. an old
+    # root `.codex.md`). Codex's `config.toml` may still reference it as a
+    # project-doc fallback, and a hand-maintained copy is the user's to remove.
 
     for platform in ("codex", "claude", "cursor"):
         skills_dir = ROOT_DIR / f".{platform}" / "skills"
