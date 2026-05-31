@@ -35,4 +35,4 @@ lock="${TMPDIR:-/tmp}/simplify-on-stop-${session_id}.lock"
 # the nudge for this session, which is strictly better than looping.)
 : > "$lock" 2>/dev/null || exit 0
 
-echo '{"decision":"block","reason":"Before stopping, invoke the code-simplify skill to review the code you modified this session. If no code was modified, skip the skill and conclude."}'
+echo '{"decision":"block","reason":"Before stopping, call the Skill tool with skill=\"code-simplify\" (the project skill, NOT the built-in \"simplify\" skill) to review code you modified this session. If you modified no code, skip the skill and conclude."}'
