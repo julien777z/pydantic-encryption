@@ -20,7 +20,7 @@ is_active=$(printf '%s' "$input" | python3 -c \
   2>/dev/null || echo "true")
 
 session_id=$(printf '%s' "$input" | python3 -c \
-  'import json,sys;print(json.load(sys.stdin).get("session_id",""))' \
+  'import json,sys;v=json.load(sys.stdin).get("session_id");print(v if isinstance(v,str) else "")' \
   2>/dev/null || echo "")
 
 [ "$is_active" = "true" ] && exit 0

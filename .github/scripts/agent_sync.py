@@ -97,7 +97,7 @@ def main() -> int:
     agent_model_overrides = load_agent_model_overrides()
     outputs = generate_outputs(platform_settings, agent_model_overrides)
     diffs = compute_diffs(outputs)
-    stale_paths = compute_stale_paths(outputs)
+    stale_paths = compute_stale_paths(outputs, platform_settings)
 
     if not diffs and not stale_paths:
         console.print(Panel("No differences found.", style="green"))
@@ -409,28 +409,41 @@ def generate_project_outputs() -> list[OutputFile]:
     if not project_dir.exists():
         return outputs
 
-    for path in sorted(project_dir.glob("*.md")):
-        slug = validate_slug(path.stem, path)
-        _, content = parse_markdown_file(path)
+    project_files = sorted(project_dir.glob("*.md"))
+    if not project_files:
+        return outputs
 
-        outputs.extend(
-            [
-                OutputFile(
-                    target_path=ROOT_DIR / ".claude" / "CLAUDE.md",
-                    content=ensure_trailing_newline(content),
-                    kind="project",
-                    slug=slug,
-                    source_path=path,
-                ),
-                OutputFile(
-                    target_path=ROOT_DIR / ".cursor" / "project.md",
-                    content=ensure_trailing_newline(content),
-                    kind="project",
-                    slug=slug,
-                    source_path=path,
-                ),
-            ]
+    # CLAUDE.md and project.md are single-target outputs. Loop over multiple sources
+    # would silently overwrite (last one wins). Use the first file and warn if more.
+    path = project_files[0]
+    if len(project_files) > 1:
+        extras = ", ".join(p.name for p in project_files[1:])
+        console.print(
+            f"[yellow]Warning:[/yellow] Multiple project sources in {project_dir} — using "
+            f"{path.name}, ignoring: {extras}"
         )
+
+    slug = validate_slug(path.stem, path)
+    _, content = parse_markdown_file(path)
+
+    outputs.extend(
+        [
+            OutputFile(
+                target_path=ROOT_DIR / ".claude" / "CLAUDE.md",
+                content=ensure_trailing_newline(content),
+                kind="project",
+                slug=slug,
+                source_path=path,
+            ),
+            OutputFile(
+                target_path=ROOT_DIR / ".cursor" / "project.md",
+                content=ensure_trailing_newline(content),
+                kind="project",
+                slug=slug,
+                source_path=path,
+            ),
+        ]
+    )
 
     return outputs
 
@@ -671,7 +684,10 @@ def compute_diffs(outputs: list[OutputFile]) -> list[DiffEntry]:
     return diffs
 
 
-def compute_stale_paths(outputs: list[OutputFile]) -> list[Path]:
+def compute_stale_paths(
+    outputs: list[OutputFile],
+    platform_settings: dict[str, dict],
+) -> list[Path]:
     """Find generated files/directories that no longer map to .agents sources."""
 
     expected_paths = {output.target_path for output in outputs}
@@ -724,13 +740,16 @@ def compute_stale_paths(outputs: list[OutputFile]) -> list[Path]:
     # target — it may be hand-maintained or left over from a previous design.
     project_dir = AGENTS_DIR / "project"
     project_has_source = project_dir.exists() and any(project_dir.glob("*.md"))
-    settings_has_source = (SETTINGS_DIR / "claude.json").exists()
+    # Gate on successful load (i.e. presence in platform_settings dict), not just
+    # file-exists — an invalid claude.json must NOT trigger deletion of the
+    # deployed .claude/settings.json (which would remove the Stop hook etc.).
+    settings_loaded = "claude" in platform_settings
 
     managed_single_files: list[Path] = []
     if project_has_source:
         managed_single_files.append(ROOT_DIR / ".claude" / "CLAUDE.md")
         managed_single_files.append(ROOT_DIR / ".cursor" / "project.md")
-    if settings_has_source:
+    if settings_loaded:
         managed_single_files.append(ROOT_DIR / ".claude" / "settings.json")
     for path in managed_single_files:
         if path.exists() and path not in expected_paths:
