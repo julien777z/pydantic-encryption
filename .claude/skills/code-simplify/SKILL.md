@@ -1,5 +1,5 @@
 ---
-name: simplify-code
+name: code-simplify
 description: Review code for reuse, quality, and efficiency, then fix issues. Default mode focuses on recently modified code; orchestrated mode follows parent-provided scope across files and services.
 ---
 

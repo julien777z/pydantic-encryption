@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Stop hook: block exactly once per session and ask the agent to invoke the
-# simplify-code skill. The agent decides whether the skill applies; if no
+# code-simplify skill. The agent decides whether the skill applies; if no
 # code was modified it skips gracefully and stops.
 #
 # Loop prevention:
@@ -29,4 +29,4 @@ if [ -n "$session_id" ]; then
   : > "$lock" 2>/dev/null || true
 fi
 
-echo '{"decision":"block","reason":"Before stopping, invoke the simplify-code skill to review the code you modified this session. If no code was modified, skip the skill and conclude."}'
+echo '{"decision":"block","reason":"Before stopping, invoke the code-simplify skill to review the code you modified this session. If no code was modified, skip the skill and conclude."}'
