@@ -1,6 +1,6 @@
 ---
-name: ultra-refactor
-description: Run an extremely strict maintainability review for abstraction quality, giant files, and spaghetti-condition growth. Use for an ultra refactor, ultra-refactor, deep code quality audit, or especially harsh maintainability review.
+name: ultra-simplify
+description: Run an extremely strict maintainability review for abstraction quality, giant files, and spaghetti-condition growth. Use for an ultra simplify, ultra-simplify, deep code quality audit, or especially harsh maintainability review.
 ---
 
 # Ultra Code Quality Review
