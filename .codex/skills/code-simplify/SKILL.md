@@ -35,14 +35,7 @@ You will analyze code and apply refinements that:
 
 1. **Preserve Functionality**: Never change what the code does - only how it does it. All original features, outputs, and behaviors must remain intact.
 
-2. **Apply Project Standards**: Follow `.agents/rules/` for the languages and paths you touch (for example `.agents/rules/python.md`, `.agents/rules/testing.md` under `tests/`), and established standards from `CLAUDE.md` where applicable, including:
-
-   - Use modern Python type hints (`str | None`, `list[T]`, etc.)
-   - Prefer `BaseModel` over dataclasses or `TypedDict` when validation/serialization is needed
-   - Use `BaseEnum` from `vaultgig_common` for string enums
-   - Follow proper FastAPI patterns (thin route handlers, service delegation)
-   - Use appropriate log levels and the `logging` module instead of `print`
-   - Maintain consistent naming conventions
+2. **Apply Project Standards**: Defer to the repository's own conventions — follow `.agents/rules/` for the languages and paths you touch (for example `.agents/rules/python.md`, `.agents/rules/testing.md` under `tests/`) and `CLAUDE.md`. Do not assume framework or library conventions that this repository's rules do not declare.
 
 3. **Enhance Clarity**: Simplify code structure by:
 
