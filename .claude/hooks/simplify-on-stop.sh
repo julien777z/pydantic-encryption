@@ -29,14 +29,17 @@ session_id=$(printf '%s' "$input" | python3 -c \
   'import json,sys;v=json.load(sys.stdin).get("session_id");print(v if isinstance(v,str) else "")' \
   2>/dev/null || echo "")
 
-if [ -n "$session_id" ]; then
-  counter="${TMPDIR:-/tmp}/simplify-on-stop-${session_id}.count"
-  count=$(cat "$counter" 2>/dev/null || echo 0)
-  case "$count" in ''|*[!0-9]*) count=0 ;; esac
+# We can only bound the number of blocks with a session_id and a writable
+# counter. If either is unavailable, exit clean rather than risk an unbounded
+# block loop should stop_hook_active fail to propagate.
+[ -z "$session_id" ] && exit 0
 
-  [ "$count" -ge "$MAX_BLOCKS_PER_SESSION" ] && exit 0
+counter="${TMPDIR:-/tmp}/simplify-on-stop-${session_id}.count"
+count=$(cat "$counter" 2>/dev/null || echo 0)
+case "$count" in ''|*[!0-9]*) count=0 ;; esac
 
-  printf '%s' "$((count + 1))" > "$counter" 2>/dev/null || true
-fi
+[ "$count" -ge "$MAX_BLOCKS_PER_SESSION" ] && exit 0
+
+printf '%s' "$((count + 1))" > "$counter" 2>/dev/null || exit 0
 
 echo '{"decision":"block","reason":"Do not push yet. First call the Skill tool with skill=\"code-simplify\" (the project skill, NOT the built-in \"simplify\" skill) and walk it against the files you changed since your last push: check each against your rules and the skill defaults, and apply fixes — do not rubber-stamp with \"no changes needed\". Fold every edit the skill produces, correctness fix or cleanup alike, into the commit you are about to push, so each push already contains its own simplification pass. Do not push the simplifications as a separate follow-up commit. It is fine for a multi-turn session to produce several commits and pushes; the only rule is that code-simplify has run on the changes in a push before that push happens. If you modified no code at all, skip the skill and conclude."}'
