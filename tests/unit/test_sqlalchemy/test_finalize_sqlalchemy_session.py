@@ -16,11 +16,11 @@ from pydantic_encryption.integrations.sqlalchemy.state import PENDING_DECRYPT_KE
 from pydantic_encryption.types import EncryptedValue
 
 
-class _FinalizeBase(DeclarativeBase):
+class FinalizeBase(DeclarativeBase):
     """Isolated declarative base for finalize_sqlalchemy_session tests."""
 
 
-class _FinalizeUser(_FinalizeBase, DeferredDecryptMixin):
+class FinalizeUser(FinalizeBase, DeferredDecryptMixin):
     """Mapped class with one deferred encrypted column.
 
     Inherits DeferredDecryptMixin so the mapper_configured listener flips
@@ -37,13 +37,13 @@ class _FinalizeUser(_FinalizeBase, DeferredDecryptMixin):
     )
 
 
-def _wrap(value: Any) -> EncryptedValue:
+def wrap_encrypted(value: Any) -> EncryptedValue:
     """Wrap ciphertext in EncryptedValue the way process_result_value does on read."""
 
     return EncryptedValue(SQLAlchemyEncryptedValue().process_bind_param(value, None))
 
 
-class _FakeAsyncSession(SimpleNamespace):
+class FakeAsyncSession(SimpleNamespace):
     """Minimal AsyncSession stand-in exposing the surface finalize_sqlalchemy_session uses."""
 
     def __init__(self, in_transaction: bool) -> None:
@@ -65,11 +65,11 @@ class TestFinalizeSession:
         configure_mappers()
 
     def test_drains_pending_and_commits_when_in_transaction(self):
-        session = _FakeAsyncSession(in_transaction=True)
-        user = _FinalizeUser(id=1, email=_wrap("a@x.com"))
+        session = FakeAsyncSession(in_transaction=True)
+        user = FinalizeUser(id=1, email=wrap_encrypted("a@x.com"))
 
         bucket: dict[type, WeakSet] = defaultdict(WeakSet)
-        bucket[_FinalizeUser].add(user)
+        bucket[FinalizeUser].add(user)
         session.info[PENDING_DECRYPT_KEY] = bucket
 
         asyncio.run(finalize_sqlalchemy_session(session))
@@ -79,18 +79,18 @@ class TestFinalizeSession:
         assert session.commit_calls == 1
 
     def test_skips_commit_when_not_in_transaction(self):
-        session = _FakeAsyncSession(in_transaction=False)
+        session = FakeAsyncSession(in_transaction=False)
 
         asyncio.run(finalize_sqlalchemy_session(session))
 
         assert session.commit_calls == 0
 
     def test_drains_pending_without_commit_when_not_in_transaction(self):
-        session = _FakeAsyncSession(in_transaction=False)
-        user = _FinalizeUser(id=1, email=_wrap("b@x.com"))
+        session = FakeAsyncSession(in_transaction=False)
+        user = FinalizeUser(id=1, email=wrap_encrypted("b@x.com"))
 
         bucket: dict[type, WeakSet] = defaultdict(WeakSet)
-        bucket[_FinalizeUser].add(user)
+        bucket[FinalizeUser].add(user)
         session.info[PENDING_DECRYPT_KEY] = bucket
 
         asyncio.run(finalize_sqlalchemy_session(session))
@@ -104,7 +104,7 @@ class TestFinalizeSession:
 
         events: list[str] = []
 
-        class _RecordingSession(_FakeAsyncSession):
+        class _RecordingSession(FakeAsyncSession):
             async def commit(self_inner) -> None:
                 events.append("commit")
                 await super().commit()
@@ -113,10 +113,10 @@ class TestFinalizeSession:
             events.append("bulk_decrypt")
 
         session = _RecordingSession(in_transaction=True)
-        user = _FinalizeUser(id=1, email=_wrap("c@x.com"))
+        user = FinalizeUser(id=1, email=wrap_encrypted("c@x.com"))
 
         bucket: dict[type, WeakSet] = defaultdict(WeakSet)
-        bucket[_FinalizeUser].add(user)
+        bucket[FinalizeUser].add(user)
         session.info[PENDING_DECRYPT_KEY] = bucket
 
         with patch(

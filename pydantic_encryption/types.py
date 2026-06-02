@@ -29,7 +29,7 @@ class EncryptedValueAccessError(RuntimeError):
     """Raised when an encrypted ciphertext is coerced to str before decryption."""
 
 
-class _TaggedBytes(bytes):
+class TaggedBytes(bytes):
     """Bytes subclass that UTF-8-encodes ``str`` inputs."""
 
     def __new__(cls, value: str | bytes):
@@ -41,7 +41,7 @@ class _TaggedBytes(bytes):
         return f"<{type(self).__name__}: {len(self)} bytes>"
 
 
-class EncryptedValue(_TaggedBytes):
+class EncryptedValue(TaggedBytes):
     """Bytes subclass representing an encrypted ciphertext; ``str()`` raises to flag accidental coercion."""
 
     def __str__(self) -> str:
@@ -53,11 +53,11 @@ class EncryptedValue(_TaggedBytes):
         )
 
 
-class HashedValue(_TaggedBytes):
+class HashedValue(TaggedBytes):
     """Bytes subclass representing a hashed value."""
 
 
-class BlindIndexValue(_TaggedBytes):
+class BlindIndexValue(TaggedBytes):
     """Bytes subclass representing a blind index value."""
 
 

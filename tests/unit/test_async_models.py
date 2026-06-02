@@ -3,7 +3,7 @@ from typing import Annotated
 
 from pydantic_encryption import BaseModel, Encrypted, Hashed
 from pydantic_encryption.config import settings
-from pydantic_encryption.models.base import _defer_crypto_to_async
+from pydantic_encryption.models.base import defer_crypto_to_async
 from pydantic_encryption.types import (
     BlindIndex,
     BlindIndexMethod,
@@ -13,13 +13,13 @@ from pydantic_encryption.types import (
 )
 
 
-def _construct_without_crypto(cls, **data):
+def construct_without_crypto(cls, **data):
     """Construct a model instance skipping sync crypto (for testing async methods individually)."""
-    token = _defer_crypto_to_async.set(True)
+    token = defer_crypto_to_async.set(True)
     try:
         return cls(**data)
     finally:
-        _defer_crypto_to_async.reset(token)
+        defer_crypto_to_async.reset(token)
 
 
 class TestAsyncInit:
@@ -135,7 +135,7 @@ class TestAsyncEncryptData:
         class _Model(BaseModel):
             secret: Annotated[bytes, Encrypted]
 
-        model = _construct_without_crypto(_Model, secret="plaintext")
+        model = construct_without_crypto(_Model, secret="plaintext")
         assert not isinstance(model.secret, EncryptedValue)
 
         await model.async_encrypt_data()
@@ -147,7 +147,7 @@ class TestAsyncEncryptData:
             field1: Annotated[bytes, Encrypted]
             field2: Annotated[bytes, Encrypted]
 
-        model = _construct_without_crypto(_Model, field1="secret1", field2="secret2")
+        model = construct_without_crypto(_Model, field1="secret1", field2="secret2")
         await model.async_encrypt_data()
 
         assert isinstance(model.field1, EncryptedValue)
@@ -196,7 +196,7 @@ class TestAsyncHashData:
         class _Model(BaseModel):
             password: Annotated[str, Hashed]
 
-        model = _construct_without_crypto(_Model, password="secret123")
+        model = construct_without_crypto(_Model, password="secret123")
         assert not isinstance(model.password, HashedValue)
 
         await model.async_hash_data()
@@ -208,7 +208,7 @@ class TestAsyncHashData:
             password1: Annotated[str, Hashed]
             password2: Annotated[str, Hashed]
 
-        model = _construct_without_crypto(_Model, password1="secret1", password2="secret2")
+        model = construct_without_crypto(_Model, password1="secret1", password2="secret2")
         await model.async_hash_data()
 
         assert isinstance(model.password1, HashedValue)
@@ -224,7 +224,7 @@ class TestAsyncPostInit:
             email: Annotated[bytes, Encrypted]
             password: Annotated[str, Hashed]
 
-        model = _construct_without_crypto(_Model, email="user@example.com", password="secret123")
+        model = construct_without_crypto(_Model, email="user@example.com", password="secret123")
         assert not isinstance(model.email, EncryptedValue)
         assert not isinstance(model.password, HashedValue)
 
@@ -240,7 +240,7 @@ class TestAsyncPostInit:
         class _Model(BaseModel):
             data: Annotated[bytes, Encrypted]
 
-        model = _construct_without_crypto(_Model, data="secret")
+        model = construct_without_crypto(_Model, data="secret")
         await model.async_post_init()
         assert isinstance(model.data, EncryptedValue)
 
@@ -417,7 +417,7 @@ class TestAsyncBlindIndexData:
         class _Model(BaseModel):
             email: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
 
-        model = _construct_without_crypto(_Model, email="test@example.com")
+        model = construct_without_crypto(_Model, email="test@example.com")
         assert not isinstance(model.email, BlindIndexValue)
 
         await model.async_blind_index_data()
@@ -428,7 +428,7 @@ class TestAsyncBlindIndexData:
         class _Model(BaseModel):
             email: Annotated[bytes, BlindIndex(BlindIndexMethod.ARGON2)]
 
-        model = _construct_without_crypto(_Model, email="test@example.com")
+        model = construct_without_crypto(_Model, email="test@example.com")
 
         await model.async_blind_index_data()
         assert isinstance(model.email, BlindIndexValue)
@@ -439,7 +439,7 @@ class TestAsyncBlindIndexData:
             email: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
             phone: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
 
-        model = _construct_without_crypto(_Model, email="test@example.com", phone="1234567890")
+        model = construct_without_crypto(_Model, email="test@example.com", phone="1234567890")
         await model.async_blind_index_data()
 
         assert isinstance(model.email, BlindIndexValue)
@@ -467,7 +467,7 @@ class TestAsyncBlindIndexData:
         class _Model(BaseModel):
             email: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
 
-        model = _construct_without_crypto(_Model, email="test@example.com")
+        model = construct_without_crypto(_Model, email="test@example.com")
         monkeypatch.setattr(settings, "BLIND_INDEX_SECRET_KEY", None)
 
         with pytest.raises(ValueError, match="BLIND_INDEX_SECRET_KEY must be set"):
@@ -480,7 +480,7 @@ class TestAsyncBlindIndexData:
         class _Model(BaseModel):
             email: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)] | None = None
 
-        model = _construct_without_crypto(_Model)
+        model = construct_without_crypto(_Model)
         monkeypatch.setattr(settings, "BLIND_INDEX_SECRET_KEY", None)
 
         # Should not raise — matches sync behavior
@@ -498,7 +498,7 @@ class TestAsyncEncryptDataErrors:
         class _Model(BaseModel):
             secret: Annotated[bytes, Encrypted]
 
-        model = _construct_without_crypto(_Model, secret="plaintext")
+        model = construct_without_crypto(_Model, secret="plaintext")
         monkeypatch.setattr(settings, "ENCRYPTION_METHOD", None)
 
         with pytest.raises(ValueError, match="ENCRYPTION_METHOD must be set"):
@@ -522,7 +522,7 @@ class TestAsyncEncryptDataErrors:
         class _Model(BaseModel):
             name: str
 
-        model = _construct_without_crypto(_Model, name="john")
+        model = construct_without_crypto(_Model, name="john")
         await model.async_encrypt_data()
         assert model.name == "john"
 
@@ -531,7 +531,7 @@ class TestAsyncEncryptDataErrors:
         class _Model(BaseModel):
             name: str
 
-        model = _construct_without_crypto(_Model, name="john")
+        model = construct_without_crypto(_Model, name="john")
         result = await model.async_decrypt_data()
         assert model.name == "john"
         assert result is model
@@ -541,7 +541,7 @@ class TestAsyncEncryptDataErrors:
         class _Model(BaseModel):
             name: str
 
-        model = _construct_without_crypto(_Model, name="john")
+        model = construct_without_crypto(_Model, name="john")
         await model.async_hash_data()
         assert model.name == "john"
 
@@ -550,6 +550,6 @@ class TestAsyncEncryptDataErrors:
         class _Model(BaseModel):
             name: str
 
-        model = _construct_without_crypto(_Model, name="john")
+        model = construct_without_crypto(_Model, name="john")
         await model.async_blind_index_data()
         assert model.name == "john"

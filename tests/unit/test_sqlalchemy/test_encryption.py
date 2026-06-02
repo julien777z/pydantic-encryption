@@ -317,8 +317,8 @@ class TestEncryptionIdempotency:
         self.type_adapter = SQLAlchemyEncryptedValue()
 
     def test_encrypt_cell_already_encrypted_returns_same(self):
-        encrypted = self.type_adapter._encrypt_cell("hello")
-        double_encrypted = self.type_adapter._encrypt_cell(encrypted)
+        encrypted = self.type_adapter.encrypt_cell("hello")
+        double_encrypted = self.type_adapter.encrypt_cell(encrypted)
         assert encrypted == double_encrypted
 
     def test_process_bind_param_already_encrypted_returns_same(self):

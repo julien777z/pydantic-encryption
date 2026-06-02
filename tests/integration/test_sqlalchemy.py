@@ -25,7 +25,7 @@ TEST_SESSION_DURATION: Final[timedelta] = timedelta(hours=2, minutes=30)
 class TestIntegrationSQLAlchemy:
     """Test the integration with SQLAlchemy."""
 
-    def _create_user(
+    def create_user(
         self,
         db_session: Session,
         username: str,
@@ -72,7 +72,7 @@ class TestIntegrationSQLAlchemy:
     def test_secure_fields(self, db_session: Session):
         """Test encrypting and hashing fields with the SQLAlchemyEncryptedValue and SQLAlchemyHashedValue types."""
 
-        user = self._create_user(db_session, username="user1", password=TEST_PASSWORD)
+        user = self.create_user(db_session, username="user1", password=TEST_PASSWORD)
 
         assert user.username == "user1"
         assert user.email == TEST_EMAIL
@@ -81,7 +81,7 @@ class TestIntegrationSQLAlchemy:
     def test_encrypt_decrypt_date(self, db_session: Session):
         """Test that date fields are encrypted and decrypted correctly."""
 
-        user = self._create_user(
+        user = self.create_user(
             db_session, username="user2", password=TEST_PASSWORD, birth_date=TEST_BIRTH_DATE
         )
 
@@ -91,7 +91,7 @@ class TestIntegrationSQLAlchemy:
     def test_encrypt_decrypt_datetime(self, db_session: Session):
         """Test that datetime fields are encrypted and decrypted correctly."""
 
-        user = self._create_user(
+        user = self.create_user(
             db_session, username="user3", password=TEST_PASSWORD, last_login=TEST_LAST_LOGIN
         )
 
@@ -103,7 +103,7 @@ class TestIntegrationSQLAlchemy:
 
         test_datetime = datetime(2025, 1, 21, 14, 30, 45, tzinfo=timezone.utc)
 
-        user = self._create_user(
+        user = self.create_user(
             db_session, username="user4", password=TEST_PASSWORD, last_login=test_datetime
         )
 
@@ -113,7 +113,7 @@ class TestIntegrationSQLAlchemy:
     def test_null_date_handling(self, db_session: Session):
         """Test that None values are handled correctly."""
 
-        user = self._create_user(
+        user = self.create_user(
             db_session, username="user5", password=TEST_PASSWORD, birth_date=None, last_login=None
         )
 
@@ -123,7 +123,7 @@ class TestIntegrationSQLAlchemy:
     def test_encrypt_decrypt_int(self, db_session: Session):
         """Test that integer fields are encrypted and decrypted correctly."""
 
-        user = self._create_user(db_session, username="user6", password=TEST_PASSWORD, age=TEST_AGE)
+        user = self.create_user(db_session, username="user6", password=TEST_PASSWORD, age=TEST_AGE)
 
         assert user.age == TEST_AGE
         assert isinstance(user.age, int)
@@ -131,7 +131,7 @@ class TestIntegrationSQLAlchemy:
     def test_encrypt_decrypt_bytes(self, db_session: Session):
         """Test that bytes fields are encrypted and decrypted correctly."""
 
-        user = self._create_user(
+        user = self.create_user(
             db_session, username="user7", password=TEST_PASSWORD, secret_data=TEST_SECRET_DATA
         )
 
@@ -141,7 +141,7 @@ class TestIntegrationSQLAlchemy:
     def test_encrypt_decrypt_str(self, db_session: Session):
         """Test that string fields are encrypted and decrypted correctly."""
 
-        user = self._create_user(db_session, username="user8", password=TEST_PASSWORD)
+        user = self.create_user(db_session, username="user8", password=TEST_PASSWORD)
 
         assert user.email == TEST_EMAIL
         assert isinstance(user.email, str)
@@ -149,7 +149,7 @@ class TestIntegrationSQLAlchemy:
     def test_encrypt_decrypt_bool_true(self, db_session: Session):
         """Test that boolean True is encrypted and decrypted correctly."""
 
-        user = self._create_user(
+        user = self.create_user(
             db_session, username="user9", password=TEST_PASSWORD, is_active=True
         )
 
@@ -159,7 +159,7 @@ class TestIntegrationSQLAlchemy:
     def test_encrypt_decrypt_bool_false(self, db_session: Session):
         """Test that boolean False is encrypted and decrypted correctly."""
 
-        user = self._create_user(
+        user = self.create_user(
             db_session, username="user10", password=TEST_PASSWORD, is_active=False
         )
 
@@ -169,7 +169,7 @@ class TestIntegrationSQLAlchemy:
     def test_encrypt_decrypt_bool_none(self, db_session: Session):
         """Test that boolean None is handled correctly."""
 
-        user = self._create_user(
+        user = self.create_user(
             db_session, username="user11", password=TEST_PASSWORD, is_active=None
         )
 
@@ -178,7 +178,7 @@ class TestIntegrationSQLAlchemy:
     def test_encrypt_decrypt_float(self, db_session: Session):
         """Test that float fields are encrypted and decrypted correctly."""
 
-        user = self._create_user(
+        user = self.create_user(
             db_session, username="user12", password=TEST_PASSWORD, balance=TEST_BALANCE
         )
 
@@ -188,7 +188,7 @@ class TestIntegrationSQLAlchemy:
     def test_encrypt_decrypt_float_negative(self, db_session: Session):
         """Test that negative float values are handled correctly."""
 
-        user = self._create_user(
+        user = self.create_user(
             db_session, username="user13", password=TEST_PASSWORD, balance=-123.45
         )
 
@@ -197,7 +197,7 @@ class TestIntegrationSQLAlchemy:
     def test_encrypt_decrypt_decimal(self, db_session: Session):
         """Test that Decimal fields are encrypted and decrypted correctly."""
 
-        user = self._create_user(
+        user = self.create_user(
             db_session, username="user14", password=TEST_PASSWORD, salary=TEST_SALARY
         )
 
@@ -209,7 +209,7 @@ class TestIntegrationSQLAlchemy:
 
         high_precision = Decimal("123.456789012345678901234567890")
 
-        user = self._create_user(
+        user = self.create_user(
             db_session, username="user15", password=TEST_PASSWORD, salary=high_precision
         )
 
@@ -218,7 +218,7 @@ class TestIntegrationSQLAlchemy:
     def test_encrypt_decrypt_uuid(self, db_session: Session):
         """Test that UUID fields are encrypted and decrypted correctly."""
 
-        user = self._create_user(
+        user = self.create_user(
             db_session, username="user16", password=TEST_PASSWORD, external_id=TEST_EXTERNAL_ID
         )
 
@@ -228,7 +228,7 @@ class TestIntegrationSQLAlchemy:
     def test_encrypt_decrypt_time(self, db_session: Session):
         """Test that time fields are encrypted and decrypted correctly."""
 
-        user = self._create_user(
+        user = self.create_user(
             db_session, username="user17", password=TEST_PASSWORD, login_time=TEST_LOGIN_TIME
         )
 
@@ -240,7 +240,7 @@ class TestIntegrationSQLAlchemy:
 
         tz_time = time(14, 30, 45, tzinfo=timezone.utc)
 
-        user = self._create_user(
+        user = self.create_user(
             db_session, username="user18", password=TEST_PASSWORD, login_time=tz_time
         )
 
@@ -250,7 +250,7 @@ class TestIntegrationSQLAlchemy:
     def test_encrypt_decrypt_timedelta(self, db_session: Session):
         """Test that timedelta fields are encrypted and decrypted correctly."""
 
-        user = self._create_user(
+        user = self.create_user(
             db_session, username="user19", password=TEST_PASSWORD, session_duration=TEST_SESSION_DURATION
         )
 
@@ -262,7 +262,7 @@ class TestIntegrationSQLAlchemy:
 
         negative_duration = timedelta(days=-1, hours=-5)
 
-        user = self._create_user(
+        user = self.create_user(
             db_session, username="user20", password=TEST_PASSWORD, session_duration=negative_duration
         )
 
@@ -273,7 +273,7 @@ class TestIntegrationSQLAlchemy:
 
         test_tags = ["tag1", "tag2", "tag3"]
 
-        user = self._create_user(
+        user = self.create_user(
             db_session, username="user21", password=TEST_PASSWORD, tags=test_tags
         )
 
@@ -283,7 +283,7 @@ class TestIntegrationSQLAlchemy:
     def test_encrypt_decrypt_array_none(self, db_session: Session):
         """Test that None array values are handled correctly."""
 
-        user = self._create_user(
+        user = self.create_user(
             db_session, username="user22", password=TEST_PASSWORD, tags=None
         )
 
@@ -292,7 +292,7 @@ class TestIntegrationSQLAlchemy:
     def test_encrypt_decrypt_array_empty(self, db_session: Session):
         """Test that empty arrays are handled correctly."""
 
-        user = self._create_user(
+        user = self.create_user(
             db_session, username="user23", password=TEST_PASSWORD, tags=[]
         )
 
@@ -301,7 +301,7 @@ class TestIntegrationSQLAlchemy:
     def test_encrypt_decrypt_array_single_element(self, db_session: Session):
         """Test that single-element arrays are handled correctly."""
 
-        user = self._create_user(
+        user = self.create_user(
             db_session, username="user24", password=TEST_PASSWORD, tags=["only"]
         )
 
@@ -310,7 +310,7 @@ class TestIntegrationSQLAlchemy:
     def test_blind_index_hmac_stored_and_retrieved(self, db_session: Session):
         """Test that HMAC-SHA256 blind index is stored and retrieved correctly."""
 
-        user = self._create_user(
+        user = self.create_user(
             db_session, username="user25", password=TEST_PASSWORD, blind_index_email=TEST_EMAIL
         )
 
@@ -321,7 +321,7 @@ class TestIntegrationSQLAlchemy:
     def test_blind_index_argon2_stored_and_retrieved(self, db_session: Session):
         """Test that Argon2 blind index is stored and retrieved correctly."""
 
-        user = self._create_user(
+        user = self.create_user(
             db_session, username="user26", password=TEST_PASSWORD, blind_index_email_argon2=TEST_EMAIL
         )
 
@@ -332,7 +332,7 @@ class TestIntegrationSQLAlchemy:
     def test_blind_index_none_handling(self, db_session: Session):
         """Test that None blind index values are handled correctly."""
 
-        user = self._create_user(
+        user = self.create_user(
             db_session, username="user27", password=TEST_PASSWORD
         )
 
@@ -344,7 +344,7 @@ class TestIntegrationSQLAlchemy:
 
         unique_email = "blind-index-query-test@example.com"
 
-        self._create_user(
+        self.create_user(
             db_session, username="user28", password=TEST_PASSWORD, blind_index_email=unique_email
         )
 
@@ -360,10 +360,10 @@ class TestIntegrationSQLAlchemy:
     def test_blind_index_different_emails_produce_different_indexes(self, db_session: Session):
         """Test that different emails produce different blind indexes."""
 
-        user1 = self._create_user(
+        user1 = self.create_user(
             db_session, username="user29", password=TEST_PASSWORD, blind_index_email="alice@example.com"
         )
-        user2 = self._create_user(
+        user2 = self.create_user(
             db_session, username="user30", password=TEST_PASSWORD, blind_index_email="bob@example.com"
         )
 
@@ -372,10 +372,10 @@ class TestIntegrationSQLAlchemy:
     def test_blind_index_same_email_produces_same_index(self, db_session: Session):
         """Test that the same email produces the same blind index across rows."""
 
-        user1 = self._create_user(
+        user1 = self.create_user(
             db_session, username="user31", password=TEST_PASSWORD, blind_index_email="same@example.com"
         )
-        user2 = self._create_user(
+        user2 = self.create_user(
             db_session, username="user32", password=TEST_PASSWORD, blind_index_email="same@example.com"
         )
 

@@ -25,7 +25,7 @@ NONCE_LENGTH: Final[int] = 12
 DATA_KEY_SPEC: Final[str] = "AES_256"
 
 
-def _to_bytes(ciphertext: bytes | str | EncryptedValue) -> bytes:
+def to_bytes(ciphertext: bytes | str | EncryptedValue) -> bytes:
     """Coerce decrypt() inputs to raw bytes preserving every original byte value 1:1."""
 
     if isinstance(ciphertext, str):
@@ -34,7 +34,7 @@ def _to_bytes(ciphertext: bytes | str | EncryptedValue) -> bytes:
     return bytes(ciphertext)
 
 
-def _kms_kwargs() -> dict[str, str]:
+def kms_kwargs() -> dict[str, str]:
     """Return boto3/aioboto3 kwargs for the configured KMS region + credentials."""
 
     has_key = (
@@ -61,7 +61,7 @@ def _kms_kwargs() -> dict[str, str]:
     }
 
 
-def _seal(plaintext_data_key: bytes, wrapped_data_key: bytes, plaintext: bytes) -> EncryptedValue:
+def seal(plaintext_data_key: bytes, wrapped_data_key: bytes, plaintext: bytes) -> EncryptedValue:
     """Wrap plaintext under a fresh AES-GCM nonce and pack ``[magic][ver][wrapped][nonce][sealed]``."""
 
     nonce = secrets.token_bytes(NONCE_LENGTH)
@@ -75,7 +75,7 @@ def _seal(plaintext_data_key: bytes, wrapped_data_key: bytes, plaintext: bytes) 
     )
 
 
-def _open(blob: bytes) -> tuple[bytes, bytes, bytes]:
+def open(blob: bytes) -> tuple[bytes, bytes, bytes]:
     """Validate the envelope header and split into ``(wrapped_data_key, nonce, sealed)``."""
 
     if len(blob) < HEADER_LENGTH:
@@ -108,7 +108,7 @@ class AWSAdapter(EncryptionAdapter):
     _async_init_lock: ClassVar[asyncio.Lock | None] = None
 
     @classmethod
-    def _encrypt_arn(cls) -> str:
+    def encrypt_arn(cls) -> str:
         """Return the encryption ARN, rejecting decrypt-only (read-only) configurations."""
 
         arn = settings.AWS_KMS_ENCRYPT_KEY_ARN or settings.AWS_KMS_KEY_ARN
@@ -121,7 +121,7 @@ class AWSAdapter(EncryptionAdapter):
         return arn
 
     @classmethod
-    def _decrypt_kwargs(cls, wrapped_data_key: bytes) -> dict[str, Any]:
+    def decrypt_kwargs(cls, wrapped_data_key: bytes) -> dict[str, Any]:
         """Build ``KMS.Decrypt`` kwargs, scoping by KeyId when one is configured."""
 
         kwargs: dict[str, Any] = {"CiphertextBlob": wrapped_data_key}
@@ -132,16 +132,16 @@ class AWSAdapter(EncryptionAdapter):
         return kwargs
 
     @classmethod
-    def _sync_kms(cls) -> Any:
+    def sync_kms(cls) -> Any:
         """Return the lazily-built sync boto3 KMS client used by sync code paths."""
 
         if cls._sync_client is None:
-            cls._sync_client = boto3.client("kms", **_kms_kwargs())
+            cls._sync_client = boto3.client("kms", **kms_kwargs())
 
         return cls._sync_client
 
     @classmethod
-    async def _async_kms(cls) -> Any:
+    async def async_kms(cls) -> Any:
         """Return the lazily-built aioboto3 KMS client, opened once per event loop."""
 
         loop = asyncio.get_running_loop()
@@ -155,7 +155,7 @@ class AWSAdapter(EncryptionAdapter):
             if cls._async_client is not None and cls._async_loop is loop:
                 return cls._async_client
 
-            ctx = aioboto3.Session(**_kms_kwargs()).client("kms")
+            ctx = aioboto3.Session(**kms_kwargs()).client("kms")
             cls._async_client = await ctx.__aenter__()
             cls._async_client_ctx = ctx
             cls._async_loop = loop
@@ -180,9 +180,9 @@ class AWSAdapter(EncryptionAdapter):
         if isinstance(plaintext, EncryptedValue):
             return plaintext
 
-        response = cls._sync_kms().generate_data_key(KeyId=cls._encrypt_arn(), KeySpec=DATA_KEY_SPEC)
+        response = cls.sync_kms().generate_data_key(KeyId=cls.encrypt_arn(), KeySpec=DATA_KEY_SPEC)
 
-        return _seal(response["Plaintext"], response["CiphertextBlob"], encode_text(plaintext))
+        return seal(response["Plaintext"], response["CiphertextBlob"], encode_text(plaintext))
 
     @classmethod
     async def async_encrypt(
@@ -191,16 +191,16 @@ class AWSAdapter(EncryptionAdapter):
         if isinstance(plaintext, EncryptedValue):
             return plaintext
 
-        kms = await cls._async_kms()
-        response = await kms.generate_data_key(KeyId=cls._encrypt_arn(), KeySpec=DATA_KEY_SPEC)
+        kms = await cls.async_kms()
+        response = await kms.generate_data_key(KeyId=cls.encrypt_arn(), KeySpec=DATA_KEY_SPEC)
 
-        return _seal(response["Plaintext"], response["CiphertextBlob"], encode_text(plaintext))
+        return seal(response["Plaintext"], response["CiphertextBlob"], encode_text(plaintext))
 
     @classmethod
     def decrypt(cls, ciphertext: bytes | str | EncryptedValue, *, key: str | None = None) -> str:
-        wrapped, nonce, sealed = _open(_to_bytes(ciphertext))
+        wrapped, nonce, sealed = open(to_bytes(ciphertext))
 
-        plaintext_data_key = cls._sync_kms().decrypt(**cls._decrypt_kwargs(wrapped))["Plaintext"]
+        plaintext_data_key = cls.sync_kms().decrypt(**cls.decrypt_kwargs(wrapped))["Plaintext"]
 
         return AESGCM(plaintext_data_key).decrypt(nonce, sealed, None).decode("utf-8")
 
@@ -208,9 +208,9 @@ class AWSAdapter(EncryptionAdapter):
     async def async_decrypt(
         cls, ciphertext: bytes | str | EncryptedValue, *, key: str | None = None
     ) -> str:
-        wrapped, nonce, sealed = _open(_to_bytes(ciphertext))
+        wrapped, nonce, sealed = open(to_bytes(ciphertext))
 
-        kms = await cls._async_kms()
-        response = await kms.decrypt(**cls._decrypt_kwargs(wrapped))
+        kms = await cls.async_kms()
+        response = await kms.decrypt(**cls.decrypt_kwargs(wrapped))
 
         return AESGCM(response["Plaintext"]).decrypt(nonce, sealed, None).decode("utf-8")

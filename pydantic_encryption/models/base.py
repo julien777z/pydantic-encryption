@@ -14,8 +14,8 @@ from pydantic_encryption.types import BlindIndex, BlindIndexValue, Encrypted, En
 
 __all__ = ["BaseModel", "SecureModel"]
 
-_defer_crypto_to_async: contextvars.ContextVar[bool] = contextvars.ContextVar(
-    "_defer_crypto_to_async", default=False
+defer_crypto_to_async: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "defer_crypto_to_async", default=False
 )
 
 
@@ -48,7 +48,7 @@ class SecureModel:
             cls._blind_index_key = blind_index_key
 
     @classmethod
-    def _resolve_encryption_method(cls) -> EncryptionMethod:
+    def resolve_encryption_method(cls) -> EncryptionMethod:
         """Return the per-class override or the ENCRYPTION_METHOD env value."""
 
         method = cls._encryption_method or settings.ENCRYPTION_METHOD
@@ -58,13 +58,13 @@ class SecureModel:
         return method
 
     @classmethod
-    def _resolve_encryption_key(cls) -> str | None:
+    def resolve_encryption_key(cls) -> str | None:
         """Return the per-class override or the ENCRYPTION_KEY env value."""
 
         return cls._encryption_key or settings.ENCRYPTION_KEY
 
     @classmethod
-    def _resolve_blind_index_key(cls) -> str:
+    def resolve_blind_index_key(cls) -> str:
         """Return the per-class override or the BLIND_INDEX_SECRET_KEY env value."""
 
         key = cls._blind_index_key or settings.BLIND_INDEX_SECRET_KEY
@@ -92,7 +92,7 @@ class SecureModel:
         return self.get_annotated_fields(BlindIndex)
 
     @staticmethod
-    def _nonempty_field_values(fields: dict[str, AnnotatedFieldInfo]) -> dict[str, Any]:
+    def nonempty_field_values(fields: dict[str, AnnotatedFieldInfo]) -> dict[str, Any]:
         """Extract raw values from annotated field info, dropping ``None`` entries."""
 
         return {
@@ -101,7 +101,7 @@ class SecureModel:
             if annotated_field.value is not None
         }
 
-    def _collect_encryption_fields(
+    def collect_encryption_fields(
         self,
     ) -> tuple[type[EncryptionAdapter], str | None, dict[str, Any]] | None:
         """Resolve encryption backend/key and collect field values."""
@@ -109,25 +109,25 @@ class SecureModel:
         if not self.pending_encryption_fields:
             return None
 
-        fields = self._nonempty_field_values(self.pending_encryption_fields)
+        fields = self.nonempty_field_values(self.pending_encryption_fields)
         if not fields:
             return None
 
-        backend = get_encryption_backend(self._resolve_encryption_method())
-        key = self._resolve_encryption_key()
+        backend = get_encryption_backend(self.resolve_encryption_method())
+        key = self.resolve_encryption_key()
 
         return backend, key, fields
 
-    def _collect_hash_fields(self) -> dict[str, Any] | None:
+    def collect_hash_fields(self) -> dict[str, Any] | None:
         """Collect non-``None`` values for fields annotated with ``Hashed``."""
 
         if not self.pending_hash_fields:
             return None
 
-        fields = self._nonempty_field_values(self.pending_hash_fields)
+        fields = self.nonempty_field_values(self.pending_hash_fields)
         return fields or None
 
-    def _normalize_blind_index_value(self, annotation: BlindIndex, value: Any) -> str:
+    def normalize_blind_index_value(self, annotation: BlindIndex, value: Any) -> str:
         """Decode bytes to str and apply the annotation's normalization flags."""
 
         if isinstance(value, bytes):
@@ -142,7 +142,7 @@ class SecureModel:
             normalize_to_uppercase=annotation.normalize_to_uppercase,
         )
 
-    def _collect_blind_index_tasks(
+    def collect_blind_index_tasks(
         self,
     ) -> list[tuple[str, type[BlindIndexAdapter], str, bytes]] | None:
         """Return ``(field_name, backend, normalized_value, key_bytes)`` tuples."""
@@ -159,17 +159,17 @@ class SecureModel:
                 continue
 
             annotation: BlindIndex = annotated_field.matched_metadata[0]
-            normalized = self._normalize_blind_index_value(annotation, value)
+            normalized = self.normalize_blind_index_value(annotation, value)
 
             if key_bytes is None:
-                key_bytes = self._resolve_blind_index_key().encode("utf-8")
+                key_bytes = self.resolve_blind_index_key().encode("utf-8")
 
             backend = get_blind_index_backend(annotation.method)
             tasks.append((field_name, backend, normalized, key_bytes))
 
         return tasks or None
 
-    async def _async_apply(self, items: list[tuple[str, Awaitable[Any]]]) -> None:
+    async def async_apply(self, items: list[tuple[str, Awaitable[Any]]]) -> None:
         """Await each coroutine under a TaskGroup and ``setattr`` its result onto ``self``."""
 
         if not items:
@@ -184,7 +184,7 @@ class SecureModel:
     def encrypt_data(self) -> None:
         """Encrypt fields annotated with ``Encrypted`` in-place."""
 
-        collected = self._collect_encryption_fields()
+        collected = self.collect_encryption_fields()
         if collected is None:
             return
 
@@ -195,7 +195,7 @@ class SecureModel:
     def hash_data(self) -> None:
         """Hash fields annotated with ``Hashed`` in-place."""
 
-        fields = self._collect_hash_fields()
+        fields = self.collect_hash_fields()
         if fields is None:
             return
 
@@ -205,7 +205,7 @@ class SecureModel:
     def blind_index_data(self) -> None:
         """Compute blind indexes for fields annotated with ``BlindIndex`` in-place."""
 
-        tasks = self._collect_blind_index_tasks()
+        tasks = self.collect_blind_index_tasks()
         if tasks is None:
             return
 
@@ -215,7 +215,7 @@ class SecureModel:
     def decrypt_data(self) -> Self:
         """Decrypt all ``Encrypted`` fields in-place and return ``self`` for chaining."""
 
-        collected = self._collect_encryption_fields()
+        collected = self.collect_encryption_fields()
         if collected is None:
             return self
 
@@ -228,34 +228,34 @@ class SecureModel:
     async def async_encrypt_data(self) -> None:
         """Asynchronously encrypt fields annotated with ``Encrypted``."""
 
-        collected = self._collect_encryption_fields()
+        collected = self.collect_encryption_fields()
         if collected is None:
             return
 
         backend, key, fields = collected
-        await self._async_apply(
+        await self.async_apply(
             [(name, backend.async_encrypt(val, key=key)) for name, val in fields.items()]
         )
 
     async def async_hash_data(self) -> None:
         """Asynchronously hash fields annotated with ``Hashed``."""
 
-        fields = self._collect_hash_fields()
+        fields = self.collect_hash_fields()
         if fields is None:
             return
 
-        await self._async_apply(
+        await self.async_apply(
             [(name, hashing.argon2.Argon2Adapter.async_hash(val)) for name, val in fields.items()]
         )
 
     async def async_blind_index_data(self) -> None:
         """Asynchronously compute blind indexes for fields annotated with ``BlindIndex``."""
 
-        tasks = self._collect_blind_index_tasks()
+        tasks = self.collect_blind_index_tasks()
         if tasks is None:
             return
 
-        await self._async_apply(
+        await self.async_apply(
             [
                 (name, backend.async_compute_blind_index(value, key_bytes))
                 for name, backend, value, key_bytes in tasks
@@ -265,12 +265,12 @@ class SecureModel:
     async def async_decrypt_data(self) -> Self:
         """Asynchronously decrypt all ``Encrypted`` fields and return ``self`` for chaining."""
 
-        collected = self._collect_encryption_fields()
+        collected = self.collect_encryption_fields()
         if collected is None:
             return self
 
         backend, key, fields = collected
-        await self._async_apply(
+        await self.async_apply(
             [(name, backend.async_decrypt(val, key=key)) for name, val in fields.items()]
         )
 
@@ -279,7 +279,7 @@ class SecureModel:
     def default_post_init(self) -> None:
         """Post-initialization hook that runs sync encrypt + hash + blind-index."""
 
-        if _defer_crypto_to_async.get():
+        if defer_crypto_to_async.get():
             return
 
         self.encrypt_data()
@@ -287,7 +287,7 @@ class SecureModel:
         self.blind_index_data()
 
     @staticmethod
-    async def _async_post_init_nested(value: Any) -> None:
+    async def async_post_init_nested(value: Any) -> None:
         """Recursively run ``async_post_init`` on nested ``SecureModel`` instances."""
 
         if isinstance(value, SecureModel):
@@ -303,7 +303,7 @@ class SecureModel:
 
         async with asyncio.TaskGroup() as tg:
             for child in children:
-                tg.create_task(SecureModel._async_post_init_nested(child))
+                tg.create_task(SecureModel.async_post_init_nested(child))
 
     async def async_post_init(self) -> None:
         """Run async encrypt + hash + blind-index, including on nested models."""
@@ -312,7 +312,7 @@ class SecureModel:
             for name in getattr(type(self), "model_fields", {}):
                 value = getattr(self, name, None)
                 if value is not None:
-                    tg.create_task(self._async_post_init_nested(value))
+                    tg.create_task(self.async_post_init_nested(value))
             tg.create_task(self.async_encrypt_data())
             tg.create_task(self.async_hash_data())
             tg.create_task(self.async_blind_index_data())
@@ -334,10 +334,10 @@ class BaseModel(SuperModelPydanticMixin, SecureModel):
     async def async_init(cls, /, **data: Any) -> Self:
         """Construct a model with async encryption, hashing, and blind indexing."""
 
-        token = _defer_crypto_to_async.set(True)
+        token = defer_crypto_to_async.set(True)
         try:
             instance = cls(**data)
         finally:
-            _defer_crypto_to_async.reset(token)
+            defer_crypto_to_async.reset(token)
         await instance.async_post_init()
         return instance

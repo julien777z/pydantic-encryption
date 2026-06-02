@@ -33,7 +33,7 @@ if TYPE_CHECKING:
     )
 
 
-_LAZY_EXPORTS: dict[str, tuple[str, str]] = {
+LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "AWSAdapter": ("pydantic_encryption.adapters.encryption.aws", "AWSAdapter"),
     "DeferredDecryptMixin": ("pydantic_encryption.integrations.sqlalchemy", "DeferredDecryptMixin"),
     "SQLAlchemyBlindIndexValue": ("pydantic_encryption.integrations.sqlalchemy", "SQLAlchemyBlindIndexValue"),
@@ -53,7 +53,7 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
 def __getattr__(name: str):
     """Lazy-load optional symbols (SQLAlchemy / AWS) so the package imports without those extras."""
 
-    target = _LAZY_EXPORTS.get(name)
+    target = LAZY_EXPORTS.get(name)
     if target is None:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 

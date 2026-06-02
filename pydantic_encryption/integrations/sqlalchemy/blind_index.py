@@ -42,7 +42,7 @@ class SQLAlchemyBlindIndexValue(TypeDecorator):
         self.normalize_to_lowercase = normalize_to_lowercase
         self.normalize_to_uppercase = normalize_to_uppercase
 
-    def _key_bytes(self) -> bytes:
+    def key_bytes(self) -> bytes:
         """Return the configured BLIND_INDEX_SECRET_KEY as utf-8 bytes."""
 
         if settings.BLIND_INDEX_SECRET_KEY is None:
@@ -50,7 +50,7 @@ class SQLAlchemyBlindIndexValue(TypeDecorator):
 
         return settings.BLIND_INDEX_SECRET_KEY.encode("utf-8")
 
-    def _normalize(self, value: str | bytes) -> str | bytes:
+    def normalize(self, value: str | bytes) -> str | bytes:
         """Apply the configured normalization flags. Bytes values pass through unchanged."""
 
         if isinstance(value, bytes):
@@ -65,18 +65,18 @@ class SQLAlchemyBlindIndexValue(TypeDecorator):
             normalize_to_uppercase=self.normalize_to_uppercase,
         )
 
-    def _compute_blind_index(self, value: str | bytes) -> bytes:
+    def compute_blind_index(self, value: str | bytes) -> bytes:
         """Compute a deterministic blind index for the given value."""
 
-        key = self._key_bytes()
-        value = self._normalize(value)
+        key = self.key_bytes()
+        value = self.normalize(value)
         backend = get_blind_index_backend(self.method)
 
         return run_async_or_sync(
             backend.async_compute_blind_index, backend.compute_blind_index, value, key
         )
 
-    def _process(self, value: str | bytes | BlindIndexValue | None) -> bytes | None:
+    def process(self, value: str | bytes | BlindIndexValue | None) -> bytes | None:
         """Compute the blind index, passing ``None`` and pre-indexed values through."""
 
         if value is None:
@@ -85,17 +85,17 @@ class SQLAlchemyBlindIndexValue(TypeDecorator):
         if isinstance(value, BlindIndexValue):
             return value
 
-        return self._compute_blind_index(value)
+        return self.compute_blind_index(value)
 
     def process_bind_param(self, value: str | bytes | BlindIndexValue | None, dialect) -> bytes | None:
         """Compute the blind index before binding to the database."""
 
-        return self._process(value)
+        return self.process(value)
 
     def process_literal_param(self, value: str | bytes | BlindIndexValue | None, dialect) -> bytes | None:
         """Compute the blind index for literal SQL expressions."""
 
-        return self._process(value)
+        return self.process(value)
 
     def process_result_value(self, value: bytes | None, dialect) -> BlindIndexValue | None:
         """Return the stored blind index wrapped as a ``BlindIndexValue``."""
