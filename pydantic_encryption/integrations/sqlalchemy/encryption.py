@@ -28,7 +28,7 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
         self._deferred = False
 
     @staticmethod
-    def _backend() -> Any:
+    def backend() -> Any:
         """Return the configured encryption backend, raising if ENCRYPTION_METHOD is unset."""
 
         if settings.ENCRYPTION_METHOD is None:
@@ -36,7 +36,7 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
 
         return get_encryption_backend(settings.ENCRYPTION_METHOD)
 
-    def _encrypt_cell(self, value: EncryptableValue | EncryptedValue | None) -> EncryptedValue | None:
+    def encrypt_cell(self, value: EncryptableValue | EncryptedValue | None) -> EncryptedValue | None:
         """Encode + encrypt a single value, passing pre-encrypted values through."""
 
         if value is None:
@@ -44,29 +44,29 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
         if isinstance(value, EncryptedValue):
             return value
 
-        backend = self._backend()
+        backend = self.backend()
 
         return run_async_or_sync(backend.async_encrypt, backend.encrypt, encode_value(value))
 
-    def _decrypt_cell(self, value: str | bytes | None) -> str | bytes | None:
+    def decrypt_cell(self, value: str | bytes | None) -> str | bytes | None:
         """Decrypt a single ciphertext; callers are responsible for decoding."""
 
         if value is None:
             return None
 
-        backend = self._backend()
+        backend = self.backend()
 
         return run_async_or_sync(backend.async_decrypt, backend.decrypt, value)
 
     def process_bind_param(self, value: EncryptableValue | None, dialect) -> bytes | None:
         """Encrypt a value before binding it to the database."""
 
-        return self._encrypt_cell(value)
+        return self.encrypt_cell(value)
 
     def process_literal_param(self, value: EncryptableValue | None, dialect) -> bytes | None:
         """Encrypt a value for literal SQL expressions."""
 
-        return self._encrypt_cell(value)
+        return self.encrypt_cell(value)
 
     def process_result_value(self, value: str | bytes | None, dialect) -> EncryptableValue | None:
         """Decrypt a value after retrieving it from the database."""
@@ -77,7 +77,7 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
         if self._deferred:
             return EncryptedValue(value)
 
-        return decode_value(self._decrypt_cell(value))
+        return decode_value(self.decrypt_cell(value))
 
     @property
     def python_type(self):
@@ -102,7 +102,7 @@ class SQLAlchemyPGEncryptedArray(TypeDecorator):
         if value is None:
             return None
 
-        return [self._element_type._encrypt_cell(element) for element in value]
+        return [self._element_type.encrypt_cell(element) for element in value]
 
     def process_literal_param(self, value: list[EncryptableValue] | None, dialect) -> list[bytes] | None:
         """Encrypt each element for literal SQL expressions."""
@@ -110,7 +110,7 @@ class SQLAlchemyPGEncryptedArray(TypeDecorator):
         if value is None:
             return None
 
-        return [self._element_type._encrypt_cell(element) for element in value]
+        return [self._element_type.encrypt_cell(element) for element in value]
 
     def process_result_value(self, value: list[bytes] | None, dialect) -> list[EncryptableValue] | None:
         """Decrypt each element after retrieving the array from the database."""
@@ -119,7 +119,7 @@ class SQLAlchemyPGEncryptedArray(TypeDecorator):
             return None
 
         return [
-            None if element is None else decode_value(self._element_type._decrypt_cell(element))
+            None if element is None else decode_value(self._element_type.decrypt_cell(element))
             for element in value
         ]
 

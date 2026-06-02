@@ -17,11 +17,11 @@ from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEnc
 from pydantic_encryption.types import EncryptedValue
 
 
-class _AutoDecryptBase(DeclarativeBase):
+class AutoDecryptBase(DeclarativeBase):
     """Isolated declarative base for on-access decrypt session-level tests."""
 
 
-class _AutoDecryptUser(_AutoDecryptBase, DeferredDecryptMixin):
+class AutoDecryptUser(AutoDecryptBase, DeferredDecryptMixin):
     """Mapped class with a string-typed deferred encrypted column."""
 
     __tablename__ = "_auto_decrypt_user"
@@ -32,7 +32,7 @@ class _AutoDecryptUser(_AutoDecryptBase, DeferredDecryptMixin):
     )
 
 
-class _AutoDecryptBlob(_AutoDecryptBase, DeferredDecryptMixin):
+class AutoDecryptBlob(AutoDecryptBase, DeferredDecryptMixin):
     """Mapped class with a bytes-typed deferred encrypted column to test idempotency."""
 
     __tablename__ = "_auto_decrypt_blob"
@@ -43,16 +43,16 @@ class _AutoDecryptBlob(_AutoDecryptBase, DeferredDecryptMixin):
     )
 
 
-def _encrypt(value: Any) -> bytes:
+def encrypt_value(value: Any) -> bytes:
     """Encrypt a value via the SQLAlchemyEncryptedValue write path."""
 
     return SQLAlchemyEncryptedValue().process_bind_param(value, None)
 
 
-def _wrap(value: Any) -> EncryptedValue:
+def wrap_encrypted(value: Any) -> EncryptedValue:
     """Wrap ciphertext in EncryptedValue the way process_result_value does on read."""
 
-    return EncryptedValue(_encrypt(value))
+    return EncryptedValue(encrypt_value(value))
 
 
 class TestOnOrmLoadListener:
@@ -65,47 +65,47 @@ class TestOnOrmLoadListener:
     def test_collects_into_session_bucket(self):
         session = SimpleNamespace(info={})
         context = SimpleNamespace(session=session)
-        instance = _AutoDecryptUser(id=1)
+        instance = AutoDecryptUser(id=1)
 
         on_orm_load(instance, context)
 
         bucket = session.info[PENDING_DECRYPT_KEY]
-        assert instance in bucket[_AutoDecryptUser]
+        assert instance in bucket[AutoDecryptUser]
 
     def test_noop_when_session_is_none(self):
         context = SimpleNamespace(session=None)
 
-        on_orm_load(_AutoDecryptUser(id=1), context)
+        on_orm_load(AutoDecryptUser(id=1), context)
 
     def test_noop_when_context_is_none(self):
-        on_orm_load(_AutoDecryptUser(id=1), None)
+        on_orm_load(AutoDecryptUser(id=1), None)
 
     def test_groups_by_class(self):
         session = SimpleNamespace(info={})
         context = SimpleNamespace(session=session)
-        user_a = _AutoDecryptUser(id=1)
-        user_b = _AutoDecryptUser(id=2)
-        blob = _AutoDecryptBlob(id=1)
+        user_a = AutoDecryptUser(id=1)
+        user_b = AutoDecryptUser(id=2)
+        blob = AutoDecryptBlob(id=1)
 
         on_orm_load(user_a, context)
         on_orm_load(user_b, context)
         on_orm_load(blob, context)
 
         bucket = session.info[PENDING_DECRYPT_KEY]
-        assert set(bucket[_AutoDecryptUser]) == {user_a, user_b}
-        assert set(bucket[_AutoDecryptBlob]) == {blob}
+        assert set(bucket[AutoDecryptUser]) == {user_a, user_b}
+        assert set(bucket[AutoDecryptBlob]) == {blob}
 
     def test_refresh_dedups_same_instance(self):
         session = SimpleNamespace(info={})
         context = SimpleNamespace(session=session)
-        instance = _AutoDecryptUser(id=1)
+        instance = AutoDecryptUser(id=1)
 
         on_orm_load(instance, context)
         on_orm_load(instance, context)
         on_orm_load(instance, context)
 
         bucket = session.info[PENDING_DECRYPT_KEY]
-        assert len(bucket[_AutoDecryptUser]) == 1
+        assert len(bucket[AutoDecryptUser]) == 1
 
 
 class TestDecryptPendingFields:
@@ -113,12 +113,12 @@ class TestDecryptPendingFields:
 
     def test_drain_decrypts_every_pending_class(self):
         session = SimpleNamespace(info={})
-        user = _AutoDecryptUser(id=1, email=_wrap("a@x.com"))
-        blob = _AutoDecryptBlob(id=1, payload=_wrap(b"shh"))
+        user = AutoDecryptUser(id=1, email=wrap_encrypted("a@x.com"))
+        blob = AutoDecryptBlob(id=1, payload=wrap_encrypted(b"shh"))
 
         bucket: dict[type, WeakSet] = defaultdict(WeakSet)
-        bucket[_AutoDecryptUser].add(user)
-        bucket[_AutoDecryptBlob].add(blob)
+        bucket[AutoDecryptUser].add(user)
+        bucket[AutoDecryptBlob].add(blob)
         session.info[PENDING_DECRYPT_KEY] = bucket
 
         asyncio.run(decrypt_pending_fields(session))
@@ -143,9 +143,9 @@ class TestBytesColumnIdempotency:
         configure_mappers()
 
     def test_collect_skips_already_decrypted_bytes_plaintext(self):
-        blob = _AutoDecryptBlob(id=1, payload=_wrap(b"shh"))
+        blob = AutoDecryptBlob(id=1, payload=wrap_encrypted(b"shh"))
 
-        asyncio.run(_AutoDecryptBlob.decrypt_many([blob]))
+        asyncio.run(AutoDecryptBlob.decrypt_many([blob]))
 
         assert sa_inspect(blob).dict["payload"] == b"shh"
         assert not isinstance(sa_inspect(blob).dict["payload"], EncryptedValue)
@@ -166,12 +166,12 @@ class TestDrainParallelism:
 
     def test_drain_dispatches_cells_across_classes_in_parallel(self):
         session = SimpleNamespace(info={})
-        user = _AutoDecryptUser(id=1, email=_wrap("a@x.com"))
-        blob = _AutoDecryptBlob(id=1, payload=_wrap(b"shh"))
+        user = AutoDecryptUser(id=1, email=wrap_encrypted("a@x.com"))
+        blob = AutoDecryptBlob(id=1, payload=wrap_encrypted(b"shh"))
 
         bucket: dict[type, WeakSet] = defaultdict(WeakSet)
-        bucket[_AutoDecryptUser].add(user)
-        bucket[_AutoDecryptBlob].add(blob)
+        bucket[AutoDecryptUser].add(user)
+        bucket[AutoDecryptBlob].add(blob)
         session.info[PENDING_DECRYPT_KEY] = bucket
 
         live_overlap = 0
@@ -207,13 +207,13 @@ class TestNoDirtyAfterDecrypt:
         configure_mappers()
 
     def test_decrypt_many_does_not_mark_column_dirty(self):
-        user = _AutoDecryptUser(id=1, email=_wrap("a@x.com"))
+        user = AutoDecryptUser(id=1, email=wrap_encrypted("a@x.com"))
         state = sa_inspect(user)
         state._commit_all(state.dict)
 
         assert "email" not in state.committed_state
 
-        asyncio.run(_AutoDecryptUser.decrypt_many([user]))
+        asyncio.run(AutoDecryptUser.decrypt_many([user]))
 
         assert sa_inspect(user).dict["email"] == "a@x.com"
         assert "email" not in state.committed_state

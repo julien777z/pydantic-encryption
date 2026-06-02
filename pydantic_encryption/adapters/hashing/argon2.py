@@ -12,7 +12,7 @@ class Argon2Adapter(HashingAdapter):
     _hasher: ClassVar[PasswordHasher | None] = None
 
     @classmethod
-    def _get_hasher(cls) -> PasswordHasher:
+    def get_hasher(cls) -> PasswordHasher:
         if cls._hasher is None:
             cls._hasher = PasswordHasher()
 
@@ -25,7 +25,7 @@ class Argon2Adapter(HashingAdapter):
         if isinstance(value, HashedValue):
             return value
 
-        hasher = cls._get_hasher()
+        hasher = cls.get_hasher()
         hashed_value = HashedValue(hasher.hash(value))
 
         return hashed_value

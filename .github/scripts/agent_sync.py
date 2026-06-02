@@ -22,7 +22,7 @@ SETTINGS_DIR: Final[Path] = AGENTS_DIR / "settings"
 MODELS_DIR: Final[Path] = AGENTS_DIR / "models"
 MAX_DIFF_LINES: Final[int] = 20
 SAFE_SLUG_PATTERN: Final[re.Pattern[str]] = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
-_TEXT_CACHE: dict[Path, str | None] = {}
+TEXT_CACHE: dict[Path, str | None] = {}
 
 
 class OutputFile(BaseModel):
@@ -691,13 +691,13 @@ def compute_diffs(outputs: list[OutputFile]) -> list[DiffEntry]:
         # Content matches but the exec bit may be missing — rewrite so write_text
         # re-applies chmod. Without this, a Stop hook command pointing at a bare
         # script path can fail.
-        if _output_needs_exec_bit(output) and output.target_path.exists() \
+        if output_needs_exec_bit(output) and output.target_path.exists() \
                 and not output.target_path.stat().st_mode & 0o111:
             diffs.append(DiffEntry(output=output, existing=existing))
     return diffs
 
 
-def _output_needs_exec_bit(output: OutputFile) -> bool:
+def output_needs_exec_bit(output: OutputFile) -> bool:
     return output.target_path.suffix == ".sh" or output.content.startswith("#!")
 
 
@@ -790,15 +790,15 @@ def compute_stale_paths(
 def read_text(path: Path) -> str | None:
     """Read a file with caching to avoid repeated disk reads."""
 
-    if path in _TEXT_CACHE:
-        return _TEXT_CACHE[path]
+    if path in TEXT_CACHE:
+        return TEXT_CACHE[path]
 
     if not path.exists():
-        _TEXT_CACHE[path] = None
+        TEXT_CACHE[path] = None
         return None
 
     content = path.read_text(encoding="utf-8")
-    _TEXT_CACHE[path] = content
+    TEXT_CACHE[path] = content
     return content
 
 
@@ -809,7 +809,7 @@ def write_text(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
     if path.suffix == ".sh" or content.startswith("#!"):
         path.chmod(0o755)
-    _TEXT_CACHE[path] = content
+    TEXT_CACHE[path] = content
 
 
 def delete_path(path: Path) -> None:
@@ -820,13 +820,13 @@ def delete_path(path: Path) -> None:
 
     if path.is_dir():
         shutil.rmtree(path)
-        stale_keys = [cached_path for cached_path in _TEXT_CACHE if cached_path.is_relative_to(path)]
+        stale_keys = [cached_path for cached_path in TEXT_CACHE if cached_path.is_relative_to(path)]
         for stale_key in stale_keys:
-            _TEXT_CACHE.pop(stale_key, None)
+            TEXT_CACHE.pop(stale_key, None)
         return
 
     path.unlink(missing_ok=True)
-    _TEXT_CACHE.pop(path, None)
+    TEXT_CACHE.pop(path, None)
 
 
 def report_diffs(diffs: list[DiffEntry], stale_paths: list[Path]) -> None:
@@ -936,7 +936,7 @@ def dedupe_directory(directory: Path) -> None:
         keep = choose_preferred(seen[digest], path)
         remove = path if keep == seen[digest] else seen[digest]
         remove.unlink(missing_ok=True)
-        _TEXT_CACHE.pop(remove, None)
+        TEXT_CACHE.pop(remove, None)
         seen[digest] = keep
 
 

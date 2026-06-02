@@ -5,7 +5,12 @@ from uuid import UUID
 
 import pytest
 
-from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue
+from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
+from pydantic_encryption.config import settings
+from pydantic_encryption.integrations.sqlalchemy.encryption import (
+    SQLAlchemyEncryptedValue,
+    SQLAlchemyPGEncryptedArray,
+)
 from pydantic_encryption.integrations.sqlalchemy.serialization import (
     TypePrefix,
     decode_value,
@@ -317,8 +322,8 @@ class TestEncryptionIdempotency:
         self.type_adapter = SQLAlchemyEncryptedValue()
 
     def test_encrypt_cell_already_encrypted_returns_same(self):
-        encrypted = self.type_adapter._encrypt_cell("hello")
-        double_encrypted = self.type_adapter._encrypt_cell(encrypted)
+        encrypted = self.type_adapter.encrypt_cell("hello")
+        double_encrypted = self.type_adapter.encrypt_cell(encrypted)
         assert encrypted == double_encrypted
 
     def test_process_bind_param_already_encrypted_returns_same(self):
@@ -334,3 +339,64 @@ class TestEncryptionIdempotency:
         encrypted = self.type_adapter.process_literal_param("hello", None)
         double_encrypted = self.type_adapter.process_literal_param(EncryptedValue(encrypted), None)
         assert encrypted == double_encrypted
+
+
+class TestBackendResolution:
+    """Test ``SQLAlchemyEncryptedValue.backend`` configuration handling."""
+
+    def test_backend_returns_configured_adapter(self):
+        """Test that backend returns the adapter configured by ENCRYPTION_METHOD."""
+
+        assert SQLAlchemyEncryptedValue.backend() is FernetAdapter
+
+    def test_backend_raises_when_encryption_method_unset(self, monkeypatch):
+        """Test that backend raises a ValueError when ENCRYPTION_METHOD is unset."""
+
+        monkeypatch.setattr(settings, "ENCRYPTION_METHOD", None)
+
+        with pytest.raises(ValueError, match="ENCRYPTION_METHOD must be set"):
+            SQLAlchemyEncryptedValue.backend()
+
+
+class TestEncryptedValueNoneHandling:
+    """Test ``SQLAlchemyEncryptedValue`` None handling and metadata."""
+
+    def setup_method(self):
+        self.type_adapter = SQLAlchemyEncryptedValue()
+
+    def test_encrypt_cell_none_returns_none(self):
+        """Test that encrypting None returns None without invoking the backend."""
+
+        assert self.type_adapter.encrypt_cell(None) is None
+
+    def test_decrypt_cell_none_returns_none(self):
+        """Test that decrypting None returns None without invoking the backend."""
+
+        assert self.type_adapter.decrypt_cell(None) is None
+
+    def test_python_type_matches_impl(self):
+        """Test that python_type mirrors the LargeBinary impl type."""
+
+        assert self.type_adapter.python_type is self.type_adapter.impl.python_type
+
+
+class TestPGEncryptedArrayLiteralParam:
+    """Test ``SQLAlchemyPGEncryptedArray.process_literal_param`` element encryption."""
+
+    def setup_method(self):
+        self.type_adapter = SQLAlchemyPGEncryptedArray()
+
+    def test_literal_param_none_returns_none(self):
+        """Test that a None array literal returns None."""
+
+        assert self.type_adapter.process_literal_param(None, None) is None
+
+    def test_literal_param_encrypts_each_element(self):
+        """Test that each array element is encrypted for literal SQL expressions."""
+
+        result = self.type_adapter.process_literal_param(["hello", "world"], None)
+
+        assert result is not None
+        assert len(result) == 2
+        assert result[0] != "hello"
+        assert result[1] != "world"

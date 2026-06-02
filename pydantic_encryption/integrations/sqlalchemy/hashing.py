@@ -15,7 +15,7 @@ class SQLAlchemyHashedValue(TypeDecorator):
     impl = LargeBinary
     cache_ok = True
 
-    def _hash(self, value: str | bytes) -> HashedValue:
+    def hash(self, value: str | bytes) -> HashedValue:
         return run_async_or_sync(Argon2Adapter.async_hash, Argon2Adapter.hash, value)
 
     def process_bind_param(self, value: str | bytes | None, dialect) -> bytes | None:
@@ -24,7 +24,7 @@ class SQLAlchemyHashedValue(TypeDecorator):
         if value is None:
             return None
 
-        return self._hash(value)
+        return self.hash(value)
 
     def process_literal_param(self, value: str | bytes | None, dialect) -> HashedValue | None:
         """Hash a value for literal SQL expressions."""
@@ -32,7 +32,7 @@ class SQLAlchemyHashedValue(TypeDecorator):
         if value is None:
             return None
 
-        return dialect.literal_processor(self.impl)(self._hash(value))
+        return dialect.literal_processor(self.impl)(self.hash(value))
 
     def process_result_value(self, value: str | bytes | None, dialect) -> HashedValue | None:
         """Return the stored hash wrapped as a ``HashedValue``."""

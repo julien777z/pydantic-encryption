@@ -14,7 +14,7 @@ class FernetAdapter(EncryptionAdapter):
     _clients: ClassVar[dict[str, Fernet]] = {}
 
     @classmethod
-    def _get_client(cls, key: str | None = None) -> Fernet:
+    def get_client(cls, key: str | None = None) -> Fernet:
         """Return a cached Fernet client for the given key (defaults to settings.ENCRYPTION_KEY)."""
 
         resolved = key or settings.ENCRYPTION_KEY
@@ -30,12 +30,12 @@ class FernetAdapter(EncryptionAdapter):
         if isinstance(plaintext, EncryptedValue):
             return plaintext
 
-        client = cls._get_client(key)
+        client = cls.get_client(key)
         return EncryptedValue(client.encrypt(encode_text(plaintext)))
 
     @classmethod
     def decrypt(cls, ciphertext: str | bytes | EncryptedValue, *, key: str | None = None) -> str:
-        client = cls._get_client(key)
+        client = cls.get_client(key)
         return client.decrypt(encode_text(ciphertext)).decode("utf-8")
 
 

@@ -26,13 +26,13 @@ from pydantic_encryption.integrations.sqlalchemy.state import (
 from pydantic_encryption.types import EncryptedValue
 
 
-def _column_key(column: InstrumentedAttribute | str) -> str:
+def column_key(column: InstrumentedAttribute | str) -> str:
     """Return the column key for an InstrumentedAttribute or string column name."""
 
     return column if isinstance(column, str) else column.key
 
 
-def _resolve_backend() -> Any:
+def resolve_backend() -> Any:
     """Return the configured encryption backend, raising if ENCRYPTION_METHOD is unset."""
 
     method = settings.ENCRYPTION_METHOD
@@ -42,7 +42,7 @@ def _resolve_backend() -> Any:
     return get_encryption_backend(method)
 
 
-def _collect_row_assignments(
+def collect_row_assignments(
     rows: Iterable[Any], column_keys: Iterable[str]
 ) -> list[tuple[Any, str, bytes]]:
     """Build ``(row, key, ciphertext)`` triples for every encrypted cell across rows."""
@@ -58,7 +58,7 @@ def _collect_row_assignments(
     return assignments
 
 
-async def _decrypt_assignments(
+async def decrypt_assignments(
     backend: Any, assignments: list[tuple[Any, str, bytes]]
 ) -> None:
     """Decrypt every ``(row, key, ciphertext)`` triple under a TaskGroup and write results back.
@@ -88,10 +88,10 @@ async def decrypt_rows(rows: Iterable[Any], *columns: InstrumentedAttribute | st
     if not columns:
         return
 
-    backend = _resolve_backend()
-    assignments = _collect_row_assignments(rows, (_column_key(c) for c in columns))
+    backend = resolve_backend()
+    assignments = collect_row_assignments(rows, (column_key(c) for c in columns))
 
-    await _decrypt_assignments(backend, assignments)
+    await decrypt_assignments(backend, assignments)
 
 
 def decrypt_rows_sync(rows: Iterable[Any], *columns: InstrumentedAttribute | str) -> None:
@@ -100,8 +100,8 @@ def decrypt_rows_sync(rows: Iterable[Any], *columns: InstrumentedAttribute | str
     if not columns:
         return
 
-    backend = _resolve_backend()
-    for row, key, ciphertext in _collect_row_assignments(rows, (_column_key(c) for c in columns)):
+    backend = resolve_backend()
+    for row, key, ciphertext in collect_row_assignments(rows, (column_key(c) for c in columns)):
         set_decrypted(row, key, decode_value(backend.decrypt(ciphertext)))
 
 
@@ -112,7 +112,7 @@ async def decrypt_values(values: Iterable[Any]) -> list[Any]:
     if not values_list:
         return []
 
-    backend = _resolve_backend()
+    backend = resolve_backend()
     indexes: list[int] = []
     encrypted_blobs: list[bytes] = []
     for index, value in enumerate(values_list):
@@ -189,12 +189,12 @@ async def bulk_decrypt_entities(entities: Any | Iterable[Any] | None) -> None:
     if not collected:
         return
 
-    backend = _resolve_backend()
+    backend = resolve_backend()
     assignments: list[tuple[Any, str, bytes]] = []
     for (_, column_key), rows in collected.items():
-        assignments.extend(_collect_row_assignments(rows, (column_key,)))
+        assignments.extend(collect_row_assignments(rows, (column_key,)))
 
-    await _decrypt_assignments(backend, assignments)
+    await decrypt_assignments(backend, assignments)
 
 
 async def decrypt_pending_fields(session: AsyncSession) -> None:
