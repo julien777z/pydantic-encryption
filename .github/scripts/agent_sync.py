@@ -933,8 +933,14 @@ def dedupe_directory(directory: Path) -> None:
             seen[digest] = path
             continue
 
-        keep = choose_preferred(seen[digest], path)
-        remove = path if keep == seen[digest] else seen[digest]
+        existing = seen[digest]
+        # Only collapse genuine OS-created duplicates (e.g. "name 2.md"); two
+        # distinct slugs that happen to share an identical body are both kept.
+        if " 2" not in existing.stem and " 2" not in path.stem:
+            continue
+
+        keep = choose_preferred(existing, path)
+        remove = path if keep == existing else existing
         remove.unlink(missing_ok=True)
         TEXT_CACHE.pop(remove, None)
         seen[digest] = keep
