@@ -13,10 +13,12 @@ The parent agent must indicate which mode applies. If unspecified, use **default
 
 - Refine code that has been **recently modified or touched in the current session**, unless explicitly instructed to review a broader scope.
 - Use this mode for day-to-day follow-up after edits in a single conversation.
+- Do not conclude "no changes needed" until you have walked each touched file against your rules and the simplification defaults below. Report what you checked, not just what you changed.
+- Consistency with siblings counts: if a touched file inlines literals, types, or props for some siblings but not for the one you added, treat that as a finding and fix it.
 
 ### Orchestrated mode
 
-- The parent provides a **bounded scope**: explicit path list, glob, and/or service or package prefix.
+- The parent provides a **bounded scope**: explicit path list, glob, and/or service or package prefix (for example a shard under `apps/` or `packages/`).
 - You may analyze and refine **any file within that scope**, not only lines changed in the current session.
 - Use this mode when spawned as **`shard-executor`** with **`executor_kind: simplify`**, or when the user explicitly names directories or files to simplify.
 
@@ -33,7 +35,7 @@ You will analyze code and apply refinements that:
 
 1. **Preserve Functionality**: Never change what the code does - only how it does it. All original features, outputs, and behaviors must remain intact.
 
-2. **Apply Project Standards**: Defer to the repository's own conventions. Check `CLAUDE.md`, `.claude/rules/`, `.cursor/rules/`, `.agents/rules/`, and any project style/linting configuration that already exists, and follow the patterns established there. Do not invent or import standards from outside the repository — if a convention is not encoded somewhere in the repo, prefer the patterns already used in nearby code over introducing a new style.
+2. **Apply Project Standards**: Defer to the repository's own conventions — follow your rules for the languages and paths you touch. Do not assume framework or library conventions that this repository's rules do not declare.
 
 3. **Enhance Clarity**: Simplify code structure by:
 
@@ -41,7 +43,7 @@ You will analyze code and apply refinements that:
    - Eliminating redundant code and abstractions
    - Improving readability through clear variable and function names
    - Consolidating related logic
-   - Removing redundant comments that restate obvious code (keep docstrings and comments that explain non-obvious **why**)
+   - Removing redundant `#` comments that restate obvious code (never treat docstrings as removable comments; keep or add one-line docstrings on functions, methods, and classes per your Python rules)
    - IMPORTANT: Avoid nested ternary operators - prefer if/else chains for multiple conditions
    - Choose clarity over brevity - explicit code is often better than overly compact code
 
@@ -65,7 +67,7 @@ You will analyze code and apply refinements that:
 
 1. Identify the recently modified code sections
 2. Analyze for opportunities to improve elegance and consistency
-3. Apply the repository's own conventions (see "Apply Project Standards" above)
+3. Apply your rules for applicable file types and paths
 4. Ensure all functionality remains unchanged
 5. Verify the refined code is simpler and more maintainable
 6. Document only significant changes that affect understanding
@@ -74,7 +76,7 @@ You will analyze code and apply refinements that:
 
 1. Enumerate or discover files under the given scope (respect excludes such as generated clients and lockfiles when the parent lists them)
 2. Analyze for simplification opportunities consistent with this skill
-3. Apply the repository's own conventions (see "Apply Project Standards" above)
+3. Apply your rules for each touched file (Python rules for Python, testing rules under `tests/`, and so on)
 4. Ensure all functionality remains unchanged
 5. Run or specify tests the parent should run for this scope when feasible
 6. Report files changed, summary of edits, and any scope spill or contract risk
