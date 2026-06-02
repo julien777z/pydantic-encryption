@@ -25,6 +25,19 @@ is_active=$(printf '%s' "$input" | python3 -c \
 
 [ "$is_active" = "true" ] && exit 0
 
+# Only nudge when something is actually about to be pushed. If the working tree
+# is clean and HEAD is not ahead of its upstream, there is nothing to simplify
+# before a push (e.g. the branch is already pushed/merged, or the session only
+# answered a question), so skip. A branch with no upstream yet (never pushed)
+# still gets nudged.
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  upstream=$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || echo "")
+  if [ -n "$upstream" ] && [ -z "$(git status --porcelain 2>/dev/null)" ] \
+    && [ -z "$(git rev-list '@{u}..HEAD' 2>/dev/null)" ]; then
+    exit 0
+  fi
+fi
+
 session_id=$(printf '%s' "$input" | python3 -c \
   'import json,sys;v=json.load(sys.stdin).get("session_id");print(v if isinstance(v,str) else "")' \
   2>/dev/null || echo "")

@@ -1,5 +1,5 @@
 ---
-name: ultra-review
+name: ultra-simplify
 description: Ultra code quality audit (maintainability, structure, 1k-line rule, spaghetti, code-judo). Invoked via Task after a parent gathers diff and file contents. Uses the `ultra-simplify` skill as the complete rubric.
 skills: [ultra-simplify]
 ---
@@ -20,4 +20,4 @@ Apply the `ultra-simplify` SKILL — its `SKILL.md` is the **complete** rubric (
 
 ## Parent orchestration
 
-Typical flow: in **one** message, run two `Task` calls in parallel — `subagent_type: "shell"` and `subagent_type: "explore"` — to collect `git diff <base>...HEAD` output and full contents of changed files (default base `main`). Then invoke this agent with `subagent_type: "ultra-review"` and a user prompt containing `### Git / diff output` and `### Changed file contents`.
+Typical flow: in **one** message, run two `Task` calls in parallel — `subagent_type: "shell"` and `subagent_type: "explore"` — to collect `git diff <base>...HEAD` output and full contents of changed files (default base `main`). Then invoke this agent with `subagent_type: "ultra-simplify"` and a user prompt containing `### Git / diff output` and `### Changed file contents`.
