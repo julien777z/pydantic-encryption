@@ -1,6 +1,6 @@
 ---
-name: ultra-review
-description: Run an extremely strict maintainability review for abstraction quality, giant files, and spaghetti-condition growth. Use for an ultra review, ultra-review, deep code quality audit, or especially harsh maintainability review.
+name: "ultra-refactor"
+description: "Run an extremely strict maintainability review for abstraction quality, giant files, and spaghetti-condition growth. Use for an ultra refactor, ultra-refactor, deep code quality audit, or especially harsh maintainability review."
 ---
 
 # Ultra Code Quality Review
@@ -50,7 +50,16 @@ Apply the baseline prompt above, plus these explicit review rules:
 4. **Prefer direct, boring, maintainable code over hacky or magical code.**
    - Treat brittle, ad-hoc, or "magic" behavior as a code-quality problem.
    - Be skeptical of generic mechanisms that hide simple data-shape assumptions.
-   - Flag thin abstractions, identity wrappers, or pass-through helpers that add indirection without buying clarity.
+   - Forbid slim pass-through shims: a function whose body is one call to the canonical function with the same name/args is banned. Call the canonical function directly at the use-site.
+
+     ```python
+     # Bad — pass-through shim
+     async def head_object_content_type(config, *, object_key):
+         return await object_storage.head_object_content_type(backend(config), object_key=object_key)
+
+     # Good — call the canonical helper at the use-site
+     await object_storage.head_object_content_type(backend(config), object_key=object_key)
+     ```
 
 5. **Push hard on type and boundary cleanliness when they affect maintainability.**
    - Question unnecessary optionality, `unknown`, `any`, or cast-heavy code when a clearer type boundary could exist.
