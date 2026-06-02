@@ -292,14 +292,18 @@ class SecureModel:
 
         if isinstance(value, SecureModel):
             await value.async_post_init()
-        elif isinstance(value, dict):
-            async with asyncio.TaskGroup() as tg:
-                for v in value.values():
-                    tg.create_task(SecureModel._async_post_init_nested(v))
+            return
+
+        if isinstance(value, dict):
+            children: Any = value.values()
         elif isinstance(value, (list, tuple, set, frozenset)):
-            async with asyncio.TaskGroup() as tg:
-                for v in value:
-                    tg.create_task(SecureModel._async_post_init_nested(v))
+            children = value
+        else:
+            return
+
+        async with asyncio.TaskGroup() as tg:
+            for child in children:
+                tg.create_task(SecureModel._async_post_init_nested(child))
 
     async def async_post_init(self) -> None:
         """Run async encrypt + hash + blind-index, including on nested models."""

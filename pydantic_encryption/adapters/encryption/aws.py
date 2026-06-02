@@ -12,7 +12,7 @@ import aioboto3
 import boto3
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from pydantic_encryption.adapters.base import EncryptionAdapter
+from pydantic_encryption.adapters.base import EncryptionAdapter, encode_text
 from pydantic_encryption.config import settings
 from pydantic_encryption.types import EncryptedValue
 
@@ -179,12 +179,10 @@ class AWSAdapter(EncryptionAdapter):
     def encrypt(cls, plaintext: bytes | str | EncryptedValue, *, key: str | None = None) -> EncryptedValue:
         if isinstance(plaintext, EncryptedValue):
             return plaintext
-        if isinstance(plaintext, str):
-            plaintext = plaintext.encode("utf-8")
 
         response = cls._sync_kms().generate_data_key(KeyId=cls._encrypt_arn(), KeySpec=DATA_KEY_SPEC)
 
-        return _seal(response["Plaintext"], response["CiphertextBlob"], plaintext)
+        return _seal(response["Plaintext"], response["CiphertextBlob"], encode_text(plaintext))
 
     @classmethod
     async def async_encrypt(
@@ -192,13 +190,11 @@ class AWSAdapter(EncryptionAdapter):
     ) -> EncryptedValue:
         if isinstance(plaintext, EncryptedValue):
             return plaintext
-        if isinstance(plaintext, str):
-            plaintext = plaintext.encode("utf-8")
 
         kms = await cls._async_kms()
         response = await kms.generate_data_key(KeyId=cls._encrypt_arn(), KeySpec=DATA_KEY_SPEC)
 
-        return _seal(response["Plaintext"], response["CiphertextBlob"], plaintext)
+        return _seal(response["Plaintext"], response["CiphertextBlob"], encode_text(plaintext))
 
     @classmethod
     def decrypt(cls, ciphertext: bytes | str | EncryptedValue, *, key: str | None = None) -> str:

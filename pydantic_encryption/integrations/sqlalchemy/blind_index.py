@@ -76,8 +76,8 @@ class SQLAlchemyBlindIndexValue(TypeDecorator):
             backend.async_compute_blind_index, backend.compute_blind_index, value, key
         )
 
-    def process_bind_param(self, value: str | bytes | BlindIndexValue | None, dialect) -> bytes | None:
-        """Compute the blind index before binding to the database."""
+    def _process(self, value: str | bytes | BlindIndexValue | None) -> bytes | None:
+        """Compute the blind index, passing ``None`` and pre-indexed values through."""
 
         if value is None:
             return None
@@ -86,17 +86,16 @@ class SQLAlchemyBlindIndexValue(TypeDecorator):
             return value
 
         return self._compute_blind_index(value)
+
+    def process_bind_param(self, value: str | bytes | BlindIndexValue | None, dialect) -> bytes | None:
+        """Compute the blind index before binding to the database."""
+
+        return self._process(value)
 
     def process_literal_param(self, value: str | bytes | BlindIndexValue | None, dialect) -> bytes | None:
         """Compute the blind index for literal SQL expressions."""
 
-        if value is None:
-            return None
-
-        if isinstance(value, BlindIndexValue):
-            return value
-
-        return self._compute_blind_index(value)
+        return self._process(value)
 
     def process_result_value(self, value: bytes | None, dialect) -> BlindIndexValue | None:
         """Return the stored blind index wrapped as a ``BlindIndexValue``."""

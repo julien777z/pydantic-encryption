@@ -42,6 +42,22 @@ def _resolve_backend() -> Any:
     return get_encryption_backend(method)
 
 
+def _collect_row_assignments(
+    rows: Iterable[Any], column_keys: Iterable[str]
+) -> list[tuple[Any, str, bytes]]:
+    """Build ``(row, key, ciphertext)`` triples for every encrypted cell across rows."""
+
+    column_keys = list(column_keys)
+    assignments: list[tuple[Any, str, bytes]] = []
+    for row in rows:
+        for key in column_keys:
+            value = read_raw_cell(row, key)
+            if isinstance(value, EncryptedValue):
+                assignments.append((row, key, bytes(value)))
+
+    return assignments
+
+
 async def _decrypt_assignments(
     backend: Any, assignments: list[tuple[Any, str, bytes]]
 ) -> None:
@@ -73,13 +89,7 @@ async def decrypt_rows(rows: Iterable[Any], *columns: InstrumentedAttribute | st
         return
 
     backend = _resolve_backend()
-    column_keys = [_column_key(c) for c in columns]
-    assignments: list[tuple[Any, str, bytes]] = []
-    for row in rows:
-        for key in column_keys:
-            value = read_raw_cell(row, key)
-            if isinstance(value, EncryptedValue):
-                assignments.append((row, key, bytes(value)))
+    assignments = _collect_row_assignments(rows, (_column_key(c) for c in columns))
 
     await _decrypt_assignments(backend, assignments)
 
@@ -91,12 +101,8 @@ def decrypt_rows_sync(rows: Iterable[Any], *columns: InstrumentedAttribute | str
         return
 
     backend = _resolve_backend()
-    column_keys = [_column_key(c) for c in columns]
-    for row in rows:
-        for key in column_keys:
-            value = read_raw_cell(row, key)
-            if isinstance(value, EncryptedValue):
-                set_decrypted(row, key, decode_value(backend.decrypt(bytes(value))))
+    for row, key, ciphertext in _collect_row_assignments(rows, (_column_key(c) for c in columns)):
+        set_decrypted(row, key, decode_value(backend.decrypt(ciphertext)))
 
 
 async def decrypt_values(values: Iterable[Any]) -> list[Any]:
@@ -186,10 +192,7 @@ async def bulk_decrypt_entities(entities: Any | Iterable[Any] | None) -> None:
     backend = _resolve_backend()
     assignments: list[tuple[Any, str, bytes]] = []
     for (_, column_key), rows in collected.items():
-        for row in rows:
-            value = read_raw_cell(row, column_key)
-            if isinstance(value, EncryptedValue):
-                assignments.append((row, column_key, bytes(value)))
+        assignments.extend(_collect_row_assignments(rows, (column_key,)))
 
     await _decrypt_assignments(backend, assignments)
 

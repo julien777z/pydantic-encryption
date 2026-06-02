@@ -4,14 +4,9 @@ from pydantic_encryption.lazy import require_optional_dependency
 
 require_optional_dependency("sqlalchemy", "sqlalchemy")
 
-try:
-    from sqlalchemy.util import await_  # type: ignore[attr-defined]
-except ImportError:
-    from sqlalchemy.util import await_only as await_
-
-from sqlalchemy.exc import MissingGreenlet
 from sqlalchemy.orm import object_session
 
+from pydantic_encryption.integrations.sqlalchemy.async_bridge import run_async_or_sync
 from pydantic_encryption.integrations.sqlalchemy.state import pending_siblings
 from pydantic_encryption.integrations.sqlalchemy.bulk import decrypt_rows, decrypt_rows_sync
 from pydantic_encryption.types import EncryptedValue
@@ -47,13 +42,7 @@ class DecryptOnAccessDescriptor:
         else:
             rows = {instance, *pending_siblings(session, self._cls)}
 
-        coro = decrypt_rows(rows, self._column_key)
-        try:
-            await_(coro)
-        except MissingGreenlet:
-            coro.close()
-
-            decrypt_rows_sync(rows, self._column_key)
+        run_async_or_sync(decrypt_rows, decrypt_rows_sync, rows, self._column_key)
 
         return self._wrapped.__get__(instance, owner)
 
