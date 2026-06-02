@@ -1,3 +1,5 @@
+from typing import Any
+
 from pydantic_encryption.lazy import require_optional_dependency
 
 require_optional_dependency("sqlalchemy", "sqlalchemy")
@@ -25,6 +27,15 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
         super().__init__(*args, **kwargs)
         self._deferred = False
 
+    @staticmethod
+    def _backend() -> Any:
+        """Return the configured encryption backend, raising if ENCRYPTION_METHOD is unset."""
+
+        if settings.ENCRYPTION_METHOD is None:
+            raise ValueError("ENCRYPTION_METHOD must be set to use SQLAlchemyEncryptedValue.")
+
+        return get_encryption_backend(settings.ENCRYPTION_METHOD)
+
     def _encrypt_cell(self, value: EncryptableValue | EncryptedValue | None) -> EncryptedValue | None:
         """Encode + encrypt a single value, passing pre-encrypted values through."""
 
@@ -33,10 +44,7 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
         if isinstance(value, EncryptedValue):
             return value
 
-        if settings.ENCRYPTION_METHOD is None:
-            raise ValueError("ENCRYPTION_METHOD must be set to use SQLAlchemyEncryptedValue.")
-
-        backend = get_encryption_backend(settings.ENCRYPTION_METHOD)
+        backend = self._backend()
 
         return run_async_or_sync(backend.async_encrypt, backend.encrypt, encode_value(value))
 
@@ -46,10 +54,7 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
         if value is None:
             return None
 
-        if settings.ENCRYPTION_METHOD is None:
-            raise ValueError("ENCRYPTION_METHOD must be set to use SQLAlchemyEncryptedValue.")
-
-        backend = get_encryption_backend(settings.ENCRYPTION_METHOD)
+        backend = self._backend()
 
         return run_async_or_sync(backend.async_decrypt, backend.decrypt, value)
 

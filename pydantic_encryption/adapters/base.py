@@ -4,6 +4,12 @@ from abc import ABC, abstractmethod
 from pydantic_encryption.types import BlindIndexValue, EncryptedValue, HashedValue
 
 
+def encode_text(value: str | bytes) -> bytes:
+    """Return UTF-8 bytes for a ``str``, or the bytes unchanged."""
+
+    return value.encode("utf-8") if isinstance(value, str) else value
+
+
 class EncryptionAdapter(ABC):
     """Abstract base class for encryption adapters."""
 

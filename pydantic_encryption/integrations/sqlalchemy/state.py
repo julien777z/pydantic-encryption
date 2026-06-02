@@ -35,16 +35,10 @@ def pending_siblings(session: Any, cls: type) -> list[Any]:
 
     if session is None:
         return []
-    info = getattr(session, "info", None)
-    if not info:
-        return []
-    bucket = info.get(PENDING_DECRYPT_KEY)
-    if not bucket:
-        return []
-    siblings = bucket.get(cls)
-    if siblings is None:
-        return []
-    return list(siblings)
+
+    bucket = getattr(session, "info", {}).get(PENDING_DECRYPT_KEY) or {}
+
+    return list(bucket.get(cls) or [])
 
 
 __all__ = ["PENDING_DECRYPT_KEY", "read_raw_cell", "set_decrypted", "pending_siblings"]
