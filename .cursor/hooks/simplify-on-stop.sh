@@ -1,15 +1,13 @@
 #!/usr/bin/env bash
-# Stop hook: block exactly once per session and ask the agent to invoke the
-# code-simplify skill. The agent decides whether the skill applies; if no
-# code was modified it skips gracefully and stops.
+# Stop hook: ask the agent to run the code-simplify skill on the changes it is
+# about to push, before each push. The agent decides whether the skill applies;
+# if no code was modified it skips gracefully and stops.
 #
-# Loop prevention:
-# 1. `stop_hook_active`: when Claude Code retries Stop after our block,
-#    this flag is true — exit clean.
-# 2. /tmp lock keyed by session_id: belt-and-suspenders for the case where
-#    `stop_hook_active` fails to propagate (anthropics/claude-code#54360).
-#    If we can't establish a lock (missing session_id, unwritable tmp),
-#    exit clean rather than risk an infinite block loop.
+# Loop prevention: `stop_hook_active` is true when Claude Code retries Stop after
+# our block, so we exit clean on the retry and never block twice in a row. This
+# is the documented guard against infinite Stop-hook loops, so no per-session
+# lock is used — that keeps the nudge firing once per turn (every push) instead
+# of only on the first stop of a session.
 
 set -euo pipefail
 
@@ -19,20 +17,6 @@ is_active=$(printf '%s' "$input" | python3 -c \
   'import json,sys;print(str(json.load(sys.stdin).get("stop_hook_active",False)).lower())' \
   2>/dev/null || echo "true")
 
-session_id=$(printf '%s' "$input" | python3 -c \
-  'import json,sys;v=json.load(sys.stdin).get("session_id");print(v if isinstance(v,str) else "")' \
-  2>/dev/null || echo "")
-
 [ "$is_active" = "true" ] && exit 0
-
-# Require session_id + writable lock; otherwise exit clean to avoid loops.
-[ -z "$session_id" ] && exit 0
-
-lock="${TMPDIR:-/tmp}/simplify-on-stop-${session_id}.lock"
-[ -e "$lock" ] && exit 0
-# Establish the lock first. If /tmp is unwritable we exit clean rather than risk
-# unbounded blocking on every retry. (A failed echo afterward could only lose
-# the nudge for this session, which is strictly better than looping.)
-: > "$lock" 2>/dev/null || exit 0
 
 echo '{"decision":"block","reason":"Do not push yet. First call the Skill tool with skill=\"code-simplify\" (the project skill, NOT the built-in \"simplify\" skill) and walk it against the files you changed since your last push: check each against your rules and the skill defaults, and apply fixes — do not rubber-stamp with \"no changes needed\". Fold every edit the skill produces, correctness fix or cleanup alike, into the commit you are about to push, so each push already contains its own simplification pass. Do not push the simplifications as a separate follow-up commit. It is fine for a multi-turn session to produce several commits and pushes; the only rule is that code-simplify has run on the changes in a push before that push happens. If you modified no code at all, skip the skill and conclude."}'
