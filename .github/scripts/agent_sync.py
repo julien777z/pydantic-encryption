@@ -1,6 +1,5 @@
 import argparse
 import difflib
-import hashlib
 import json
 import re
 import shutil
@@ -22,6 +21,7 @@ SETTINGS_DIR: Final[Path] = AGENTS_DIR / "settings"
 MODELS_DIR: Final[Path] = AGENTS_DIR / "models"
 MAX_DIFF_LINES: Final[int] = 20
 SAFE_SLUG_PATTERN: Final[re.Pattern[str]] = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+NUMBERED_COPY_PATTERN: Final[re.Pattern[str]] = re.compile(r" \d+$")
 TEXT_CACHE: dict[Path, str | None] = {}
 
 
@@ -852,43 +852,15 @@ def dedupe_outputs() -> None:
 
 
 def dedupe_directory(directory: Path) -> None:
-    """Remove duplicate files in a directory by comparing whitespace-normalized content hashes."""
+    """Remove OS-created duplicate files whose name ends with a space and a number (e.g. "name 2.md")."""
 
     if not directory.exists():
         return
 
-    seen: dict[str, Path] = {}
     for path in sorted(directory.iterdir()):
-        if not path.is_file():
-            continue
-
-        content = read_text(path)
-        if content is None:
-            continue
-
-        digest = hash_normalized(content)
-        if digest not in seen:
-            seen[digest] = path
-            continue
-
-        existing = seen[digest]
-        # Only collapse genuine OS-created duplicates (e.g. "name 2.md"); two
-        # distinct slugs that happen to share an identical body are both kept.
-        # When both stems carry " 2", keep the first seen (sorted) one.
-        if " 2" not in existing.stem and " 2" not in path.stem:
-            continue
-
-        remove, keep = (path, existing) if " 2" in path.stem else (existing, path)
-        remove.unlink(missing_ok=True)
-        TEXT_CACHE.pop(remove, None)
-        seen[digest] = keep
-
-
-def hash_normalized(content: str) -> str:
-    """Produce a SHA-256 hash of content with all whitespace removed."""
-
-    normalized = re.sub(r"\s+", "", content)
-    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+        if path.is_file() and NUMBERED_COPY_PATTERN.search(path.stem):
+            path.unlink(missing_ok=True)
+            TEXT_CACHE.pop(path, None)
 
 
 if __name__ == "__main__":
