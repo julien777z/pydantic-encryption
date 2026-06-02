@@ -35,8 +35,16 @@ session_id=$(printf '%s' "$input" | python3 -c \
 [ -z "$session_id" ] && exit 0
 
 counter="${TMPDIR:-/tmp}/simplify-on-stop-${session_id}.count"
-count=$(cat "$counter" 2>/dev/null || echo 0)
-case "$count" in ''|*[!0-9]*) count=0 ;; esac
+
+# A missing counter means this is the first block; an existing-but-unreadable
+# counter means we cannot trust the cap, so exit clean rather than reset to 0
+# and risk looping.
+if [ -e "$counter" ]; then
+  count=$(cat "$counter" 2>/dev/null) || exit 0
+  case "$count" in ''|*[!0-9]*) exit 0 ;; esac
+else
+  count=0
+fi
 
 [ "$count" -ge "$MAX_BLOCKS_PER_SESSION" ] && exit 0
 
