@@ -4,16 +4,20 @@
 # applies; if it changed nothing it skips gracefully and stops.
 #
 # Loop prevention: `stop_hook_active` is true when Claude Code retries Stop after
-# our block. Checking it first and exiting clean is the documented way to avoid
-# an infinite Stop-hook loop — when set, we must not block again.
+# our block; exit clean then so we never block twice. Without python3 we cannot
+# read that flag, so skip rather than risk an infinite Stop-hook loop. A malformed
+# payload while python3 is present is not a retry (the retry always carries
+# stop_hook_active=true as valid JSON), so fall through and still emit the nudge.
 
 set -euo pipefail
 
 input=$(cat)
 
+command -v python3 >/dev/null 2>&1 || exit 0
+
 is_active=$(printf '%s' "$input" | python3 -c \
   'import json,sys;print(str(json.load(sys.stdin).get("stop_hook_active",False)).lower())' \
-  2>/dev/null || echo "true")
+  2>/dev/null || echo "false")
 
 [ "$is_active" = "true" ] && exit 0
 
