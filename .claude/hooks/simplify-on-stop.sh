@@ -1,19 +1,23 @@
 #!/usr/bin/env bash
 # Stop hook: before each push, ask the agent to run the code-simplify skill over
-# the branch diff. The agent decides whether the skill applies; if the branch
-# has no changes it skips gracefully and stops.
+# the files it changed this session. The agent decides whether the skill
+# applies; if it changed nothing it skips gracefully and stops.
 #
 # Loop prevention: `stop_hook_active` is true when Claude Code retries Stop after
-# our block. Checking it first and exiting clean is the documented way to avoid
-# an infinite Stop-hook loop — when set, we must not block again.
+# our block; exit clean then so we never block twice. Without python3 we cannot
+# read that flag, so skip rather than risk an infinite Stop-hook loop. A malformed
+# payload while python3 is present is not a retry (the retry always carries
+# stop_hook_active=true as valid JSON), so fall through and still emit the nudge.
 
 set -euo pipefail
 
 input=$(cat)
 
+command -v python3 >/dev/null 2>&1 || exit 0
+
 is_active=$(printf '%s' "$input" | python3 -c \
   'import json,sys;print(str(json.load(sys.stdin).get("stop_hook_active",False)).lower())' \
-  2>/dev/null || echo "true")
+  2>/dev/null || echo "false")
 
 [ "$is_active" = "true" ] && exit 0
 
@@ -29,4 +33,4 @@ if git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
   [ "$ahead" = "0" ] && exit 0
 fi
 
-echo '{"decision":"block","reason":"Do not push yet. First call the Skill tool with skill=\"code-simplify\" (the project skill, NOT the built-in \"simplify\" skill) and walk it against the whole branch diff (every change versus the base branch, not just this session): check each touched file against your rules and the skill defaults, and apply fixes — do not rubber-stamp with \"no changes needed\". Fold every edit the skill produces, correctness fix or cleanup alike, into the commit you are about to push, so each push already contains its own simplification pass. Do not push the simplifications as a separate follow-up commit. It is fine for a multi-turn session to produce several commits and pushes; the only rule is that code-simplify has run over the branch diff before a push happens. If the branch has no code changes, skip the skill and conclude."}'
+echo '{"decision":"block","reason":"Before pushing, call the Skill tool with skill=\"code-simplify\" (the project skill, not the built-in \"simplify\") and run it over the files you changed this session — not the whole branch diff. Fold its fixes into the commit you are about to push; do not rubber-stamp \"no changes needed\" or split them into a separate follow-up commit. If you changed no code, skip and conclude."}'

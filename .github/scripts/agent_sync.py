@@ -1,6 +1,5 @@
 import argparse
 import difflib
-import hashlib
 import json
 import re
 import shutil
@@ -22,6 +21,7 @@ SETTINGS_DIR: Final[Path] = AGENTS_DIR / "settings"
 MODELS_DIR: Final[Path] = AGENTS_DIR / "models"
 MAX_DIFF_LINES: Final[int] = 20
 SAFE_SLUG_PATTERN: Final[re.Pattern[str]] = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+NUMBERED_COPY_PATTERN: Final[re.Pattern[str]] = re.compile(r" \d+$")
 TEXT_CACHE: dict[Path, str | None] = {}
 
 
@@ -129,6 +129,26 @@ def main() -> int:
     return 0
 
 
+def load_json_object(path: Path, model: type[BaseModel]) -> dict | None:
+    """Read a JSON object from `path` and validate it against `model`, warning and returning None on failure."""
+
+    raw = read_text(path)
+    if raw is None:
+        return None
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        console.print(f"[yellow]Warning:[/yellow] Invalid JSON in {path}: {exc}")
+        return None
+
+    if not isinstance(data, dict):
+        console.print(f"[yellow]Warning:[/yellow] {path} is not a JSON object; ignoring.")
+        return None
+
+    return validate_front_matter(data, model, str(path))
+
+
 def load_platform_settings() -> dict[str, dict]:
     """Load each `.agents/settings/<platform>.json`, validating its top-level shape."""
 
@@ -137,22 +157,9 @@ def load_platform_settings() -> dict[str, dict]:
         return settings
 
     for path in sorted(SETTINGS_DIR.glob("*.json")):
-        platform = path.stem
-        raw = read_text(path)
-        if raw is None:
-            continue
-        try:
-            data = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            console.print(f"[yellow]Warning:[/yellow] Invalid JSON in {path}: {exc}")
-            continue
-        if not isinstance(data, dict):
-            console.print(f"[yellow]Warning:[/yellow] {path} is not a JSON object; ignoring.")
-            continue
-        validated = validate_front_matter(data, PlatformSettings, str(path))
-        if validated is None:
-            continue
-        settings[platform] = validated
+        data = load_json_object(path, PlatformSettings)
+        if data is not None:
+            settings[path.stem] = data
 
     return settings
 
@@ -166,21 +173,9 @@ def load_agent_model_overrides() -> dict[str, dict[str, str]]:
 
     for path in sorted(MODELS_DIR.glob("*.json")):
         slug = validate_slug(path.stem, path)
-        raw = read_text(path)
-        if raw is None:
-            continue
-        try:
-            data = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            console.print(f"[yellow]Warning:[/yellow] Invalid JSON in {path}: {exc}")
-            continue
-        if not isinstance(data, dict):
-            console.print(f"[yellow]Warning:[/yellow] {path} is not a JSON object; ignoring.")
-            continue
-        validated = validate_front_matter(data, AgentModelOverride, str(path))
-        if validated is None:
-            continue
-        overrides[slug] = {k: v for k, v in validated.items() if isinstance(v, str) and v}
+        data = load_json_object(path, AgentModelOverride)
+        if data is not None:
+            overrides[slug] = {k: v for k, v in data.items() if isinstance(v, str) and v}
 
     return overrides
 
@@ -222,14 +217,12 @@ def parse_markdown_file(path: Path, model: type[BaseModel] | None = None) -> tup
             body = "\n".join(lines[end_index + 1 :])
             if front_matter_content:
                 raw_data = yaml.safe_load(front_matter_content) or {}
-                if isinstance(raw_data, dict):
-                    if model is None:
-                        front_matter = raw_data
-                    else:
-                        data = validate_front_matter(raw_data, model, str(path))
-                        front_matter = data if data is not None else {}
-                else:
+                if not isinstance(raw_data, dict):
                     console.print(f"[yellow]Warning:[/yellow] Invalid front matter in {path}.")
+                elif model is None:
+                    front_matter = raw_data
+                else:
+                    front_matter = validate_front_matter(raw_data, model, str(path)) or {}
 
     return front_matter, normalize_text(body)
 
@@ -246,7 +239,6 @@ def generate_outputs(
     outputs.extend(generate_project_outputs())
     outputs.extend(generate_agent_outputs(platform_settings, agent_model_overrides))
     outputs.extend(generate_rule_outputs())
-    outputs.extend(generate_codex_rule_outputs())
     outputs.extend(generate_hook_outputs())
     outputs.extend(generate_settings_outputs(platform_settings))
     return outputs
@@ -273,51 +265,33 @@ def generate_skill_outputs() -> list[OutputFile]:
         front_matter, content = parse_markdown_file(source_path, SkillFrontMatter)
         source_content = read_text(source_path) or ""
 
-        codex_name_raw = front_matter.get("name")
-        codex_name = codex_name_raw if isinstance(codex_name_raw, str) and codex_name_raw else slug_to_codex_name(slug)
+        codex_name = nonempty_str(front_matter.get("name")) or slug_to_codex_name(slug)
         if not SAFE_SLUG_PATTERN.match(codex_name):
             console.print(
                 f"[yellow]Warning:[/yellow] Invalid codex skill name '{codex_name}' in {source_path}; using '{slug_to_codex_name(slug)}'."
             )
             codex_name = slug_to_codex_name(slug)
 
-        codex_description_raw = front_matter.get("description")
-        codex_description = (
-            codex_description_raw
-            if isinstance(codex_description_raw, str) and codex_description_raw
-            else derive_description(content)
-        )
+        codex_description = nonempty_str(front_matter.get("description")) or derive_description(content)
 
-        outputs.append(
-            OutputFile(
-                target_path=ROOT_DIR / ".cursor" / "skills" / slug / "SKILL.md",
-                content=ensure_trailing_newline(source_content),
-                kind="cursor_skill",
-                slug=slug,
-                source_path=source_path,
-            )
-        )
+        # (platform, skill-dir-name) — codex lives under its sanitized name, the others under the slug.
+        skill_dirs = (("cursor", slug), ("claude", slug), ("codex", codex_name))
 
-        outputs.append(
-            OutputFile(
-                target_path=ROOT_DIR / ".claude" / "skills" / slug / "SKILL.md",
-                content=ensure_trailing_newline(source_content),
-                kind="claude_skill",
-                slug=slug,
-                source_path=source_path,
+        skill_md_content = {
+            "cursor": ensure_trailing_newline(source_content),
+            "claude": ensure_trailing_newline(source_content),
+            "codex": assemble_codex_skill(content, codex_name, codex_description),
+        }
+        for platform, dir_name in skill_dirs:
+            outputs.append(
+                OutputFile(
+                    target_path=ROOT_DIR / f".{platform}" / "skills" / dir_name / "SKILL.md",
+                    content=skill_md_content[platform],
+                    kind=f"{platform}_skill",
+                    slug=slug,
+                    source_path=source_path,
+                )
             )
-        )
-
-        codex_output = assemble_codex_skill(content, codex_name, codex_description)
-        outputs.append(
-            OutputFile(
-                target_path=ROOT_DIR / ".codex" / "skills" / codex_name / "SKILL.md",
-                content=codex_output,
-                kind="codex_skill",
-                slug=slug,
-                source_path=source_path,
-            )
-        )
 
         for asset_path in sorted(skill_dir.rglob("*")):
             if not asset_path.is_file() or asset_path.name == "SKILL.md":
@@ -326,33 +300,16 @@ def generate_skill_outputs() -> list[OutputFile]:
             if asset_content is None:
                 continue
             relative = asset_path.relative_to(skill_dir)
-            outputs.append(
-                OutputFile(
-                    target_path=ROOT_DIR / ".cursor" / "skills" / slug / relative,
-                    content=ensure_trailing_newline(asset_content),
-                    kind="cursor_skill_asset",
-                    slug=slug,
-                    source_path=asset_path,
+            for platform, dir_name in skill_dirs:
+                outputs.append(
+                    OutputFile(
+                        target_path=ROOT_DIR / f".{platform}" / "skills" / dir_name / relative,
+                        content=ensure_trailing_newline(asset_content),
+                        kind=f"{platform}_skill_asset",
+                        slug=slug,
+                        source_path=asset_path,
+                    )
                 )
-            )
-            outputs.append(
-                OutputFile(
-                    target_path=ROOT_DIR / ".claude" / "skills" / slug / relative,
-                    content=ensure_trailing_newline(asset_content),
-                    kind="claude_skill_asset",
-                    slug=slug,
-                    source_path=asset_path,
-                )
-            )
-            outputs.append(
-                OutputFile(
-                    target_path=ROOT_DIR / ".codex" / "skills" / codex_name / relative,
-                    content=ensure_trailing_newline(asset_content),
-                    kind="codex_skill_asset",
-                    slug=slug,
-                    source_path=asset_path,
-                )
-            )
 
     return outputs
 
@@ -368,7 +325,8 @@ def generate_command_outputs() -> list[OutputFile]:
     for path in sorted(commands_dir.glob("*.md")):
         slug = validate_slug(path.stem, path)
         front_matter, content = parse_markdown_file(path, CommandFrontMatter)
-        variants = front_matter.get("variants", {}) if isinstance(front_matter.get("variants"), dict) else {}
+        raw_variants = front_matter.get("variants")
+        variants = raw_variants if isinstance(raw_variants, dict) else {}
 
         claude_body = normalize_text(variants.get("claude", content) or content)
         cursor_body = normalize_text(variants.get("cursor", content) or content)
@@ -487,7 +445,7 @@ def generate_agent_outputs(
 
 
 def generate_rule_outputs() -> list[OutputFile]:
-    """Sync .agents/rules/<name>.md to .claude/rules/<name>.md and .cursor/rules/<name>.mdc."""
+    """Sync .agents/rules/<name>.md to .claude/rules/*.md, .cursor/rules/*.mdc, and Starlark .codex/rules/*.rules."""
 
     outputs: list[OutputFile] = []
     rules_dir = AGENTS_DIR / "rules"
@@ -496,63 +454,44 @@ def generate_rule_outputs() -> list[OutputFile]:
 
     for path in sorted(rules_dir.glob("*.md")):
         slug = validate_slug(path.stem, path)
-        _, body = parse_markdown_file(path)
-        if not body.strip():
-            continue
-        outputs.append(
-            OutputFile(
-                target_path=ROOT_DIR / ".claude" / "rules" / f"{slug}.md",
-                content=ensure_trailing_newline(body),
-                kind="claude_rule",
-                slug=slug,
-                source_path=path,
+        front_matter, body = parse_markdown_file(path, RuleFrontMatter)
+        if body.strip():
+            outputs.append(
+                OutputFile(
+                    target_path=ROOT_DIR / ".claude" / "rules" / f"{slug}.md",
+                    content=ensure_trailing_newline(body),
+                    kind="claude_rule",
+                    slug=slug,
+                    source_path=path,
+                )
             )
-        )
-        outputs.append(
-            OutputFile(
-                target_path=ROOT_DIR / ".cursor" / "rules" / f"{slug}.mdc",
-                content=assemble_cursor_rule(body, always_apply=True),
-                kind="cursor_rule",
-                slug=slug,
-                source_path=path,
+            outputs.append(
+                OutputFile(
+                    target_path=ROOT_DIR / ".cursor" / "rules" / f"{slug}.mdc",
+                    content=assemble_cursor_rule(body, always_apply=True),
+                    kind="cursor_rule",
+                    slug=slug,
+                    source_path=path,
+                )
             )
-        )
 
-    return outputs
-
-
-def generate_codex_rule_outputs() -> list[OutputFile]:
-    """Generate Codex .rules files from rule markdown content/front matter."""
-
-    outputs: list[OutputFile] = []
-    rules_dir = AGENTS_DIR / "rules"
-    if not rules_dir.exists():
-        return outputs
-
-    for path in sorted(rules_dir.glob("*.md")):
-        slug = validate_slug(path.stem, path)
-        front_matter, _ = parse_markdown_file(path, RuleFrontMatter)
         # Codex execution-policy files must be Starlark, not Markdown. Only emit
         # when the source explicitly provides `starlark:` front matter; otherwise
-        # skip silently — the Markdown body is not valid policy syntax.
+        # skip silently — the Markdown body is not valid policy syntax. The marker
+        # comment lets compute_stale_paths prune synced files while leaving
+        # hand-maintained Starlark policies alone.
         starlark = front_matter.get("starlark")
-        if not isinstance(starlark, str) or not starlark.strip():
-            continue
-
-        # Prepend a marker comment so compute_stale_paths can distinguish files
-        # synced from .agents (managed, prune on source removal) from
-        # hand-maintained Starlark policies the user added directly.
-        marker_line = f"{CODEX_RULE_MARKER}{path.name}"
-        content = f"{marker_line}\n{starlark.strip()}"
-        outputs.append(
-            OutputFile(
-                target_path=ROOT_DIR / ".codex" / "rules" / f"{slug}.rules",
-                content=ensure_trailing_newline(content),
-                kind="codex_rule",
-                slug=slug,
-                source_path=path,
+        if isinstance(starlark, str) and starlark.strip():
+            content = f"{CODEX_RULE_MARKER}{path.name}\n{starlark.strip()}"
+            outputs.append(
+                OutputFile(
+                    target_path=ROOT_DIR / ".codex" / "rules" / f"{slug}.rules",
+                    content=ensure_trailing_newline(content),
+                    kind="codex_rule",
+                    slug=slug,
+                    source_path=path,
+                )
             )
-        )
 
     return outputs
 
@@ -641,6 +580,12 @@ def render_front_matter(front_matter: dict, body: str) -> str:
     return ensure_trailing_newline(output)
 
 
+def nonempty_str(value: object) -> str | None:
+    """Return value when it is a non-empty string, else None."""
+
+    return value if isinstance(value, str) and value else None
+
+
 def normalize_text(value: object) -> str:
     if not isinstance(value, str):
         return ""
@@ -653,30 +598,24 @@ def slug_to_codex_name(slug: str) -> str:
 
 
 def derive_description(content: str) -> str:
-    """Extract a description from content, preferring the first non-header line then falling back to headers."""
+    """Extract a description from content, preferring the first non-header line then falling back to the first header."""
 
-    for line in content.splitlines():
-        line = line.strip()
+    first_header: str | None = None
+    for raw_line in content.splitlines():
+        line = raw_line.strip()
         if not line:
             continue
         if line.startswith("#"):
+            if first_header is None:
+                first_header = " ".join(line.lstrip("#").strip().split())
             continue
         return " ".join(line.split())
 
-    for line in content.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        if line.startswith("#"):
-            return " ".join(line.lstrip("#").strip().split())
-
-    return "VaultGig conventions."
+    return first_header if first_header is not None else "VaultGig conventions."
 
 
 def ensure_trailing_newline(text: str) -> str:
-    if not text.endswith("\n"):
-        return text + "\n"
-    return text
+    return text if text.endswith("\n") else text + "\n"
 
 
 def compute_diffs(outputs: list[OutputFile]) -> list[DiffEntry]:
@@ -685,20 +624,24 @@ def compute_diffs(outputs: list[OutputFile]) -> list[DiffEntry]:
     diffs: list[DiffEntry] = []
     for output in outputs:
         existing = read_text(output.target_path)
-        if existing is None or existing != output.content:
-            diffs.append(DiffEntry(output=output, existing=existing))
-            continue
-        # Content matches but the exec bit may be missing — rewrite so write_text
-        # re-applies chmod. Without this, a Stop hook command pointing at a bare
-        # script path can fail.
-        if output_needs_exec_bit(output) and output.target_path.exists() \
-                and not output.target_path.stat().st_mode & 0o111:
+        if existing is None or existing != output.content or missing_exec_bit(output):
             diffs.append(DiffEntry(output=output, existing=existing))
     return diffs
 
 
-def output_needs_exec_bit(output: OutputFile) -> bool:
-    return output.target_path.suffix == ".sh" or output.content.startswith("#!")
+def is_executable_output(path: Path, content: str) -> bool:
+    """Report whether an output should carry the exec bit (shell scripts and shebang files)."""
+
+    return path.suffix == ".sh" or content.startswith("#!")
+
+
+def missing_exec_bit(output: OutputFile) -> bool:
+    """Report whether an executable output exists on disk without its exec bit, so write_text re-applies chmod."""
+
+    target = output.target_path
+    if not is_executable_output(target, output.content):
+        return False
+    return target.exists() and not target.stat().st_mode & 0o111
 
 
 def compute_stale_paths(
@@ -807,7 +750,7 @@ def write_text(path: Path, content: str) -> None:
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
-    if path.suffix == ".sh" or content.startswith("#!"):
+    if is_executable_output(path, content):
         path.chmod(0o755)
     TEXT_CACHE[path] = content
 
@@ -887,14 +830,9 @@ def resolve_agent_model(
     """Pick the per-agent override for this platform; fall back to the platform-wide default."""
 
     override = agent_model_overrides.get(agent_slug, {}).get(platform)
-    if isinstance(override, str) and override:
-        return override
-
     default = platform_settings.get(platform, {}).get("model")
-    if isinstance(default, str) and default:
-        return default
 
-    return None
+    return nonempty_str(override) or nonempty_str(default)
 
 
 def validate_slug(slug: str, source_path: Path) -> str:
@@ -914,47 +852,15 @@ def dedupe_outputs() -> None:
 
 
 def dedupe_directory(directory: Path) -> None:
-    """Remove duplicate files in a directory by comparing whitespace-normalized content hashes."""
+    """Remove OS-created duplicate files whose name ends with a space and a number (e.g. "name 2.md")."""
 
     if not directory.exists():
         return
 
-    seen: dict[str, Path] = {}
     for path in sorted(directory.iterdir()):
-        if not path.is_file():
-            continue
-
-        content = read_text(path)
-        if content is None:
-            continue
-
-        digest = hash_normalized(content)
-        if digest not in seen:
-            seen[digest] = path
-            continue
-
-        keep = choose_preferred(seen[digest], path)
-        remove = path if keep == seen[digest] else seen[digest]
-        remove.unlink(missing_ok=True)
-        TEXT_CACHE.pop(remove, None)
-        seen[digest] = keep
-
-
-def hash_normalized(content: str) -> str:
-    """Produce a SHA-256 hash of content with all whitespace removed."""
-
-    normalized = re.sub(r"\s+", "", content)
-    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
-
-
-def choose_preferred(first: Path, second: Path) -> Path:
-    """Prefer files without ' 2' in the stem, which indicates an OS-created duplicate."""
-
-    first_score = 0 if " 2" in first.stem else 1
-    second_score = 0 if " 2" in second.stem else 1
-    if first_score != second_score:
-        return first if first_score > second_score else second
-    return first
+        if path.is_file() and NUMBERED_COPY_PATTERN.search(path.stem):
+            path.unlink(missing_ok=True)
+            TEXT_CACHE.pop(path, None)
 
 
 if __name__ == "__main__":
