@@ -15,7 +15,6 @@ class TestAsyncFernetAdapter:
         encrypted = await FernetAdapter.async_encrypt(plaintext)
 
         assert isinstance(encrypted, EncryptedValue)
-        assert isinstance(encrypted, EncryptedValue)
         assert encrypted != plaintext.encode("utf-8")
 
     @pytest.mark.asyncio
@@ -23,7 +22,6 @@ class TestAsyncFernetAdapter:
         plaintext = b"secret bytes"
         encrypted = await FernetAdapter.async_encrypt(plaintext)
 
-        assert isinstance(encrypted, EncryptedValue)
         assert isinstance(encrypted, EncryptedValue)
 
     @pytest.mark.asyncio
@@ -97,7 +95,6 @@ class TestAsyncArgon2Adapter:
         hashed = await Argon2Adapter.async_hash(value)
 
         assert isinstance(hashed, HashedValue)
-        assert isinstance(hashed, HashedValue)
         assert hashed != value.encode("utf-8")
 
     @pytest.mark.asyncio
@@ -105,7 +102,6 @@ class TestAsyncArgon2Adapter:
         value = b"password123"
         hashed = await Argon2Adapter.async_hash(value)
 
-        assert isinstance(hashed, HashedValue)
         assert isinstance(hashed, HashedValue)
 
     @pytest.mark.asyncio
@@ -135,7 +131,6 @@ class TestAsyncArgon2Adapter:
         hashed = await Argon2Adapter.async_hash(value)
 
         assert isinstance(hashed, HashedValue)
-        assert isinstance(hashed, HashedValue)
 
 
 class TestAsyncHMACSHA256Adapter:
@@ -146,7 +141,6 @@ class TestAsyncHMACSHA256Adapter:
     @pytest.mark.asyncio
     async def test_async_compute_blind_index_string(self):
         result = await HMACSHA256Adapter.async_compute_blind_index("test@example.com", self.TEST_KEY)
-        assert isinstance(result, BlindIndexValue)
         assert isinstance(result, BlindIndexValue)
         assert len(result) == 32
 

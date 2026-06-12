@@ -197,26 +197,29 @@ async def bulk_decrypt_entities(entities: Any | Iterable[Any] | None) -> None:
     await decrypt_assignments(backend, assignments)
 
 
+def pop_pending_rows(session: AsyncSession) -> list[Any]:
+    """Remove this session's pending-decrypt bucket and flatten it into a row list."""
+
+    pending = session.info.pop(PENDING_DECRYPT_KEY, None) or {}
+
+    return [row for rows in pending.values() for row in rows]
+
+
 async def decrypt_pending_fields(session: AsyncSession) -> None:
     """Force-decrypt every encrypted column on every instance bucketed in this session."""
 
-    pending = session.info.pop(PENDING_DECRYPT_KEY, None)
-    if not pending:
-        return
-
-    await bulk_decrypt_entities([row for rows in pending.values() for row in rows])
+    await bulk_decrypt_entities(pop_pending_rows(session))
 
 
 async def finalize_sqlalchemy_session(session: AsyncSession) -> None:
     """Commit to release the pooled connection, then run the captured pending decrypt batch."""
 
-    pending = session.info.pop(PENDING_DECRYPT_KEY, None)
+    rows = pop_pending_rows(session)
 
     if session.in_transaction():
         await session.commit()
 
-    if pending:
-        await bulk_decrypt_entities([row for rows in pending.values() for row in rows])
+    await bulk_decrypt_entities(rows)
 
 
 __all__ = [

@@ -4,15 +4,6 @@ from pydantic_encryption.integrations.sqlalchemy.blind_index import SQLAlchemyBl
 from pydantic_encryption.types import BlindIndexMethod, BlindIndexValue
 
 
-@pytest.fixture(autouse=True)
-def set_blind_index_key(monkeypatch):
-    """Set a test blind index secret key for all tests."""
-
-    from pydantic_encryption.integrations.sqlalchemy import blind_index as blind_index_module
-
-    monkeypatch.setattr(blind_index_module.settings, "BLIND_INDEX_SECRET_KEY", "test-secret-key-for-blind-index")
-
-
 class TestSQLAlchemyBlindIndexValueHMAC:
     """Test SQLAlchemyBlindIndexValue with HMAC-SHA256 method."""
 
@@ -73,7 +64,6 @@ class TestSQLAlchemyBlindIndexValueHMAC:
     def test_process_result_value_returns_blind_index_value(self):
         test_bytes = b"\x01\x02\x03\x04" * 8
         result = self.type_adapter.process_result_value(test_bytes, None)
-        assert isinstance(result, BlindIndexValue)
         assert isinstance(result, BlindIndexValue)
         assert result == test_bytes
 

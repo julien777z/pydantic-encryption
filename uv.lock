@@ -1203,7 +1203,7 @@ wheels = [
 
 [[package]]
 name = "pydantic-encryption"
-version = "0.10.1"
+version = "0.11.1"
 source = { editable = "." }
 dependencies = [
     { name = "argon2-cffi" },
