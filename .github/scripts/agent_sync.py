@@ -236,7 +236,6 @@ def generate_outputs(
     outputs: list[OutputFile] = []
     outputs.extend(generate_skill_outputs())
     outputs.extend(generate_command_outputs())
-    outputs.extend(generate_project_outputs())
     outputs.extend(generate_agent_outputs(platform_settings, agent_model_overrides))
     outputs.extend(generate_rule_outputs())
     outputs.extend(generate_hook_outputs())
@@ -356,53 +355,6 @@ def generate_command_outputs() -> list[OutputFile]:
                 source_path=path,
             )
         )
-
-    return outputs
-
-
-def generate_project_outputs() -> list[OutputFile]:
-    """Generate CLAUDE.md and Cursor project.md from project markdown."""
-
-    outputs: list[OutputFile] = []
-    project_dir = AGENTS_DIR / "project"
-    if not project_dir.exists():
-        return outputs
-
-    project_files = sorted(project_dir.glob("*.md"))
-    if not project_files:
-        return outputs
-
-    # CLAUDE.md and project.md are single-target outputs. Loop over multiple sources
-    # would silently overwrite (last one wins). Use the first file and warn if more.
-    path = project_files[0]
-    if len(project_files) > 1:
-        extras = ", ".join(p.name for p in project_files[1:])
-        console.print(
-            f"[yellow]Warning:[/yellow] Multiple project sources in {project_dir} — using "
-            f"{path.name}, ignoring: {extras}"
-        )
-
-    slug = validate_slug(path.stem, path)
-    _, content = parse_markdown_file(path)
-
-    outputs.extend(
-        [
-            OutputFile(
-                target_path=ROOT_DIR / ".claude" / "CLAUDE.md",
-                content=ensure_trailing_newline(content),
-                kind="project",
-                slug=slug,
-                source_path=path,
-            ),
-            OutputFile(
-                target_path=ROOT_DIR / ".cursor" / "project.md",
-                content=ensure_trailing_newline(content),
-                kind="project",
-                slug=slug,
-                source_path=path,
-            ),
-        ]
-    )
 
     return outputs
 
@@ -611,7 +563,7 @@ def derive_description(content: str) -> str:
             continue
         return " ".join(line.split())
 
-    return first_header if first_header is not None else "VaultGig conventions."
+    return first_header if first_header is not None else "Project conventions."
 
 
 def ensure_trailing_newline(text: str) -> str:
@@ -695,25 +647,12 @@ def compute_stale_paths(
             if head is not None and head.startswith(CODEX_RULE_MARKER):
                 stale_paths.add(path)
 
-    # Single-file outputs are only "managed" when their source exists. If the source
-    # is missing (or invalidates and produces no output), don't delete the existing
-    # target — it may be hand-maintained or left over from a previous design.
-    project_dir = AGENTS_DIR / "project"
-    project_has_source = project_dir.exists() and any(project_dir.glob("*.md"))
-    # Gate on successful load (i.e. presence in platform_settings dict), not just
-    # file-exists — an invalid claude.json must NOT trigger deletion of the
-    # deployed .claude/settings.json (which would remove the Stop hook etc.).
-    settings_loaded = "claude" in platform_settings
-
-    managed_single_files: list[Path] = []
-    if project_has_source:
-        managed_single_files.append(ROOT_DIR / ".claude" / "CLAUDE.md")
-        managed_single_files.append(ROOT_DIR / ".cursor" / "project.md")
-    if settings_loaded:
-        managed_single_files.append(ROOT_DIR / ".claude" / "settings.json")
-    for path in managed_single_files:
-        if path.exists() and path not in expected_paths:
-            stale_paths.add(path)
+    # .claude/settings.json is only "managed" when its source loaded successfully —
+    # an invalid claude.json must NOT trigger deletion of the deployed settings
+    # (which would remove the Stop hook etc.).
+    settings_path = ROOT_DIR / ".claude" / "settings.json"
+    if "claude" in platform_settings and settings_path.exists() and settings_path not in expected_paths:
+        stale_paths.add(settings_path)
 
     # Note: we deliberately don't auto-delete legacy generated files (e.g. an old
     # root `.codex.md`). Codex's `config.toml` may still reference it as a

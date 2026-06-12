@@ -21,4 +21,4 @@ Apply the `code-simplify` SKILL — its `SKILL.md` is the **complete** rubric (t
 
 ## Parent orchestration
 
-Typical flow: in **one** message, run two `Task` calls in parallel — `subagent_type: "shell"` and `subagent_type: "explore"` — to collect `git diff <base>...HEAD` output and full contents of changed files (default base `main`). Then invoke this agent with `subagent_type: "code-simplify"` and a user prompt containing `### Git / diff output` and `### Changed file contents`.
+Typical flow: in **one** message, run two `Task` calls in parallel — `subagent_type: "shell"` and `subagent_type: "explore"` — to collect `git diff <base>` output (covers branch commits plus uncommitted changes; default base `main`) and full contents of changed files. Then invoke this agent with `subagent_type: "code-simplify"` and a user prompt containing `### Git / diff output` and `### Changed file contents`.
