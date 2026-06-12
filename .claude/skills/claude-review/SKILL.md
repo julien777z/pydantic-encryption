@@ -34,7 +34,7 @@ Then use a Haiku agent to check eligibility: stop without proceeding if the PR i
 
 ## Steps 3–8 — Review, scoring, approval, fixes, report
 
-Follow these steps precisely (in local / pre-push mode, the **Local / pre-push mode** section above overrides Steps 6–8):
+Follow these steps precisely (in local / pre-push mode, the **Local / pre-push mode** section above replaces Steps 1–2 and overrides Steps 6–8):
 
 3. Launch **5 parallel Sonnet agents** to independently review the diff (the PR diff, or the local branch diff in local / pre-push mode). Each agent reads the changed files and returns a flat list of issues with the reason each was flagged (e.g. rule compliance, bug, historical context):
    - Agent #1 (rules): Audit the changes for compliance with the project rule files gathered earlier (Step 2, or locally in local / pre-push mode). Note that the rules are guidance for code generation, so not all instructions apply during review.
