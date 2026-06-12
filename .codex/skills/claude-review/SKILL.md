@@ -56,9 +56,9 @@ Follow these steps precisely (in local / pre-push mode, the **Local / pre-push m
 
 6. *(PR flow only — skipped in local / pre-push mode.)* **You must call `AskUserQuestion` before applying any fix.** Present up to 4 issues per batch, asking for each: "Fix this? (yes / skip)". Wait for responses before the next batch. Record every decision.
 
-7. Implement every finding the user approved. Before editing any file, create a git branch following the naming convention in **scope-agents** (e.g. `claude/review-fixes-a3f9b2c`) and commit all fixes to that branch. Keep each fix minimal — do not refactor unrelated code.
+7. *(In local / pre-push mode: apply every finding that survived Step 5 directly to the working tree — no approval gate, no separate branch.)* In the PR flow, implement every finding the user approved. Before editing any file, create a git branch following the naming convention in **scope-agents** (e.g. `claude/review-fixes-a3f9b2c`) and commit all fixes to that branch. Keep each fix minimal — do not refactor unrelated code.
 
-8. Use a Haiku agent to repeat the eligibility check from Step 1. If still eligible, post a comment using `gh pr comment <number> --body "..."`. Follow the comment format below.
+8. *(PR flow only — never post a comment in local / pre-push mode.)* Use a Haiku agent to repeat the eligibility check from Step 1. If still eligible, post a comment using `gh pr comment <number> --body "..."`. Follow the comment format below.
 
 ## False Positives to Ignore
 
