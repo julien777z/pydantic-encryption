@@ -13,7 +13,7 @@ Review a GitHub pull request using parallel specialized agents, confidence scori
 
 When this skill is invoked **outside a GitHub PR** — for example by the Stop hook before a push, or whenever the caller asks for a local review of the branch — adapt the flow:
 
-- Review the **local branch diff** — `git diff $(git merge-base <base> HEAD)` (default base `main`), which covers branch commits **and uncommitted working-tree changes** without pulling in unrelated upstream commits — instead of fetching a PR; skip the PR discovery and eligibility checks in Steps 1–2 entirely (do not stop or ask for a PR). Still gather the rules context Step 3 needs: list the project rule files under `.claude/rules/`, locally.
+- Review the **local branch diff** — `git diff $(git merge-base <base> HEAD)` plus any untracked files the branch adds — where `<base>` is the current branch's upstream (e.g. `origin/main`) when one is set, else `main`. This covers branch commits **and uncommitted working-tree changes** without pulling in unrelated upstream commits. Do not fetch a PR; skip the PR discovery and eligibility checks in Steps 1–2 entirely (do not stop or ask for a PR). Still gather the rules context Step 3 needs: list the project rule files under `.claude/rules/`, locally.
 - Run the Step 3 review agents and the Step 4 confidence scoring over that diff exactly as written.
 - **Apply** the surviving findings directly to the working tree and fold them into the commit being pushed. Skip the `AskUserQuestion` gate (Step 6), the separate `claude/review-fixes-*` branch (Step 7), and Step 8 entirely — never post a comment in this mode. Step 5's “skip to step 8” does not apply here: if no findings survive the filter, report that in your reply and conclude.
 
@@ -36,8 +36,8 @@ Then use a Haiku agent to check eligibility: stop without proceeding if the PR i
 
 Follow these steps precisely (in local / pre-push mode, the **Local / pre-push mode** section above overrides Steps 6–8):
 
-3. Launch **5 parallel Sonnet agents** to independently review the PR diff. Each agent reads the changed files and returns a flat list of issues with the reason each was flagged (e.g. rule compliance, bug, historical context):
-   - Agent #1 (rules): Audit the changes for compliance with the project rule files found in Step 2. Note that the rules are guidance for code generation, so not all instructions apply during review.
+3. Launch **5 parallel Sonnet agents** to independently review the diff (the PR diff, or the local branch diff in local / pre-push mode). Each agent reads the changed files and returns a flat list of issues with the reason each was flagged (e.g. rule compliance, bug, historical context):
+   - Agent #1 (rules): Audit the changes for compliance with the project rule files gathered earlier (Step 2, or locally in local / pre-push mode). Note that the rules are guidance for code generation, so not all instructions apply during review.
    - Agent #2 (bugs): Scan the diff for obvious bugs. Focus on large bugs; ignore nitpicks and likely false positives. You may read surrounding context in the touched files; pre-existing bugs in those files are in scope.
    - Agent #3 (history): Read git blame and history of the changed files; flag bugs that only make sense in light of that history.
    - Agent #4 (prior PRs): Read previous pull requests that touched the same files; check whether comments on those PRs also apply here.

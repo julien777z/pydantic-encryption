@@ -15,7 +15,8 @@ Apply the `code-simplify` SKILL — its `SKILL.md` is the **complete** rubric (t
 ## Work
 
 - Apply the rubric **only** to what the diff and contents show. Trace cross-file impact when the change touches module boundaries.
-- Output in the **priority order** the rubric specifies. Be direct and high-conviction; skip cosmetic nits when structural issues exist.
+- **Apply** the fixes per the skill's *Applying fixes* section when the repository is writable, and report what you changed; fall back to review-only findings only when you cannot edit.
+- Report in the **priority order** the rubric specifies. Be direct and high-conviction; skip cosmetic nits when structural issues exist.
 - Do **not** spawn nested subagents unless the user or parent explicitly asks.
 
 ## Parent orchestration
