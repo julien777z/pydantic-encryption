@@ -24,7 +24,7 @@ Launch parallel sub-agents, one per area. **Each sub-agent must also read the si
 - **Normalization and validation**: ad-hoc transformations that the repository's existing annotation/validator/helper layer already handles — use the shared mechanism, or extend it with a new annotation rather than inlining the logic.
 - **Cross-area inconsistency**: area A does something one way and area B does the same thing a different way; converge on the better pattern.
 
-Additionally, run the **code-simplify** skill's rubric over the areas you touch and apply its fixes as part of this pass.
+Additionally, apply the **code-simplify** skill's full rubric as a hunting lens across **every area**, not just code you already planned to edit — its structural checks (code-judo restructurings, file-size decomposition, spaghetti-condition growth, wrapper and type-boundary cleanliness, orchestration smells) are part of this pass, and its fixes get applied alongside the items above.
 
 ## Step 4 — Behavior preservation and escalation
 
