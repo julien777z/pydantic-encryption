@@ -13,7 +13,7 @@ Review a GitHub pull request using parallel specialized agents, confidence scori
 
 When this skill is invoked **outside a GitHub PR** — for example by the Stop hook before a push, or whenever the caller asks for a local review of the branch — adapt the flow:
 
-- Review the **local branch diff** — `git diff <base>` (default base `main`), which covers branch commits **and uncommitted working-tree changes** — instead of fetching a PR; skip the PR discovery and eligibility checks in Steps 1–2 entirely (do not stop or ask for a PR). Still gather the rules context Step 3 needs: list the project rule files under `.claude/rules/`, locally.
+- Review the **local branch diff** — `git diff $(git merge-base <base> HEAD)` (default base `main`), which covers branch commits **and uncommitted working-tree changes** without pulling in unrelated upstream commits — instead of fetching a PR; skip the PR discovery and eligibility checks in Steps 1–2 entirely (do not stop or ask for a PR). Still gather the rules context Step 3 needs: list the project rule files under `.claude/rules/`, locally.
 - Run the Step 3 review agents and the Step 4 confidence scoring over that diff exactly as written.
 - **Apply** the surviving findings directly to the working tree and fold them into the commit being pushed. Skip the `AskUserQuestion` gate (Step 6), the separate `claude/review-fixes-*` branch (Step 7), and Step 8 entirely — never post a comment in this mode. Step 5's “skip to step 8” does not apply here: if no findings survive the filter, report that in your reply and conclude.
 
