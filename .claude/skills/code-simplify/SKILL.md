@@ -9,6 +9,10 @@ Use this skill for an unusually strict review focused on implementation quality,
 
 Above all, this skill should push the reviewer to be **ambitious** about code structure. Do not merely identify local cleanup opportunities. Actively search for "code judo" moves: restructurings that preserve behavior while making the implementation dramatically simpler, smaller, more direct, and more elegant.
 
+## Applying fixes
+
+This skill does not stop at review: **apply the simplifications you identify directly to the working tree.** Make every behavior-preserving change you would otherwise only recommend — restructure, extract, delete indirection, collapse branches, reuse the canonical helper — and keep those edits in the commit you are working on. Only fall back to leaving a written note when a change cannot be made safely without broader input (for example it would alter an external contract). Treat the review questions and approval bar below as the checklist for what to fix, not merely what to flag.
+
 ## Core Prompt
 
 Start from this baseline:

@@ -9,6 +9,16 @@ Review a GitHub pull request using parallel specialized agents, confidence scori
 
 **Scope — pre-existing issues are in scope.** Do not limit the review to the lines this PR changed. Real bugs and CLAUDE.md violations that already existed in the touched files, or that the PR did not introduce, are within scope: flag them and fix them alongside the PR's own issues. Never dismiss a finding solely because it predates this PR.
 
+## Local / pre-push mode
+
+When this skill is invoked **outside a GitHub PR** — for example by the Stop hook before a push, or whenever the caller asks for a local review of the branch — adapt the flow:
+
+- Review the **local branch diff** (`git diff <base>...HEAD`, default base `main`) instead of fetching a PR; skip the PR discovery and eligibility checks in Steps 1–2.
+- Run the Step 3 review agents and the Step 4 confidence scoring over that diff exactly as written.
+- **Apply** the surviving findings directly to the working tree and fold them into the commit being pushed. Skip the `AskUserQuestion` gate (Step 6), the separate `claude/review-fixes-*` branch (Step 7), and the posted PR comment (Step 8).
+
+Use the full PR flow (Steps 1–2, 6–8, and the comment format) **only** when reviewing an actual GitHub PR.
+
 ## Steps 1–2 — PR discovery and context
 
 **Step 1:** Read and execute **Step 1** of the **scope-agents** skill (repository discovery and PR detection). This returns the repository structure and — if a PR is detectable — its number and repo slug.
@@ -28,7 +38,7 @@ Follow these steps precisely:
 
 3. Launch **5 parallel Sonnet agents** to independently review the PR diff. Each agent reads the changed files and returns a flat list of issues with the reason each was flagged (e.g. CLAUDE.md compliance, bug, historical context):
    - Agent #1 (CLAUDE.md): Audit the changes for compliance with the CLAUDE.md files found in Step 2. Note that CLAUDE.md is guidance for code generation, so not all instructions apply during review.
-   - Agent #2 (bugs): Shallow scan the diff for obvious bugs. Focus on large bugs; ignore nitpicks and likely false positives. Avoid reading code beyond the changed lines.
+   - Agent #2 (bugs): Scan the diff for obvious bugs. Focus on large bugs; ignore nitpicks and likely false positives. You may read surrounding context in the touched files; pre-existing bugs in those files are in scope.
    - Agent #3 (history): Read git blame and history of the changed files; flag bugs that only make sense in light of that history.
    - Agent #4 (prior PRs): Read previous pull requests that touched the same files; check whether comments on those PRs also apply here.
    - Agent #5 (comments): Read code comments in the modified files; flag anything in the diff that contradicts guidance in those comments.
@@ -99,7 +109,7 @@ Or, if no issues were found:
 
 ### Code review
 
-No issues found. Checked for bugs and CLAUDE.md compliance.
+No issues found above the confidence bar. Checked for bugs and CLAUDE.md compliance.
 
 ---
 
