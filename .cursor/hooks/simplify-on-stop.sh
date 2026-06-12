@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Stop hook: before each push, ask the agent to run the code-simplify skill over
-# the files it changed this session. The agent decides whether the skill
-# applies; if it changed nothing it skips gracefully and stops.
+# Stop hook: before each push, ask the agent to run two project skills over the
+# whole branch diff — first code review, then simplification — and fold the fixes
+# into the push. The agent decides whether the skills apply; if the branch has no
+# changes it skips gracefully and stops.
 #
 # Loop prevention: `stop_hook_active` is true when Claude Code retries Stop after
 # our block; exit clean then so we never block twice. Without python3 we cannot
@@ -23,9 +24,9 @@ is_active=$(printf '%s' "$input" | python3 -c \
 
 # Only nudge when something is actually about to be pushed. If the working tree
 # is clean and HEAD is not ahead of an existing upstream, there is nothing to
-# simplify before a push (e.g. the branch is already pushed/merged, or the
-# session only answered a question), so skip. A branch with no upstream yet, or
-# any git error, falls through and still gets nudged.
+# review or simplify before a push (e.g. the branch is already pushed/merged, or
+# the session only answered a question), so skip. A branch with no upstream yet,
+# or any git error, falls through and still gets nudged.
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
   && [ -z "$(git status --porcelain 2>/dev/null)" ] \
   && git rev-parse --verify --quiet '@{u}' >/dev/null 2>&1; then
@@ -33,4 +34,4 @@ if git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
   [ "$ahead" = "0" ] && exit 0
 fi
 
-echo '{"decision":"block","reason":"Before pushing, call the Skill tool with skill=\"code-simplify\" (the project skill, not the built-in \"simplify\") and run it over the files you changed this session — not the whole branch diff. Fold its fixes into the commit you are about to push; do not rubber-stamp \"no changes needed\" or split them into a separate follow-up commit. If you changed no code, skip and conclude."}'
+echo '{"decision":"block","reason":"Before pushing, run two project skills over the WHOLE branch diff (every change versus the base branch, not just this session). First, call the Skill tool with skill=\"claude-review\" and review the entire branch diff, then fix the real issues it surfaces (pre-existing issues in the touched files are in scope too). Second, call the Skill tool with skill=\"code-simplify\" (the project skill, NOT the built-in \"simplify\") and walk it against the whole branch diff, applying its fixes — do not rubber-stamp \"no changes needed\". Fold every edit from both skills into the commit you are about to push; do not split them into a separate follow-up commit. If the branch has no code changes, skip both skills and conclude."}'
