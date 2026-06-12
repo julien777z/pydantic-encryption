@@ -13,8 +13,8 @@ Review a GitHub pull request using parallel specialized agents, confidence scori
 
 When this skill is invoked **outside a GitHub PR** — for example by the Stop hook before a push, or whenever the caller asks for a local review of the branch — adapt the flow:
 
-- Review the **local branch diff** — `git diff $(git merge-base <base> HEAD)` plus any untracked files the branch adds — where `<base>` is the remote default branch (`origin/main`; fall back to `main` if no remote is configured). The merge-base anchors the diff at the branch's fork point — and, when working directly on the default branch, at the last pushed commit — so it covers branch commits **and uncommitted working-tree changes** without pulling in unrelated upstream commits. Do not fetch a PR; skip the PR discovery and eligibility checks in Steps 1–2 entirely (do not stop or ask for a PR). Still gather the rules context Step 3 needs: list the project rule files under `.claude/rules/`, locally.
-- Run the Step 3 review agents and the Step 4 confidence scoring over that diff exactly as written.
+- Review the **local branch diff** — `git diff $(git merge-base <base> HEAD)` plus any untracked files the branch adds — where `<base>` is the repository's remote default branch (for example `origin/main` — use the actual default branch name; fall back to the local default branch if no remote is configured). The merge-base anchors the diff at the branch's fork point — and, when working directly on the default branch, at the last pushed commit — so it covers branch commits **and uncommitted working-tree changes** without pulling in unrelated upstream commits. Do not fetch a PR; skip the PR discovery and eligibility checks in Steps 1–2 entirely (do not stop or ask for a PR). Still gather the rules context Step 3 needs: list the project rule files loaded for this repository (the agent's own rules directory, wherever the platform keeps it).
+- Run the Step 3 review agents and the Step 4 confidence scoring over that scope — the diff plus the untracked files — exactly as written.
 - **Apply** the surviving findings directly to the working tree and fold them into the commit being pushed. Skip the `AskUserQuestion` gate (Step 6), the separate `claude/review-fixes-*` branch (Step 7), and Step 8 entirely — never post a comment in this mode. Step 5's “skip to step 8” does not apply here: if no findings survive the filter, report that in your reply and conclude.
 
 Use the full PR flow (Steps 1–2, 6–8, and the comment format) **only** when reviewing an actual GitHub PR.
@@ -30,7 +30,7 @@ Then use a Haiku agent to check eligibility: stop without proceeding if the PR i
 **Step 2 (two parallel Haiku agents):**
 
 - Agent A: Fetch the PR diff and return a summary of the change and the list of changed files.
-- Agent B: List paths to the project rule files under `.claude/rules/`; paths only, not contents.
+- Agent B: List the project rule files loaded for this repository (the agent's own rules directory, wherever the platform keeps it); names only, not contents.
 
 ## Steps 3–8 — Review, scoring, approval, fixes, report
 

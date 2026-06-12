@@ -13,6 +13,10 @@ Above all, this skill should push the reviewer to be **ambitious** about code st
 
 This skill does not stop at review: **apply the simplifications you identify directly to the working tree.** Make every behavior-preserving change you would otherwise only recommend — restructure, extract, delete indirection, collapse branches, reuse the canonical helper — and keep those edits in the commit you are working on. Only fall back to leaving a written note when a change cannot be made safely without broader input (for example it would alter an external contract). Treat the review questions and approval bar below as the checklist for what to fix, not merely what to flag.
 
+## Diff scope for the pre-push pass
+
+When run as the pre-push pass (for example from the Stop hook), audit the **same scope as claude-review's local / pre-push mode**: `git diff $(git merge-base <base> HEAD)` plus any untracked files the branch adds, where `<base>` is the repository's remote default branch (for example `origin/main` — use the actual default branch name; fall back to the local default branch if no remote is configured). This covers branch commits and uncommitted working-tree changes without unrelated upstream commits.
+
 ## Core Prompt
 
 Start from this baseline:
