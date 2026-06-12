@@ -29,7 +29,7 @@ git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
 # review or simplify before a push (e.g. the branch is already pushed/merged, or
 # the session only answered a question), so skip. A branch with no upstream yet,
 # or any git error, falls through and still gets nudged.
-if [ -z "$(git status --porcelain 2>/dev/null)" ] \
+if [ -z "$(git status --porcelain --untracked-files=normal 2>/dev/null)" ] \
   && git rev-parse --verify --quiet '@{u}' >/dev/null 2>&1; then
   ahead=$(git rev-list --count '@{u}..HEAD' 2>/dev/null || echo "x")
   [ "$ahead" = "0" ] && exit 0

@@ -17,6 +17,8 @@ This skill does not stop at review: **apply the simplifications you identify dir
 
 When run as the pre-push pass (for example from the Stop hook), audit the **same scope as claude-review's local / pre-push mode**: `git diff $(git merge-base <base> HEAD)` plus any untracked files the branch adds, where `<base>` is the repository's remote default branch (for example `origin/main` — use the actual default branch name; fall back to the local default branch if no remote is configured). This covers branch commits and uncommitted working-tree changes without unrelated upstream commits.
 
+When a caller provides a **broader scope** instead — for example the **refactor** skill (the whole repository) or a user who names specific directories or files — apply this rubric across **that** scope, not the pre-push diff. The merge-base diff above is only the default for the Stop-hook pre-push pass; always honor an explicit scope from the caller, while preserving external contracts (routes, response shapes, durable identifiers, persisted formats) and reporting anything that would spill outside the scope you were given.
+
 ## Core Prompt
 
 Start from this baseline:
