@@ -13,9 +13,9 @@ Review a GitHub pull request using parallel specialized agents, confidence scori
 
 When this skill is invoked **outside a GitHub PR** — for example by the Stop hook before a push, or whenever the caller asks for a local review of the branch — adapt the flow:
 
-- Review the **local branch diff** (`git diff <base>...HEAD`, default base `main`) instead of fetching a PR; skip the PR discovery and eligibility checks in Steps 1–2.
+- Review the **local branch diff** (`git diff <base>...HEAD`, default base `main`) instead of fetching a PR; skip the PR discovery and eligibility checks in Steps 1–2. Still gather the CLAUDE.md context Step 3 needs: list `.claude/CLAUDE.md` (if present) and any `CLAUDE.md` under the touched directories, locally.
 - Run the Step 3 review agents and the Step 4 confidence scoring over that diff exactly as written.
-- **Apply** the surviving findings directly to the working tree and fold them into the commit being pushed. Skip the `AskUserQuestion` gate (Step 6), the separate `claude/review-fixes-*` branch (Step 7), and the posted PR comment (Step 8).
+- **Apply** the surviving findings directly to the working tree and fold them into the commit being pushed. Skip the `AskUserQuestion` gate (Step 6), the separate `claude/review-fixes-*` branch (Step 7), and Step 8 entirely — never post a comment in this mode. Step 5's “skip to step 8” does not apply here: if no findings survive the filter, report that in your reply and conclude.
 
 Use the full PR flow (Steps 1–2, 6–8, and the comment format) **only** when reviewing an actual GitHub PR.
 
