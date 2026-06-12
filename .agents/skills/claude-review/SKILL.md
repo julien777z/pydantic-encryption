@@ -25,7 +25,7 @@ Use the full PR flow (Steps 1–2, 6–8, and the comment format) **only** when 
 
 If no PR is detected and you are reviewing a PR (not in local / pre-push mode), stop and ask the user to provide a PR number or URL.
 
-Then use a Haiku agent to check eligibility: stop without proceeding if the PR is (a) closed, (b) a draft, (c) clearly automated or trivially simple and obviously fine, or (d) already has a code review comment from you.
+Then use a Haiku agent to check eligibility: stop without proceeding if the PR is (a) closed, (b) a draft, (c) clearly automated or trivially simple and obviously fine, or (d) already has a code review comment from you **for the PR's current head commit** — a new push since your last review makes the PR eligible again.
 
 **Step 2 (two parallel Haiku agents):**
 
