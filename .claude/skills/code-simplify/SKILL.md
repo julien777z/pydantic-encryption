@@ -11,7 +11,9 @@ Above all, this skill should push the reviewer to be **ambitious** about code st
 
 ## Applying fixes
 
-This skill does not stop at review: **apply the simplifications you identify directly to the working tree.** Make every behavior-preserving change you would otherwise only recommend — restructure, extract, delete indirection, collapse branches, reuse the canonical helper — and keep those edits in the commit you are working on. Only fall back to leaving a written note when a change cannot be made safely without broader input (for example it would alter an external contract). Treat the review questions and approval bar below as the checklist for what to fix, not merely what to flag.
+This skill does not stop at review: **apply the simplifications you identify directly to the working tree.** Make every behavior-preserving change you would otherwise only recommend — restructure, extract, delete indirection, collapse branches, reuse the canonical helper — and keep those edits in the commit you are working on. Treat the review questions and approval bar below as the checklist for what to fix, not merely what to flag.
+
+**Preserve observable behavior and the external contracts tests can't see — including on the default pre-push pass.** The pre-push pass runs automatically and cannot assume a full test run, so while simplifying do not change a contract that code or systems outside this diff depend on: public routes and their request/response shapes, durable identifiers (handler, event, queue, and state keys), persisted on-disk or on-the-wire formats (DB columns, migrations, serialized payloads), and cross-package shared DTOs or config keys. Do not introduce pass-through shims to fake an unchanged signature — adjust the real call sites instead. When a worthwhile simplification would alter one of these, leave a written note rather than applying it silently. The exception is a deliberate, test-verified caller (for example the **refactor** skill): when the suite proves behavior is preserved, internal structure and in-repo API shape may be restructured freely.
 
 ## Diff scope for the pre-push pass
 

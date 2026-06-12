@@ -28,12 +28,17 @@ Additionally, apply the **code-simplify** skill's full rubric as a hunting lens 
 
 ## Step 4 — Behavior preservation and escalation
 
-Every refactor must preserve behavior: same inputs, outputs, side effects, and error behavior. If you find something valuable to refactor but you are **unsure** — a slight behavior change, an external contract (routes, response shapes, durable identifiers, persisted formats), or an ambiguous intent — **do not guess**: collect it and ask the user with `AskUserQuestion`, batching related items.
+Every refactor must preserve **observable behavior**: same inputs, outputs, side effects, and error behavior. The test suite is how you prove that (Step 5) — so a green suite is your license to consolidate aggressively.
+
+**Do not keep slop, duplication, or near-duplicate code paths just because cleaning them up touches a "public" or widely-used API.** Internal and in-repo public signatures, sync/async method pairs, mirrored parameter lists, and wrapper/mixin layers are all in scope: merge them, delete the indirection, and update every call site — the tests confirm behavior held. "Merging risks the public API" is **not** an acceptable reason to leave a smell in place when the repository has tests that pass. Do the merge; let the suite catch any real regression.
+
+Reserve `AskUserQuestion` for changes whose safety the tests genuinely **cannot** establish: persisted or on-the-wire formats (DB columns, migrations, serialized payloads), durable identifiers (event/queue/state/handler keys), or a published library's documented surface that out-of-repo consumers depend on and no test exercises. Even for those, prefer making the change and flagging it in the report; only fall back to `AskUserQuestion` when intent is genuinely ambiguous or the change is irreversible and unverifiable. Batch related questions.
 
 ## Step 5 — Verify
 
-- If the repository has tests, run them and make them pass. Start whatever the test setup needs (for example Docker services) if the repository supports it.
-- If there are no tests, skip this — rely on type checkers, linters, and careful reading.
+- If the repository has tests, run the **full** suite and make it pass — this is the proof that behavior is preserved, and therefore the license to consolidate aggressively. Start whatever the setup needs (for example Docker services) if the repository supports it.
+- If part of the suite genuinely cannot run in this environment (for example integration tests needing Docker that is unavailable), say so explicitly and lean on the runnable tests plus CI to confirm the change. A test you could not run locally but that runs in CI is **not** a reason to abandon a refactor or keep slop — push the change and let CI verify.
+- If there are no tests at all, rely on type checkers, linters, and careful reading, and be correspondingly more conservative only about the test-invisible contracts named in Step 4.
 - Never leave the repo in a broken state between consolidation steps: when you move or merge modules, update all consumers in the same change.
 
 ## Step 6 — Report
