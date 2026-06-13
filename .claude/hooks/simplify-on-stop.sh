@@ -37,10 +37,13 @@ if [ -f "$nudged_file" ] && grep -qxF "$branch_key" "$nudged_file" 2>/dev/null; 
 fi
 
 # Nothing to review when the tree is clean and HEAD has no diff over the remote
-# default branch. Resolve the default via origin/HEAD, then fall back to
-# whichever of origin/main or origin/master exists; a missing ref or git error
-# falls through and still nudges.
-if [ -z "$(git status --porcelain --untracked-files=normal 2>/dev/null)" ]; then
+# default branch. An unreadable status falls back to a non-empty sentinel so it
+# is treated as "maybe dirty" and still nudges, rather than silently skipping.
+# Resolve the default via origin/HEAD, then fall back to whichever of
+# origin/main or origin/master exists; a missing ref or git error falls through
+# and still nudges.
+porcelain=$(git status --porcelain --untracked-files=normal 2>/dev/null || echo "status-error")
+if [ -z "$porcelain" ]; then
   default_ref=$(git symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null || echo "")
   if [ -z "$default_ref" ]; then
     for cand in refs/remotes/origin/main refs/remotes/origin/master; do
