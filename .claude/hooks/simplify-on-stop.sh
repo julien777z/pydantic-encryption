@@ -18,19 +18,26 @@ is_active=$(printf '%s' "$input" | python3 -c \
 
 [ "$is_active" = "true" ] && exit 0
 
-# Outside a git work tree there is nothing to push or diff, so let Stop complete.
+# Outside a git work tree (a bare repo has none) there is nothing to push or
+# diff, so let Stop complete. Check the work tree first, then take the git dir.
+git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
 git_dir=$(git rev-parse --git-dir 2>/dev/null) || exit 0
 
-# State = HEAD plus a hash of the actual working-tree content (tracked diff and
-# untracked file contents), so re-editing an already-modified file changes the
-# stamp and the pre-push pass fires again instead of matching a stale stamp.
+# State = HEAD plus a hash of the actual working-tree content, so re-editing an
+# already-modified file changes the stamp and the pre-push pass fires again
+# instead of matching a stale stamp. `git diff --binary` folds in binary file
+# bytes; a portable read loop (no GNU-only `xargs -r`) hashes each untracked
+# file's path and contents.
 head_sha=$(git rev-parse HEAD 2>/dev/null || echo "no-head")
 porcelain=$(git status --porcelain --untracked-files=normal 2>/dev/null || echo "status-error")
 dirty_sha=$(
   {
-    git diff HEAD 2>/dev/null || true
+    git diff --binary HEAD 2>/dev/null || true
     git ls-files --others --exclude-standard -z 2>/dev/null \
-      | xargs -0 -r git hash-object 2>/dev/null || true
+      | while IFS= read -r -d '' file; do
+          printf '%s\0' "$file"
+          git hash-object "$file" 2>/dev/null || true
+        done
   } | git hash-object --stdin 2>/dev/null || echo "hash-error"
 )
 state="$head_sha:$dirty_sha"
