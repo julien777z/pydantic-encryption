@@ -5,8 +5,8 @@ from typing import Any, ClassVar, Self
 
 from pydantic_super_model import AnnotatedFieldInfo, SuperModelPydanticMixin
 
-from pydantic_encryption.adapters import hashing
 from pydantic_encryption.adapters.base import BlindIndexAdapter, EncryptionAdapter
+from pydantic_encryption.adapters.hashing.argon2 import Argon2Adapter
 from pydantic_encryption.adapters.registry import get_blind_index_backend, get_encryption_backend
 from pydantic_encryption.config import settings
 from pydantic_encryption.normalization import normalize_value
@@ -200,7 +200,7 @@ class SecureModel:
             return
 
         for field_name, value in fields.items():
-            setattr(self, field_name, hashing.argon2.Argon2Adapter.hash(value))
+            setattr(self, field_name, Argon2Adapter.hash(value))
 
     def blind_index_data(self) -> None:
         """Compute blind indexes for fields annotated with ``BlindIndex`` in-place."""
@@ -245,7 +245,7 @@ class SecureModel:
             return
 
         await self.async_apply(
-            [(name, hashing.argon2.Argon2Adapter.async_hash(val)) for name, val in fields.items()]
+            [(name, Argon2Adapter.async_hash(val)) for name, val in fields.items()]
         )
 
     async def async_blind_index_data(self) -> None:
@@ -320,11 +320,6 @@ class SecureModel:
 
 class BaseModel(SuperModelPydanticMixin, SecureModel):
     """Pydantic base model with automatic encryption, hashing, and blind indexing."""
-
-    def get_annotated_fields(self, *annotations: type) -> dict[str, AnnotatedFieldInfo]:
-        """Return annotated field info objects keyed by field name."""
-
-        return super().get_annotated_fields(*annotations)
 
     def model_post_init(self, context: Any, /) -> None:
         self.default_post_init()

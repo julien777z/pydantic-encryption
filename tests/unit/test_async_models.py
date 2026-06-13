@@ -404,11 +404,6 @@ class TestAsyncInitNestedModels:
         assert isinstance(user.addresses["work"][0].street, EncryptedValue)
 
 
-@pytest.fixture(autouse=True)
-def set_blind_index_key(monkeypatch):
-    monkeypatch.setattr(settings, "BLIND_INDEX_SECRET_KEY", "test-secret-key-for-async")
-
-
 class TestAsyncBlindIndexData:
     """Test async_blind_index_data method."""
 

@@ -6,15 +6,6 @@ from pydantic_encryption import BaseModel, BlindIndex, BlindIndexMethod
 from pydantic_encryption.types import BlindIndexValue
 
 
-@pytest.fixture(autouse=True)
-def set_blind_index_key(monkeypatch):
-    """Set a test blind index secret key for all tests."""
-
-    from pydantic_encryption import config
-
-    monkeypatch.setattr(config.settings, "BLIND_INDEX_SECRET_KEY", "test-secret-key-for-annotation")
-
-
 class TestBlindIndexAnnotationHMAC:
     """Test BlindIndex annotation with HMAC-SHA256 in Pydantic models."""
 

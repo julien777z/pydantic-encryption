@@ -15,7 +15,6 @@ class TestFernetAdapter:
         encrypted = FernetAdapter.encrypt(plaintext)
 
         assert isinstance(encrypted, EncryptedValue)
-        assert isinstance(encrypted, EncryptedValue)
         assert encrypted != plaintext.encode("utf-8")
 
     def test_encrypt_bytes(self):
@@ -23,7 +22,6 @@ class TestFernetAdapter:
         plaintext = b"secret bytes"
         encrypted = FernetAdapter.encrypt(plaintext)
 
-        assert isinstance(encrypted, EncryptedValue)
         assert isinstance(encrypted, EncryptedValue)
 
     def test_decrypt_returns_string(self):
@@ -84,7 +82,6 @@ class TestArgon2Adapter:
         hashed = Argon2Adapter.hash(value)
 
         assert isinstance(hashed, HashedValue)
-        assert isinstance(hashed, HashedValue)
         assert hashed != value.encode("utf-8")
 
     def test_hash_bytes(self):
@@ -92,7 +89,6 @@ class TestArgon2Adapter:
         value = b"password123"
         hashed = Argon2Adapter.hash(value)
 
-        assert isinstance(hashed, HashedValue)
         assert isinstance(hashed, HashedValue)
 
     def test_hash_already_hashed_returns_same(self):
@@ -129,14 +125,12 @@ class TestArgon2Adapter:
         hashed = Argon2Adapter.hash(value)
 
         assert isinstance(hashed, HashedValue)
-        assert isinstance(hashed, HashedValue)
 
     def test_hash_unicode(self):
         """Test hashing unicode characters."""
         value = "日本語パスワード🔒"
         hashed = Argon2Adapter.hash(value)
 
-        assert isinstance(hashed, HashedValue)
         assert isinstance(hashed, HashedValue)
 
 
@@ -147,7 +141,6 @@ class TestHMACSHA256Adapter:
 
     def test_compute_blind_index_string(self):
         result = HMACSHA256Adapter.compute_blind_index("test@example.com", self.TEST_KEY)
-        assert isinstance(result, BlindIndexValue)
         assert isinstance(result, BlindIndexValue)
         assert len(result) == 32
 
@@ -177,5 +170,3 @@ class TestArgon2BlindIndexAdapter:
         result = Argon2BlindIndexAdapter.compute_blind_index("test", self.TEST_KEY)
         double_indexed = Argon2BlindIndexAdapter.compute_blind_index(result, self.TEST_KEY)
         assert result == double_indexed
-
-
