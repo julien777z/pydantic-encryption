@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Stop hook: nudge the agent to run claude-review and code-simplify over the
-# whole branch diff as a local pre-push pass. A stamp of HEAD + uncommitted
-# changes in the git dir limits the nudge to once per branch state — gating on
+# whole branch diff as a local pre-push pass. A stamp of HEAD + working-tree
+# content in the git dir limits the nudge to once per branch state — gating on
 # unpushed work would never fire in remote sessions, which push within the same
 # turn. `stop_hook_active` stops a second block in one stop cycle; if it cannot
 # be read, treat it as active — a skipped nudge beats an infinite Stop loop.
@@ -21,22 +21,39 @@ is_active=$(printf '%s' "$input" | python3 -c \
 # Outside a git work tree there is nothing to push or diff, so let Stop complete.
 git_dir=$(git rev-parse --git-dir 2>/dev/null) || exit 0
 
+# State = HEAD plus a hash of the actual working-tree content (tracked diff and
+# untracked file contents), so re-editing an already-modified file changes the
+# stamp and the pre-push pass fires again instead of matching a stale stamp.
 head_sha=$(git rev-parse HEAD 2>/dev/null || echo "no-head")
 porcelain=$(git status --porcelain --untracked-files=normal 2>/dev/null || echo "status-error")
-dirty_sha=$(printf '%s' "$porcelain" | git hash-object --stdin 2>/dev/null || echo "hash-error")
+dirty_sha=$(
+  {
+    git diff HEAD 2>/dev/null || true
+    git ls-files --others --exclude-standard -z 2>/dev/null \
+      | xargs -0 -r git hash-object 2>/dev/null || true
+  } | git hash-object --stdin 2>/dev/null || echo "hash-error"
+)
 state="$head_sha:$dirty_sha"
 
 stamp_file="$git_dir/simplify-on-stop.stamp"
 [ -f "$stamp_file" ] && [ "$(cat "$stamp_file")" = "$state" ] && exit 0
 
 # Clean tree with no diff over the remote default branch means nothing to
-# review; a missing ref or git error falls through and still nudges.
+# review. Resolve the default via origin/HEAD, then fall back to whichever of
+# origin/main or origin/master exists; a missing ref or git error falls through
+# and still nudges.
 if [ -z "$porcelain" ]; then
-  default_ref=$(git symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null \
-    || echo "refs/remotes/origin/main")
-  base=$(git merge-base "$default_ref" HEAD 2>/dev/null || echo "")
-  if [ -n "$base" ] && git diff --quiet "$base" HEAD 2>/dev/null; then
-    exit 0
+  default_ref=$(git symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null || echo "")
+  if [ -z "$default_ref" ]; then
+    for cand in refs/remotes/origin/main refs/remotes/origin/master; do
+      git rev-parse --verify --quiet "$cand" >/dev/null 2>&1 && { default_ref="$cand"; break; }
+    done
+  fi
+  if [ -n "$default_ref" ]; then
+    base=$(git merge-base "$default_ref" HEAD 2>/dev/null || echo "")
+    if [ -n "$base" ] && git diff --quiet "$base" HEAD 2>/dev/null; then
+      exit 0
+    fi
   fi
 fi
 
