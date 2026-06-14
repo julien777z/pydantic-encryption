@@ -34,7 +34,7 @@ Launch **5 parallel Sonnet agents** to independently review the PR diff. Each ag
 
 ## Step 4 — Validity and severity
 
-First **deduplicate**: the five agents overlap, so merge findings that report the same issue at the same file and line into a single finding (keep the clearest wording and the highest severity). Then drop **clear false positives** only (see the list below). **Keep every remaining valid finding** and assign it a severity — do **not** discard a finding for being minor; a real-but-minor issue is a **Low**, not a drop. This is the bar: validity, not a confidence cutoff.
+First **deduplicate**: the five agents overlap, so merge findings that report the same issue at the same file and line — or the same issue on adjacent lines — into a single finding (keep the clearest wording). Then drop **clear false positives** only (see the list below). **Keep every remaining valid finding** and assign it a severity — do **not** discard a finding for being minor; a real-but-minor issue is a **Low**, not a drop. This is the bar: validity, not a confidence cutoff.
 
 - **Critical** — data loss, security/auth bypass, a crash, or clearly broken core behavior.
 - **High** — a real bug likely hit in normal use, or a clear violation of a project rule that matters in practice.
@@ -47,7 +47,7 @@ For rule-compliance findings: confirm the rule file actually calls out that spec
 
 Use a Haiku agent to repeat the eligibility check from Step 1. If still eligible, post **one** pull request review, with an inline comment for each finding **on a diff line** and any off-diff findings listed in the review body.
 
-**Write the payload to a JSON file, then post it with `--input`.** Do not build the JSON with shell `printf`/`jq` string interpolation — finding text can contain quotes, backticks, `%`, or `$(...)` that the shell would mangle. Write the file directly as valid JSON, escaping each newline inside a body as `\n`:
+**Write the payload to a JSON file, then post it with `--input`.** Do not build the JSON with shell `printf`/`jq` string interpolation — finding text can contain quotes, backticks, `%`, or `$(...)` that the shell would mangle. Write the file directly as valid JSON, escaping every string value as JSON requires: `\"` for quotes, `\\` for backslashes, and `\n` for newlines. Validate it before posting (`jq . review.json >/dev/null` must succeed):
 
 `review.json`:
 
