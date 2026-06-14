@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   gate:
-    name: Gate
+    name: Determine Agent
     runs-on: ubuntu-latest
     outputs:
       claude: ${{ steps.secrets.outputs.claude }}
