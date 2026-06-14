@@ -60,6 +60,7 @@ Repeat the eligibility check from Step 1, and re-fetch the head SHA. If it diffe
 
 - Anchor each inline comment to the finding's `path`, line, and `side`, using the **full head SHA**. **Validate each anchor against the diff first** — a comment on a line not present in the diff is silently dropped or rejected, so move anything that will not anchor into the summary instead.
 - The summary body is one line (e.g. `Found 3 issues.`), optionally followed by an `Outside the diff:` list, one entry per off-diff finding (`path:line — Severity — explanation`). The count covers **every** finding, inline plus off-diff. Never include a "what was reviewed" / coverage summary or any description of your process.
+- End the summary body with the hidden marker `<!-- code-review -->` on its own line. A later run treats the head as already reviewed when a non-dismissed review carrying this marker exists for the current head SHA, so the marker is what lets re-triggers skip re-reviewing the same commit.
 
 ## Inline comment format
 

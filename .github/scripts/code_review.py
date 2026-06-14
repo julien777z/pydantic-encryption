@@ -28,7 +28,7 @@ CONFIG: Final[ReviewConfig] = ReviewConfig(
     routine_host="https://api.anthropic.com/v1/claude_code/routines",
     anthropic_version="2023-06-01",
     routine_beta="experimental-cc-routine-2026-04-01",
-    review_marker="<!-- code-review:cursor -->",
+    review_marker="<!-- code-review -->",
 )
 
 
@@ -79,7 +79,7 @@ def current_head_sha(repo: str, pr_number: str, token: str) -> str:
 
 
 def already_reviewed(repo: str, pr_number: str, head_sha: str, token: str) -> bool:
-    """Return True if this runner already posted a review for the given head commit (skill Step 1d)."""
+    """Return True if a code-review (either tier) was already posted for the given head commit (skill Step 1d)."""
 
     raw = run_gh(
         [
@@ -87,9 +87,8 @@ def already_reviewed(repo: str, pr_number: str, head_sha: str, token: str) -> bo
             "--paginate",
             f"repos/{repo}/pulls/{pr_number}/reviews",
             "--jq",
-            '.[] | select(.user.login == "github-actions[bot]" and .state != "PENDING" '
-            f'and .state != "DISMISSED" and ((.body // "") | contains("{CONFIG["review_marker"]}"))) '
-            "| .commit_id",
+            '.[] | select(.state != "PENDING" and .state != "DISMISSED" '
+            f'and ((.body // "") | contains("{CONFIG["review_marker"]}"))) | .commit_id',
         ],
         token=token,
     )
@@ -292,11 +291,21 @@ def post_review(repo: str, pr_number: str, payload: ReviewPayload, token: str) -
 def fire_claude_routine() -> int:
     """Fire the hosted Anthropic Claude review routine for the current PR."""
 
+    repo = os.environ["REPO"]
+    pr_number = os.environ["PR_NUMBER"]
+    head_sha = os.environ["HEAD_SHA"]
+    token = os.environ["GITHUB_TOKEN"]
+
+    if already_reviewed(repo, pr_number, head_sha, token):
+        logger.info("Head %s already reviewed; not firing the routine.", head_sha)
+
+        return 0
+
     routine_id = os.environ["CLAUDE_REVIEW_ROUTINE_ID"]
     text = (
-        f"Review pull request #{os.environ['PR_NUMBER']} ({os.environ['PR_URL']}) "
-        f"in repo {os.environ['REPO']}, on branch {os.environ['HEAD_REF']}, "
-        f"opened by {os.environ['PR_AUTHOR']}, triggered by commit {os.environ['HEAD_SHA']}."
+        f"Review pull request #{pr_number} ({os.environ['PR_URL']}) "
+        f"in repo {repo}, on branch {os.environ['HEAD_REF']}, "
+        f"opened by {os.environ['PR_AUTHOR']}, triggered by commit {head_sha}."
     )
     request = urllib.request.Request(
         f"{CONFIG['routine_host']}/{routine_id}/fire",

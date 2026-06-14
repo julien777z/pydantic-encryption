@@ -119,6 +119,7 @@ jobs:
         env:
           CLAUDE_REVIEW_ROUTINE_API_KEY: ${{ secrets.CLAUDE_REVIEW_ROUTINE_API_KEY }}
           CLAUDE_REVIEW_ROUTINE_ID: ${{ secrets.CLAUDE_REVIEW_ROUTINE_ID }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ steps.pr.outputs.number }}
           PR_URL: ${{ steps.pr.outputs.url }}
