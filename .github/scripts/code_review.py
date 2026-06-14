@@ -98,6 +98,37 @@ def already_reviewed(repo: str, pr_number: str, head_sha: str, token: str, marke
     return head_sha in raw.split()
 
 
+def posted_finding_keys(repo: str, pr_number: str, token: str) -> set[tuple[str, str]]:
+    """Return (path, title) keys for inline review comments a bot already posted on this PR."""
+
+    raw = run_gh(
+        [
+            "api",
+            "--paginate",
+            f"repos/{repo}/pulls/{pr_number}/comments",
+            "--jq",
+            '.[] | select(.user.type == "Bot") | {path, body}',
+        ],
+        token=token,
+    )
+
+    keys: set[tuple[str, str]] = set()
+
+    for line in raw.splitlines():
+        if not line.strip():
+            continue
+
+        entry = json.loads(line)
+        title = next(
+            (row[4:].strip() for row in entry.get("body", "").splitlines() if row.startswith("### ")),
+            None,
+        )
+        if title:
+            keys.add((entry["path"], title))
+
+    return keys
+
+
 def parse_patch(patch: str) -> tuple[set[int], set[int]]:
     """Return the (RIGHT new-side, LEFT old-side) line numbers a unified-diff patch exposes."""
 
@@ -382,6 +413,14 @@ async def run_cursor_review() -> int:
 
     if not findings:
         logger.info("No findings; not posting a review.")
+
+        return 0
+
+    posted = posted_finding_keys(repo, pr_number, token)
+    findings = [finding for finding in findings if (finding["path"], finding["title"]) not in posted]
+
+    if not findings:
+        logger.info("Every finding was already posted on this PR; nothing new to add.")
 
         return 0
 
