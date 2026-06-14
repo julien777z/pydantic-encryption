@@ -21,7 +21,7 @@ Then use a Haiku agent to check eligibility: stop without proceeding if the PR i
 
 **Step 2 (two parallel Haiku agents):**
 
-- Agent A: Fetch the PR diff (`pull_request_read` with `method: "get_diff"`) and return a summary of the change and the list of changed files.
+- Agent A: Fetch the PR diff (`pull_request_read` with `method: "get_diff"`) and return a summary of the change, the list of changed files, and the **head SHA the diff was taken at** (`pull_request_read` with `method: "get"`, `head.sha`). Retain that SHA as the baseline — Step 5 compares the current head against it to detect a mid-run push.
 - Agent B: List the project rule files loaded for this repository (the agent's own rules directory, wherever the platform keeps it); names only, not contents.
 
 ## Step 3 — Review
@@ -47,9 +47,12 @@ For rule-compliance findings: confirm the rule file actually calls out that spec
 
 ## Step 5 — Post one inline review
 
-Use a Haiku agent to repeat the eligibility check from Step 1. If still eligible, post the review with the GitHub MCP pull request tools as a single pending review, then submit it.
+Before posting anything, run two gates in order; only if **both** pass do you create and submit the review.
 
-First re-fetch the head SHA (`pull_request_read` with `method: "get"`, read `head.sha`). If it differs from the SHA the diff and findings were gathered against, the head moved mid-run — **stop without posting**; the workflow fires a fresh run for the new commit, so stale findings are never anchored to a newer commit. Otherwise:
+1. Use a Haiku agent to repeat the eligibility check from Step 1. If it is no longer eligible, stop.
+2. Re-fetch the head SHA (`pull_request_read` with `method: "get"`, read `head.sha`) and compare it to the baseline SHA the diff and findings were gathered against (Step 2). If they differ, the head moved mid-run — **stop without posting**; the workflow fires a fresh run for the new commit, so stale findings are never anchored to a newer commit.
+
+With both gates passed, post the findings as a single pending review using the GitHub MCP pull request tools and submit it:
 
 1. **Clear any stale pending review, then open a fresh one.** A cancelled or failed earlier run can leave a self-authored `PENDING` review on the PR, which makes `create` collide. First delete it (`pull_request_review_write` with `method: "delete_pending"`); deleting when none exists is a harmless no-op. Then `pull_request_review_write` with `method: "create"`, the `owner`/`repo`/`pullNumber`, and `commitID` set to that head SHA. Omit `event` so the review stays **pending** — passing `event` submits it immediately, before any inline comments are attached.
 2. **Add one inline comment per on-diff finding.** For each finding whose anchor is on the diff, call `add_comment_to_pending_review` with `path`, `body`, `subjectType: "LINE"`, `line`, and `side` (`RIGHT` for added/current lines, `LEFT` for removed lines; add `startLine`/`startSide` for a multi-line range).
