@@ -15,7 +15,7 @@ Review a GitHub pull request with parallel specialized agents and post the findi
 
 If no PR is detected, stop and ask the user to provide a PR number or URL.
 
-Then use a Haiku agent to check eligibility: stop without proceeding if the PR is (a) closed, (b) a draft, (c) clearly automated or trivially simple and obviously fine, or (d) already has a review from you **for the PR's current head commit** — a new push since your last review makes the PR eligible again.
+Then use a Haiku agent to check eligibility: stop without proceeding if the PR is (a) closed, (b) a draft, (c) clearly automated or trivially simple and obviously fine, or (d) already has a review or code-review comment from you **for the PR's current head commit** — a new push since your last review makes the PR eligible again.
 
 **Step 2 (two parallel Haiku agents):**
 
@@ -34,7 +34,7 @@ Launch **5 parallel Sonnet agents** to independently review the PR diff. Each ag
 
 ## Step 4 — Validity and severity
 
-For each finding from Step 3, first drop **clear false positives** only (see the list below). Then **keep every remaining valid finding** and assign it a severity — do **not** discard a finding for being minor; a real-but-minor issue is a **Low**, not a drop. This is the bar: validity, not a confidence cutoff.
+First **deduplicate**: the five agents overlap, so merge findings that report the same issue at the same file and line into a single finding (keep the clearest wording and the highest severity). Then drop **clear false positives** only (see the list below). **Keep every remaining valid finding** and assign it a severity — do **not** discard a finding for being minor; a real-but-minor issue is a **Low**, not a drop. This is the bar: validity, not a confidence cutoff.
 
 - **Critical** — data loss, security/auth bypass, a crash, or clearly broken core behavior.
 - **High** — a real bug likely hit in normal use, or a clear violation of a project rule that matters in practice.
@@ -45,24 +45,26 @@ For rule-compliance findings: confirm the rule file actually calls out that spec
 
 ## Step 5 — Post one inline review
 
-Use a Haiku agent to repeat the eligibility check from Step 1. If still eligible, post **one** pull request review containing an **inline comment per finding**, anchored to the exact file and line, via the GitHub API:
+Use a Haiku agent to repeat the eligibility check from Step 1. If still eligible, post **one** pull request review containing an **inline comment per finding**, anchored to the exact file and line, via the GitHub API.
+
+**Assemble the JSON payload with `jq` — never hand-write it** — so the newlines and quotes in each multi-line comment body are escaped correctly. Build the `comments` array (one object per finding), then post the review:
 
 ```bash
-gh api --method POST "repos/<owner>/<repo>/pulls/<number>/reviews" --input - <<'JSON'
-{
-  "commit_id": "<full head sha>",
-  "event": "COMMENT",
-  "body": "<one short summary line>",
-  "comments": [
-    { "path": "relative/path.tsx", "line": 402, "side": "RIGHT", "body": "<inline comment, see format>" }
-  ]
-}
-JSON
+# One object per finding; pass each multi-line body through --arg so it is escaped.
+comments=$(jq -n \
+  --arg path "relative/path.tsx" --argjson line 402 \
+  --arg body "$(printf '### Short title\n\n**Low Severity**\n\nExplanation.')" \
+  '[{path: $path, line: $line, side: "RIGHT", body: $body}]')   # repeat/extend for each finding
+
+jq -n --arg commit "<full head sha>" --arg summary "Found 1 issue." --argjson comments "$comments" \
+  '{commit_id: $commit, event: "COMMENT", body: $summary, comments: $comments}' \
+  | gh api --method POST "repos/<owner>/<repo>/pulls/<number>/reviews" --input -
 ```
 
-- The review **body** is a single short line only — for example `Found 2 issues.` or `No issues found.` Do **not** include a "what was reviewed" / coverage summary, a list of areas checked, or any description of your process. Only the findings carry content.
+- The review **body** carries only a one-line summary (for example `Found 2 issues.` or `No issues found.`) plus, when needed, the off-diff findings described below. Never include a "what was reviewed" / coverage summary, a list of areas checked, or any description of your process.
 - One entry in `comments[]` per finding, anchored to the line the issue is on (`side: "RIGHT"` for added/current lines; `side: "LEFT"` for removed lines).
-- If a finding sits on a line **not present in the PR diff** (a pre-existing line GitHub will reject as an inline target), list it in the review `body` instead, with its file:line, severity, and explanation.
+- If a finding sits on a line **not present in the PR diff** (a pre-existing line GitHub will reject as an inline target), append it to the body under an `Outside the diff:` heading — one line per finding with its file:line, severity, and explanation — rather than as an inline comment.
+- A single `comments[]` entry whose line is not in the diff makes GitHub reject the **entire** review with 422. Anchor inline comments only to diff lines; if the post still fails on an inline target, drop that one comment (fold it into the `Outside the diff:` body list) and retry, so one bad anchor never blocks the other findings.
 - If there are no valid findings, post the review with an empty `comments` array and `body` = `No issues found.`
 
 ## Inline comment format
