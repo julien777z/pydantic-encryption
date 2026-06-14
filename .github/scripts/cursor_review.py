@@ -73,7 +73,8 @@ def already_reviewed(repo: str, pr_number: str, head_sha: str, token: str) -> bo
             "--paginate",
             f"repos/{repo}/pulls/{pr_number}/reviews",
             "--jq",
-            '.[] | select(.user.login == "github-actions[bot]") | .commit_id',
+            '.[] | select(.user.login == "github-actions[bot]" and .state != "PENDING" '
+            'and .state != "DISMISSED") | .commit_id',
         ],
         token=token,
     )
@@ -193,6 +194,8 @@ def parse_findings(reply: str) -> list[Finding]:
         text = fenced.group(1)
 
     data = json.loads(text)
+    if not isinstance(data, dict):
+        return []
 
     return [
         {
@@ -249,7 +252,7 @@ def build_review(
     return {"commit_id": head_sha, "event": "COMMENT", "body": body, "comments": comments}
 
 
-def post_review(repo: str, pr_number: str, payload: ReviewPayload, token: str) -> None:
+def post_review(repo: str, pr_number: str, payload: ReviewPayload, token: str) -> bool:
     """Post the review; on a validation failure, retry with the summary only so it still lands."""
 
     def submit(body: ReviewPayload) -> str:
@@ -267,7 +270,7 @@ def post_review(repo: str, pr_number: str, payload: ReviewPayload, token: str) -
     try:
         logger.info("Posted review: %s", submit(payload))
 
-        return
+        return True
     except subprocess.CalledProcessError as exc:
         logger.warning("Review POST failed (%s); retrying without inline anchors: %s", exc.returncode, exc.stderr.strip())
 
@@ -284,8 +287,12 @@ def post_review(repo: str, pr_number: str, payload: ReviewPayload, token: str) -
 
     try:
         logger.info("Posted review (no inline anchors): %s", submit(fallback))
+
+        return True
     except subprocess.CalledProcessError as exc:
         logger.error("Review POST failed again (%s): %s", exc.returncode, exc.stderr.strip())
+
+        return False
 
 
 async def main() -> int:
@@ -323,20 +330,26 @@ async def main() -> int:
 
     try:
         findings = parse_findings(reply)
-    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+    except (json.JSONDecodeError, AttributeError, KeyError, TypeError, ValueError) as exc:
         logger.error("Could not parse agent reply: %s", exc)
 
         return 1
 
-    # Re-gate on the head SHA (skill Step 5): if the PR advanced during the run,
-    # the diff and findings are stale, so do not anchor them to a different commit.
+    # Re-gate before posting (skill Step 5): if the PR advanced during the run the diff
+    # and findings are stale, and if another run already reviewed this head, do not double-post.
     if current_head_sha(repo, pr_number, token) != head_sha:
         logger.info("Head moved since the diff was loaded; skipping post.")
 
         return 0
 
+    if already_reviewed(repo, pr_number, head_sha, token):
+        logger.info("Head %s reviewed by the bot during the run; skipping.", head_sha)
+
+        return 0
+
     payload = build_review(head_sha, findings, anchors)
-    post_review(repo, pr_number, payload, token)
+    if not post_review(repo, pr_number, payload, token):
+        return 1
 
     return 0
 
