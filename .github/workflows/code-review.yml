@@ -15,11 +15,6 @@ permissions:
   contents: read
   pull-requests: write
 
-# One in-flight run per PR; a newer commit/comment cancels a superseded run.
-concurrency:
-  group: code-review-${{ github.event.pull_request.number || github.event.issue.number || github.event.inputs.pr_number }}
-  cancel-in-progress: true
-
 jobs:
   gate:
     name: Gate
@@ -49,6 +44,10 @@ jobs:
   start-claude-review:
     name: Start Claude Review
     needs: gate
+    # A newer comment/commit on the same PR cancels a superseded Claude fire, but never a Cursor run.
+    concurrency:
+      group: claude-review-${{ github.event.pull_request.number || github.event.issue.number || github.event.inputs.pr_number }}
+      cancel-in-progress: true
     if: >-
       ${{ needs.gate.outputs.claude == 'true' && (
         (github.event_name == 'pull_request'
@@ -85,23 +84,39 @@ jobs:
             echo "Could not determine PR number"; exit 1
           fi
 
-          # pull_request.* fields are empty on issue_comment/workflow_dispatch, so resolve from the API.
-          fields=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json url,headRefName,headRefOid,author \
-            --jq '[.url, .headRefName, .headRefOid, .author.login] | @tsv')
-          IFS=$'\t' read -r URL HEAD_REF HEAD_SHA AUTHOR <<< "$fields"
+          fields=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json url,headRefName,headRefOid,author,isDraft,state \
+            --jq '[.url, .headRefName, .headRefOid, .author.login, .isDraft, .state] | @tsv')
+          IFS=$'\t' read -r URL HEAD_REF HEAD_SHA AUTHOR IS_DRAFT STATE <<< "$fields"
 
           if [ -z "$HEAD_SHA" ]; then
             echo "Could not resolve head SHA for PR $PR_NUMBER"; exit 1
           fi
 
+          # The skill stops on draft/closed PRs; skip the fire here too for comment/dispatch triggers.
+          if [ "$IS_DRAFT" = "true" ] || [ "$STATE" != "OPEN" ]; then
+            echo "PR $PR_NUMBER is draft or not open; skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           {
+            echo "skip=false"
             echo "number=$PR_NUMBER"
             echo "url=$URL"
             echo "head_ref=$HEAD_REF"
             echo "head_sha=$HEAD_SHA"
             echo "author=$AUTHOR"
           } >> "$GITHUB_OUTPUT"
+      - name: Checkout
+        if: steps.pr.outputs.skip == 'false'
+        uses: actions/checkout@v4
+      - name: Set up Python
+        if: steps.pr.outputs.skip == 'false'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
       - name: Start Claude Review
+        if: steps.pr.outputs.skip == 'false'
         env:
           CLAUDE_REVIEW_ROUTINE_API_KEY: ${{ secrets.CLAUDE_REVIEW_ROUTINE_API_KEY }}
           CLAUDE_REVIEW_ROUTINE_ID: ${{ secrets.CLAUDE_REVIEW_ROUTINE_ID }}
@@ -111,27 +126,14 @@ jobs:
           HEAD_REF: ${{ steps.pr.outputs.head_ref }}
           HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
           PR_AUTHOR: ${{ steps.pr.outputs.author }}
-        run: |
-          payload=$(jq -n \
-            --arg repo "$REPO" \
-            --arg num "$PR_NUMBER" \
-            --arg url "$PR_URL" \
-            --arg ref "$HEAD_REF" \
-            --arg author "$PR_AUTHOR" \
-            --arg sha "$HEAD_SHA" \
-            '{text: "Review pull request #\($num) (\($url)) in repo \($repo), on branch \($ref), opened by \($author), triggered by commit \($sha)."}')
-
-          curl --fail-with-body -sS -X POST \
-            "https://api.anthropic.com/v1/claude_code/routines/${CLAUDE_REVIEW_ROUTINE_ID}/fire" \
-            -H "Authorization: Bearer $CLAUDE_REVIEW_ROUTINE_API_KEY" \
-            -H "anthropic-version: 2023-06-01" \
-            -H "anthropic-beta: experimental-cc-routine-2026-04-01" \
-            -H "Content-Type: application/json" \
-            -d "$payload"
+        run: python .github/scripts/code_review.py --agent claude
 
   start-cursor-review:
     name: Start Cursor Review
     needs: gate
+    concurrency:
+      group: cursor-review-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
     if: >-
       ${{ needs.gate.outputs.cursor == 'true'
           && github.event_name == 'pull_request'
@@ -162,4 +164,4 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           CURSOR_AGENT_MODEL: composer-2.5
-        run: python .github/scripts/cursor_review.py
+        run: python .github/scripts/code_review.py --agent cursor

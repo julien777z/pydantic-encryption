@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import json
 import logging
@@ -5,17 +6,21 @@ import os
 import re
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Final, TypedDict
 
-from cursor_sdk import AsyncAgent, AsyncClient, CloudAgentOptions, CursorAgentError
-
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-logger = logging.getLogger("cursor_review")
+logger = logging.getLogger("code_review")
 
 SKILL_PATH: Final[Path] = Path(".cursor/skills/claude-review/SKILL.md")
 HUNK_HEADER: Final[re.Pattern[str]] = re.compile(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 FENCE: Final[re.Pattern[str]] = re.compile(r"```(?:json)?\s*(\{.*\})\s*```", re.DOTALL)
+REVIEW_MARKER: Final[str] = "<!-- code-review:cursor -->"
+ROUTINE_HOST: Final[str] = "https://api.anthropic.com/v1/claude_code/routines"
+ANTHROPIC_VERSION: Final[str] = "2023-06-01"
+ROUTINE_BETA: Final[str] = "experimental-cc-routine-2026-04-01"
 
 
 class Finding(TypedDict):
@@ -65,7 +70,7 @@ def current_head_sha(repo: str, pr_number: str, token: str) -> str:
 
 
 def already_reviewed(repo: str, pr_number: str, head_sha: str, token: str) -> bool:
-    """Return True if this runner's bot already reviewed the given head commit (skill Step 1d)."""
+    """Return True if this runner already posted a review for the given head commit (skill Step 1d)."""
 
     raw = run_gh(
         [
@@ -74,7 +79,7 @@ def already_reviewed(repo: str, pr_number: str, head_sha: str, token: str) -> bo
             f"repos/{repo}/pulls/{pr_number}/reviews",
             "--jq",
             '.[] | select(.user.login == "github-actions[bot]" and .state != "PENDING" '
-            'and .state != "DISMISSED") | .commit_id',
+            f'and .state != "DISMISSED" and (.body | contains("{REVIEW_MARKER}"))) | .commit_id',
         ],
         token=token,
     )
@@ -153,40 +158,23 @@ def build_prompt(skill_text: str, repo: str, pr_number: str, head_sha: str, diff
     return (
         f"{skill_text}\n\n"
         "---\n"
-        "You are running as a Cursor agent inside CI. Do NOT post anything yourself; "
-        "the runner posts the review. Review the pull request below following the skill, "
-        "then reply with ONLY a JSON object (no prose, no code fence) of the form:\n"
+        "You are a single Cursor agent running in CI with only the unified diff below — no GitHub "
+        "tools, no sub-agents, no repository checkout. Ignore any skill steps about launching parallel "
+        "agents, reading blame/prior PRs, or posting via tools; the runner posts the review. Apply the "
+        "skill's review lenses and severity bar to the diff yourself, then reply with ONLY a JSON object "
+        "(no prose, no code fence) of the form:\n"
         '{"findings": [{"path": "<repo-relative>", "line": <int>, "side": "RIGHT|LEFT", '
         '"severity": "Critical|High|Medium|Low", "title": "<short>", "body": "<1-3 sentences>"}]}\n'
-        "Use RIGHT with new-file line numbers for added/current lines and LEFT with base-file "
-        "line numbers for removed lines. Surface every valid finding rated by severity; return "
-        'an empty list ({"findings": []}) when there are none.\n\n'
+        "Use RIGHT with new-file line numbers for added/current lines and LEFT with base-file line "
+        "numbers for removed lines. Surface every valid finding rated by severity; return an empty "
+        'list ({"findings": []}) when there are none.\n\n'
         f"Repository: {repo}\nPull request: #{pr_number}\nHead commit: {head_sha}\n\n"
         f"Unified diff:\n{diff}\n"
     )
 
 
-async def run_agent(prompt: str, model: str, api_key: str) -> str:
-    """Run a single Cursor cloud agent to completion and return its text reply."""
-
-    client = await AsyncClient.launch_bridge()
-    agent = await AsyncAgent.create(
-        client=client,
-        model=model,
-        api_key=api_key,
-        cloud=CloudAgentOptions(),
-    )
-
-    try:
-        run = await agent.send(prompt)
-
-        return await run.text()
-    finally:
-        await agent.close()
-
-
 def parse_findings(reply: str) -> list[Finding]:
-    """Extract the findings list from the agent's JSON reply."""
+    """Extract the deduplicated findings list from the agent's JSON reply."""
 
     text = reply.strip()
     fenced = FENCE.search(text)
@@ -197,17 +185,28 @@ def parse_findings(reply: str) -> list[Finding]:
     if not isinstance(data, dict):
         return []
 
-    return [
-        {
-            "path": str(item["path"]),
-            "line": int(item["line"]),
-            "side": "LEFT" if str(item.get("side", "RIGHT")).upper() == "LEFT" else "RIGHT",
-            "severity": str(item["severity"]),
-            "title": str(item["title"]),
-            "body": str(item["body"]),
-        }
-        for item in (data.get("findings") or [])
-    ]
+    seen: set[tuple[str, int, str]] = set()
+    findings: list[Finding] = []
+
+    for item in (data.get("findings") or []):
+        side = "LEFT" if str(item.get("side", "RIGHT")).upper() == "LEFT" else "RIGHT"
+        key = (str(item["path"]), int(item["line"]), side)
+        if key in seen:
+            continue
+
+        seen.add(key)
+        findings.append(
+            {
+                "path": key[0],
+                "line": key[1],
+                "side": side,
+                "severity": str(item["severity"]),
+                "title": str(item["title"]),
+                "body": str(item["body"]),
+            }
+        )
+
+    return findings
 
 
 def comment_body(finding: Finding) -> str:
@@ -221,7 +220,7 @@ def build_review(
     findings: list[Finding],
     anchors: dict[str, tuple[set[int], set[int]]],
 ) -> ReviewPayload:
-    """Split findings into on-diff inline comments and an off-diff summary list, validated against the diff."""
+    """Build one BugBot-style review: an inline comment per on-diff finding plus an off-diff summary."""
 
     comments: list[ReviewComment] = []
     off_diff: list[str] = []
@@ -249,54 +248,70 @@ def build_review(
     if off_diff:
         body = f"{body}\n\nOutside the diff:\n" + "\n".join(off_diff)
 
+    body = f"{body}\n\n{REVIEW_MARKER}"
+
     return {"commit_id": head_sha, "event": "COMMENT", "body": body, "comments": comments}
 
 
 def post_review(repo: str, pr_number: str, payload: ReviewPayload, token: str) -> bool:
-    """Post the review; on a validation failure, retry with the summary only so it still lands."""
+    """Post the review (inline comments + summary) in one call; return False if GitHub rejects it."""
 
-    def submit(body: ReviewPayload) -> str:
-        process = subprocess.run(
-            ["gh", "api", "--method", "POST", f"repos/{repo}/pulls/{pr_number}/reviews", "--input", "-"],
-            input=json.dumps(body),
-            capture_output=True,
-            text=True,
-            check=True,
-            env={**os.environ, "GH_TOKEN": token},
-        )
-
-        return process.stdout.strip()
-
-    try:
-        logger.info("Posted review: %s", submit(payload))
-
-        return True
-    except subprocess.CalledProcessError as exc:
-        logger.warning("Review POST failed (%s); retrying without inline anchors: %s", exc.returncode, exc.stderr.strip())
-
-    # The first attempt rejected an inline anchor, so drop anchors but keep every
-    # finding's text by folding the inline comments into the body — none are lost.
-    folded = "\n\n".join(
-        f"**{entry['path']}:{entry['line']}**\n\n{entry['body']}" for entry in payload["comments"]
+    process = subprocess.run(
+        ["gh", "api", "--method", "POST", f"repos/{repo}/pulls/{pr_number}/reviews", "--input", "-"],
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        check=False,
+        env={**os.environ, "GH_TOKEN": token},
     )
-    body = payload["body"]
-    if folded:
-        body = f"{body}\n\nInline findings (could not anchor):\n\n{folded}"
 
-    fallback: ReviewPayload = {**payload, "body": body, "comments": []}
-
-    try:
-        logger.info("Posted review (no inline anchors): %s", submit(fallback))
-
-        return True
-    except subprocess.CalledProcessError as exc:
-        logger.error("Review POST failed again (%s): %s", exc.returncode, exc.stderr.strip())
+    if process.returncode != 0:
+        logger.error("Review POST failed (%s): %s", process.returncode, process.stderr.strip())
 
         return False
 
+    logger.info("Posted review: %s", process.stdout.strip())
 
-async def main() -> int:
-    """Run the Cursor review for one PR synchronize event and post the result."""
+    return True
+
+
+def fire_claude_routine() -> int:
+    """Fire the hosted Anthropic Claude review routine for the current PR."""
+
+    routine_id = os.environ["CLAUDE_REVIEW_ROUTINE_ID"]
+    text = (
+        f"Review pull request #{os.environ['PR_NUMBER']} ({os.environ['PR_URL']}) "
+        f"in repo {os.environ['REPO']}, on branch {os.environ['HEAD_REF']}, "
+        f"opened by {os.environ['PR_AUTHOR']}, triggered by commit {os.environ['HEAD_SHA']}."
+    )
+    request = urllib.request.Request(
+        f"{ROUTINE_HOST}/{routine_id}/fire",
+        data=json.dumps({"text": text}).encode(),
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {os.environ['CLAUDE_REVIEW_ROUTINE_API_KEY']}",
+            "anthropic-version": ANTHROPIC_VERSION,
+            "anthropic-beta": ROUTINE_BETA,
+            "Content-Type": "application/json",
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(request) as response:
+            logger.info("Fired Claude review routine (%s).", response.status)
+
+        return 0
+    except urllib.error.HTTPError as exc:
+        logger.error("Routine fire failed (%s): %s", exc.code, exc.read().decode(errors="replace"))
+
+        return 1
+
+
+async def run_cursor_review() -> int:
+    """Run the cheap Cursor (composer-2.5) review for one PR and post the result."""
+
+    # cursor_sdk is a Cursor-only dependency, imported here so the Claude path need not install it.
+    from cursor_sdk import AsyncAgent, AsyncClient, CloudAgentOptions, CursorAgentError
 
     repo = os.environ["REPO"]
     pr_number = os.environ["PR_NUMBER"]
@@ -318,11 +333,17 @@ async def main() -> int:
     skill_text = SKILL_PATH.read_text(encoding="utf-8")
     diff = run_gh(["pr", "diff", pr_number, "--repo", repo], token=token)
     anchors = diff_anchors(repo, pr_number, token)
-
     prompt = build_prompt(skill_text, repo, pr_number, head_sha, diff)
 
     try:
-        reply = await run_agent(prompt, model, api_key)
+        client = await AsyncClient.launch_bridge()
+        agent = await AsyncAgent.create(client=client, model=model, api_key=api_key, cloud=CloudAgentOptions())
+
+        try:
+            run = await agent.send(prompt)
+            reply = await run.text()
+        finally:
+            await agent.close()
     except CursorAgentError as exc:
         logger.error("Cursor agent run failed: %s", exc)
 
@@ -335,8 +356,8 @@ async def main() -> int:
 
         return 1
 
-    # Re-gate before posting (skill Step 5): if the PR advanced during the run the diff
-    # and findings are stale, and if another run already reviewed this head, do not double-post.
+    # Re-gate before posting (skill Step 5): the PR must not have advanced and must not have
+    # been reviewed by another concurrent run for this head commit.
     if current_head_sha(repo, pr_number, token) != head_sha:
         logger.info("Head moved since the diff was loaded; skipping post.")
 
@@ -354,5 +375,23 @@ async def main() -> int:
     return 0
 
 
+def main() -> int:
+    """Route a PR code review to the requested agent runner."""
+
+    parser = argparse.ArgumentParser(description="Run a PR code review with the requested agent.")
+    parser.add_argument("--agent", required=True, choices=["claude", "cursor"])
+    args = parser.parse_args()
+
+    match args.agent:
+        case "claude":
+            return fire_claude_routine()
+        case "cursor":
+            return asyncio.run(run_cursor_review())
+        case _:
+            parser.error(f"unsupported agent: {args.agent}")
+
+            return 1
+
+
 if __name__ == "__main__":
-    sys.exit(asyncio.run(main()))
+    sys.exit(main())
