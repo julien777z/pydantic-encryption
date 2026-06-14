@@ -455,6 +455,14 @@ async def run_cursor_review() -> int:
 
         return 1
 
+    # Re-gate on the head SHA once the agent run is done (skill Step 5): if the head advanced
+    # while the agent worked, neither post nor record a status for the superseded commit — the
+    # next event reviews the new head.
+    if current_head_sha(repo, pr_number, token) != head_sha:
+        logger.info("Head moved during the agent run; skipping (the new commit reviews next).")
+
+        return 0
+
     if not findings:
         logger.info("No findings; recording reviewed status without posting.")
         mark_head_reviewed(repo, head_sha, token)
@@ -470,8 +478,8 @@ async def run_cursor_review() -> int:
 
         return 0
 
-    # Re-gate before posting (skill Step 5): the PR must not have advanced and must not have
-    # been reviewed by another concurrent run for this head commit.
+    # Re-check just before posting: the head can still move during the prior-comment fetch, and a
+    # concurrent run may have reviewed this head.
     if current_head_sha(repo, pr_number, token) != head_sha:
         logger.info("Head moved since the diff was loaded; skipping post.")
 
