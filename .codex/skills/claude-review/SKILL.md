@@ -24,7 +24,7 @@ Then use a Haiku agent to check eligibility: stop without proceeding if the PR i
 
 ## Step 3 — Review
 
-Launch **5 parallel Sonnet agents** to independently review the PR diff. Each agent reads the changed files and returns a flat list of issues with the reason each was flagged (e.g. rule compliance, bug, historical context):
+Launch **5 parallel Sonnet agents** to independently review the PR diff. Each agent reads the changed files and returns a flat list of issues — each with its **file path and line number** (so it can be anchored inline) and the reason it was flagged (e.g. rule compliance, bug, historical context):
 
 - Agent #1 (rules): Audit the changes for compliance with the project rule files gathered earlier (Step 2). Note that the rules are guidance for code generation, so not all instructions apply during review.
 - Agent #2 (bugs): Scan the diff for obvious bugs. Focus on real defects; ignore likely false positives. You may read surrounding context in the touched files; pre-existing bugs in those files are in scope.
