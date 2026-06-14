@@ -17,10 +17,21 @@ logger = logging.getLogger("code_review")
 SKILL_PATH: Final[Path] = Path(".cursor/skills/claude-review/SKILL.md")
 HUNK_HEADER: Final[re.Pattern[str]] = re.compile(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 FENCE: Final[re.Pattern[str]] = re.compile(r"```(?:json)?\s*(\{.*\})\s*```", re.DOTALL)
-REVIEW_MARKER: Final[str] = "<!-- code-review:cursor -->"
-ROUTINE_HOST: Final[str] = "https://api.anthropic.com/v1/claude_code/routines"
-ANTHROPIC_VERSION: Final[str] = "2023-06-01"
-ROUTINE_BETA: Final[str] = "experimental-cc-routine-2026-04-01"
+
+
+class ReviewConfig(TypedDict):
+    routine_host: str
+    anthropic_version: str
+    routine_beta: str
+    review_marker: str
+
+
+CONFIG: Final[ReviewConfig] = ReviewConfig(
+    routine_host="https://api.anthropic.com/v1/claude_code/routines",
+    anthropic_version="2023-06-01",
+    routine_beta="experimental-cc-routine-2026-04-01",
+    review_marker="<!-- code-review:cursor -->",
+)
 
 
 class Finding(TypedDict):
@@ -79,7 +90,8 @@ def already_reviewed(repo: str, pr_number: str, head_sha: str, token: str) -> bo
             f"repos/{repo}/pulls/{pr_number}/reviews",
             "--jq",
             '.[] | select(.user.login == "github-actions[bot]" and .state != "PENDING" '
-            f'and .state != "DISMISSED" and (.body | contains("{REVIEW_MARKER}"))) | .commit_id',
+            f'and .state != "DISMISSED" and ((.body // "") | contains("{CONFIG["review_marker"]}"))) '
+            "| .commit_id",
         ],
         token=token,
     )
@@ -185,12 +197,13 @@ def parse_findings(reply: str) -> list[Finding]:
     if not isinstance(data, dict):
         return []
 
-    seen: set[tuple[str, int, str]] = set()
+    seen: set[tuple[str, int, str, str]] = set()
     findings: list[Finding] = []
 
     for item in (data.get("findings") or []):
         side = "LEFT" if str(item.get("side", "RIGHT")).upper() == "LEFT" else "RIGHT"
-        key = (str(item["path"]), int(item["line"]), side)
+        title = str(item["title"])
+        key = (str(item["path"]), int(item["line"]), side, title)
         if key in seen:
             continue
 
@@ -201,7 +214,7 @@ def parse_findings(reply: str) -> list[Finding]:
                 "line": key[1],
                 "side": side,
                 "severity": str(item["severity"]),
-                "title": str(item["title"]),
+                "title": title,
                 "body": str(item["body"]),
             }
         )
@@ -248,7 +261,7 @@ def build_review(
     if off_diff:
         body = f"{body}\n\nOutside the diff:\n" + "\n".join(off_diff)
 
-    body = f"{body}\n\n{REVIEW_MARKER}"
+    body = f"{body}\n\n{CONFIG['review_marker']}"
 
     return {"commit_id": head_sha, "event": "COMMENT", "body": body, "comments": comments}
 
@@ -285,13 +298,13 @@ def fire_claude_routine() -> int:
         f"opened by {os.environ['PR_AUTHOR']}, triggered by commit {os.environ['HEAD_SHA']}."
     )
     request = urllib.request.Request(
-        f"{ROUTINE_HOST}/{routine_id}/fire",
+        f"{CONFIG['routine_host']}/{routine_id}/fire",
         data=json.dumps({"text": text}).encode(),
         method="POST",
         headers={
             "Authorization": f"Bearer {os.environ['CLAUDE_REVIEW_ROUTINE_API_KEY']}",
-            "anthropic-version": ANTHROPIC_VERSION,
-            "anthropic-beta": ROUTINE_BETA,
+            "anthropic-version": CONFIG["anthropic_version"],
+            "anthropic-beta": CONFIG["routine_beta"],
             "Content-Type": "application/json",
         },
     )
