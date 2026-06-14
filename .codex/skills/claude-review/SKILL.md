@@ -9,17 +9,19 @@ Review a GitHub pull request with parallel specialized agents and post the findi
 
 **Scope — pre-existing issues are in scope.** Do not limit the review to the lines this PR changed. Real bugs and project-rule violations that already existed in the touched files, or that the PR did not introduce, are within scope. Never dismiss a finding solely because it predates this PR.
 
+All GitHub interaction uses the **GitHub MCP pull request tools** — `pull_request_read`, `pull_request_review_write`, and `add_comment_to_pending_review`. Do not hand-build review JSON or call the REST API.
+
 ## Steps 1–2 — PR discovery and context
 
 **Step 1:** Read and execute **Step 1** of the **scope-agents** skill (repository discovery and PR detection). This returns the repository structure and — if a PR is detectable — its number and repo slug.
 
 If no PR is detected, stop and ask the user to provide a PR number or URL.
 
-Then use a Haiku agent to check eligibility: stop without proceeding if the PR is (a) closed, (b) a draft, (c) clearly automated or trivially simple and obviously fine, or (d) you **already reviewed the PR's current head commit** — a new push since your last review makes the PR eligible again. To check (d), list the PR's existing reviews (`gh api --paginate repos/<owner>/<repo>/pulls/<number>/reviews`), keep only those **authored by you**, and treat the head as already reviewed only when one of them has a `commit_id` equal to the current head SHA. Match on `commit_id`, never on timestamps; a review by anyone else, or one tied to an earlier commit, does not count.
+Then use a Haiku agent to check eligibility: stop without proceeding if the PR is (a) closed, (b) a draft, (c) clearly automated or trivially simple and obviously fine, or (d) you **already reviewed the PR's current head commit** — a new push since your last review makes the PR eligible again. To check (d), list the PR's reviews (`pull_request_read` with `method: "get_reviews"`), keep only **submitted** reviews **authored by you** (ignore `PENDING` and `DISMISSED` states), and treat the head as already reviewed only when one of them has a `commit_id` equal to the current head SHA. Match on `commit_id`, never on timestamps; a review by anyone else, or one tied to an earlier commit, does not count.
 
 **Step 2 (two parallel Haiku agents):**
 
-- Agent A: Fetch the PR diff and return a summary of the change and the list of changed files.
+- Agent A: Fetch the PR diff (`pull_request_read` with `method: "get_diff"`) and return a summary of the change and the list of changed files.
 - Agent B: List the project rule files loaded for this repository (the agent's own rules directory, wherever the platform keeps it); names only, not contents.
 
 ## Step 3 — Review
@@ -45,39 +47,20 @@ For rule-compliance findings: confirm the rule file actually calls out that spec
 
 ## Step 5 — Post one inline review
 
-Use a Haiku agent to repeat the eligibility check from Step 1. If still eligible, post **one** pull request review, with an inline comment for each finding **on a diff line** and any off-diff findings listed in the review body.
+Use a Haiku agent to repeat the eligibility check from Step 1. If still eligible, post the review with the GitHub MCP pull request tools as a single pending review, then submit it.
 
-**Write the payload to a JSON file, then post it with `--input`.** Do not build the JSON with shell `printf`/`jq` string interpolation — finding text can contain quotes, backticks, `%`, or `$(...)` that the shell would mangle. Write the file directly as valid JSON, escaping every string value as JSON requires: `\"` for quotes, `\\` for backslashes, and `\n` for newlines. Validate it before posting (`jq . review.json >/dev/null` must succeed):
+First re-fetch the head SHA (`pull_request_read` with `method: "get"`, read `head.sha`). If it differs from the SHA the diff and findings were gathered against, the head moved mid-run — **stop without posting**; the workflow fires a fresh run for the new commit, so stale findings are never anchored to a newer commit. Otherwise:
 
-`review.json`:
+1. **Open a pending review.** `pull_request_review_write` with `method: "create"`, the `owner`/`repo`/`pullNumber`, and `commitID` set to that head SHA. Omit `event` so the review stays **pending** — passing `event` submits it immediately, before any inline comments are attached.
+2. **Add one inline comment per on-diff finding.** For each finding whose anchor is on the diff, call `add_comment_to_pending_review` with `path`, `body`, `subjectType: "LINE"`, `line`, and `side` (`RIGHT` for added/current lines, `LEFT` for removed lines; add `startLine`/`startSide` for a multi-line range).
+   - **Validate the anchor against the diff first.** `add_comment_to_pending_review` **silently drops** a comment whose `line`/`side` is not part of the PR diff — it does not error, so an unvalidated finding would just vanish. Build the set of valid `(path, line, side)` targets from the diff (`pull_request_read` with `method: "get_files"`, reading each file's `patch`; page through **all** files via `page`/`perPage`; a file with no `patch` — binary or too large — exposes no inline targets) and add a comment only when its anchor is in that set. Every other finding goes to the summary body in the next step.
+3. **Submit the review.** `pull_request_review_write` with `method: "submit_pending"`, `event: "COMMENT"`, and `body` = a one-line summary (for example `Found 3 issues.`) optionally followed by an `Outside the diff:` list — one line per finding that could not be anchored inline (`file:line — severity — explanation`). The summary count covers **every** finding, inline plus off-diff. The body never includes a "what was reviewed" / coverage summary, a list of areas checked, or any description of your process. When there are no findings, submit with `body: "No issues found."` and no inline comments.
 
-```json
-{
-  "commit_id": "<full head sha>",
-  "event": "COMMENT",
-  "body": "Found 2 issues.\n\nOutside the diff:\n- path/to/file.py:88 — High — explanation.",
-  "comments": [
-    { "path": "src/file.tsx", "line": 402, "side": "RIGHT", "body": "### Short title\n\n**Low Severity**\n\nExplanation." }
-  ]
-}
-```
-
-Then:
-
-```bash
-gh api --method POST "repos/<owner>/<repo>/pulls/<number>/reviews" --input review.json
-```
-
-- Set `commit_id` to the PR's **current** head SHA (fetch it fresh: `gh api repos/<owner>/<repo>/pulls/<number> --jq .head.sha`); do not reuse a SHA captured earlier in the run. If that SHA differs from the one the diff and findings were gathered against, the head moved mid-run: **re-fetch the diff for the new head and re-validate every anchor against it** before posting — never anchor stale findings to a newer commit.
-- The review **body** carries only a one-line summary (for example `Found 2 issues.` or `No issues found.`), optionally followed by an `Outside the diff:` list. Never include a "what was reviewed" / coverage summary, a list of areas checked, or any description of your process.
-- **Validate anchors against the diff first.** From the head diff (`gh api --paginate repos/<owner>/<repo>/pulls/<number>/files`, reading each file's `patch`; a file with no `patch` — binary or too large — exposes no inline targets) build the set of valid `(path, line, side)` targets the diff exposes. Use `--paginate` so files beyond the first page are included. Keep a finding in `comments[]` only when its anchor is in that set; route every other finding to `Outside the diff:`. Doing this up front means a 422 should not happen.
-- `comments[]` holds one entry per finding **whose anchor is in the valid set** — set `side` from the side each agent recorded in Step 3 (`RIGHT` for added/current lines, `LEFT` for removed lines). It may be empty (`[]`), e.g. `No issues found.` or when every finding is off-diff.
-- A finding marked `off-diff` in Step 3, or one whose anchor is not in the valid set, goes in the body under `Outside the diff:` (file:line — severity — explanation), never in `comments[]`.
-- A single `comments[]` entry GitHub rejects as an invalid anchor makes it reject the **entire** review with 422. If a post still 422s, the error body names the offending `path`/position — remove **that** entry from `comments[]`, move it to the `Outside the diff:` list, and retry, so one bad anchor never blocks the others.
+If you create the pending review but cannot submit it, delete it (`pull_request_review_write` with `method: "delete_pending"`) so no stray pending review is left on the PR.
 
 ## Inline comment format
 
-Each `comments[].body` follows this format (matches a severity-rated bug review):
+Each `add_comment_to_pending_review` `body` follows this format (matches a severity-rated bug review):
 
 ```
 ### <Short imperative title>
@@ -100,6 +83,6 @@ Each `comments[].body` follows this format (matches a severity-rated bug review)
 
 - Make a todo list first.
 - Do not attempt to build or typecheck the project, and do not modify code — this skill only reviews and comments.
-- Use `gh` for all GitHub operations; do not use web fetch.
-- Use the full head-commit SHA in `commit_id` (not a branch name or `HEAD`).
+- Use the GitHub MCP pull request tools for all GitHub operations; do not use web fetch or hand-built REST calls.
+- Pin the review to the full head-commit SHA via `commitID` (not a branch name or `HEAD`).
 - When reporting file paths, use paths relative to the repository root.
