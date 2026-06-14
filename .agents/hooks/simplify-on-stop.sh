@@ -1,11 +1,7 @@
 #!/usr/bin/env bash
-# Stop hook: once per branch, nudge the agent to run claude-review and
-# code-simplify over the whole branch diff as a local pre-push pass — then stay
-# quiet. After a branch has been nudged once, later stops on it (the review
-# pass's own commit, CI-fix follow-ups, further tweaks) do NOT re-run the pass.
-# `stop_hook_active` guards the immediate continuation; a per-branch record in
-# the git dir guards every stop after that. If the active flag cannot be read,
-# treat it as active — a skipped nudge beats an infinite Stop loop.
+# Stop hook: nudge the agent to run code-simplify over the branch diff before a
+# push. A HEAD + working-tree stamp fires once per branch state; stop_hook_active
+# (or an unreadable flag) exits clean to avoid a second block / infinite loop.
 
 set -euo pipefail
 
@@ -19,52 +15,46 @@ is_active=$(printf '%s' "$input" | python3 -c \
 
 [ "$is_active" = "true" ] && exit 0
 
-# Outside a git work tree (a bare repo has none) there is nothing to push or
-# diff, so let Stop complete. Check the work tree first, then take the git dir.
+# Nothing to push or diff outside a work tree (a bare repo has none).
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
 git_dir=$(git rev-parse --git-dir 2>/dev/null) || exit 0
 
-# Resolve the remote default branch once via origin/HEAD, then fall back to
-# whichever of origin/main or origin/master exists; reused for the detached-HEAD
-# key and the clean-tree skip below.
-default_ref=$(git symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null || echo "")
-if [ -z "$default_ref" ]; then
-  for cand in refs/remotes/origin/main refs/remotes/origin/master; do
-    git rev-parse --verify --quiet "$cand" >/dev/null 2>&1 && { default_ref="$cand"; break; }
-  done
-fi
-
-# Key the once-per-branch record by branch name. On a detached HEAD there is no
-# branch name, so key on the fork point from the default branch — stable as the
-# detached line gains commits, unlike HEAD itself, which would rotate every
-# commit and re-fire the pass.
-branch_key=$(git symbolic-ref --quiet --short HEAD 2>/dev/null || echo "")
-if [ -z "$branch_key" ]; then
-  fork_point=""
-  [ -n "$default_ref" ] && fork_point=$(git merge-base "$default_ref" HEAD 2>/dev/null || echo "")
-  branch_key="detached:${fork_point:-unknown}"
-fi
-
-# Already nudged this branch — do not re-run the pass for the review's own
-# commit, a CI-fix follow-up push, or any later work on the same branch.
-nudged_file="$git_dir/simplify-on-stop.nudged"
-if [ -f "$nudged_file" ] && grep -qxF "$branch_key" "$nudged_file" 2>/dev/null; then
-  exit 0
-fi
-
-# Nothing to review when the tree is clean and HEAD has no diff over the remote
-# default branch. An unreadable status falls back to a non-empty sentinel so it
-# is treated as "maybe dirty" and still nudges, rather than silently skipping. A
-# missing default ref or git error falls through and still nudges.
+# State = HEAD + working-tree content (binary-safe diff plus untracked blobs), so
+# any content change re-fires. An unreadable status stays non-empty to nudge.
+head_sha=$(git rev-parse HEAD 2>/dev/null || echo "no-head")
 porcelain=$(git status --porcelain --untracked-files=normal 2>/dev/null || echo "status-error")
-if [ -z "$porcelain" ] && [ -n "$default_ref" ]; then
-  base=$(git merge-base "$default_ref" HEAD 2>/dev/null || echo "")
-  if [ -n "$base" ] && git diff --quiet "$base" HEAD 2>/dev/null; then
-    exit 0
+dirty_sha=$(
+  {
+    git diff --binary HEAD 2>/dev/null || true
+    git ls-files --others --exclude-standard -z 2>/dev/null \
+      | while IFS= read -r -d '' file; do
+          printf '%s\0' "$file"
+          git hash-object "$file" 2>/dev/null || true
+        done
+  } | git hash-object --stdin 2>/dev/null || echo "hash-error"
+)
+state="$head_sha:$dirty_sha"
+
+stamp_file="$git_dir/simplify-on-stop.stamp"
+[ -f "$stamp_file" ] && [ "$(cat "$stamp_file")" = "$state" ] && exit 0
+
+# Skip a clean tree with no diff over the remote default (origin/HEAD, else
+# origin/main or origin/master); a missing ref or git error falls through.
+if [ -z "$porcelain" ]; then
+  default_ref=$(git symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null || echo "")
+  if [ -z "$default_ref" ]; then
+    for cand in refs/remotes/origin/main refs/remotes/origin/master; do
+      git rev-parse --verify --quiet "$cand" >/dev/null 2>&1 && { default_ref="$cand"; break; }
+    done
+  fi
+  if [ -n "$default_ref" ]; then
+    base=$(git merge-base "$default_ref" HEAD 2>/dev/null || echo "")
+    if [ -n "$base" ] && git diff --quiet "$base" HEAD 2>/dev/null; then
+      exit 0
+    fi
   fi
 fi
 
-# Record this branch as nudged before blocking, so the pass runs exactly once.
-printf '%s\n' "$branch_key" >> "$nudged_file"
+printf '%s' "$state" > "$stamp_file"
 
-echo '{"decision":"block","reason":"Run a LOCAL pre-push pass over the WHOLE branch diff versus the base branch, including uncommitted work — no GitHub PR required. First call the Skill tool with skill=\"claude-review\" in local mode and apply the real fixes directly (no PR, no asking, no branching off, no comment). Then call skill=\"code-simplify\" (the project skill, NOT the built-in \"simplify\") over the same diff and apply its simplifications. Commit the edits from both skills, and push them if the branch was already pushed. If the branch has no code changes, skip both skills and conclude."}'
+echo '{"decision":"block","reason":"Run a LOCAL pre-push pass over the WHOLE branch diff versus the base branch, including uncommitted work — no GitHub PR required. Call the Skill tool with skill=\"code-simplify\" (the project skill, NOT the built-in \"simplify\") over that diff and apply its simplifications directly (no PR, no asking, no branching off, no comment). Commit the edits, and push them if the branch was already pushed. If the branch has no code changes, skip the skill and conclude."}'

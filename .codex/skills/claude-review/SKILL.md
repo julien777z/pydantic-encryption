@@ -9,21 +9,11 @@ Review a GitHub pull request using parallel specialized agents, confidence scori
 
 **Scope — pre-existing issues are in scope.** Do not limit the review to the lines this PR changed. Real bugs and project-rule violations that already existed in the touched files, or that the PR did not introduce, are within scope: flag them and fix them alongside the PR's own issues. Never dismiss a finding solely because it predates this PR.
 
-## Local / pre-push mode
-
-When this skill is invoked **outside a GitHub PR** — for example by the Stop hook before a push, or whenever the caller asks for a local review of the branch — adapt the flow:
-
-- Review the **local branch diff** — `git diff $(git merge-base <base> HEAD)` plus any untracked files the branch adds — where `<base>` is the repository's remote default branch (for example `origin/main` — use the actual default branch name; fall back to the local default branch if no remote is configured). The merge-base anchors the diff at the branch's fork point — and, when working directly on the default branch, at the last pushed commit — so it covers branch commits **and uncommitted working-tree changes** without pulling in unrelated upstream commits. Do not fetch a PR; skip the PR discovery and eligibility checks in Steps 1–2 entirely (do not stop or ask for a PR). Still gather the rules context Step 3 needs: list the project rule files loaded for this repository (the agent's own rules directory, wherever the platform keeps it).
-- Run the Step 3 review agents and the Step 4 confidence scoring over that scope — the diff plus the untracked files — exactly as written.
-- **Apply** the surviving findings directly to the working tree and fold them into the commit being pushed. Skip the `AskUserQuestion` gate (Step 6), the separate `claude/review-fixes-*` branch (Step 7), and Step 8 entirely — never post a comment in this mode. Step 5's “skip to step 8” does not apply here: if no findings survive the filter, report that in your reply and conclude.
-
-Use the full PR flow (Steps 1–2, 6–8, and the comment format) **only** when reviewing an actual GitHub PR.
-
 ## Steps 1–2 — PR discovery and context
 
 **Step 1:** Read and execute **Step 1** of the **scope-agents** skill (repository discovery and PR detection). This returns the repository structure and — if a PR is detectable — its number and repo slug.
 
-If no PR is detected and you are reviewing a PR (not in local / pre-push mode), stop and ask the user to provide a PR number or URL.
+If no PR is detected, stop and ask the user to provide a PR number or URL.
 
 Then use a Haiku agent to check eligibility: stop without proceeding if the PR is (a) closed, (b) a draft, (c) clearly automated or trivially simple and obviously fine, or (d) already has a code review comment from you **for the PR's current head commit** — a new push since your last review makes the PR eligible again.
 
@@ -34,10 +24,10 @@ Then use a Haiku agent to check eligibility: stop without proceeding if the PR i
 
 ## Steps 3–8 — Review, scoring, approval, fixes, report
 
-Follow these steps precisely (in local / pre-push mode, the **Local / pre-push mode** section above replaces Steps 1–2 and overrides Steps 6–8):
+Follow these steps precisely:
 
-3. Launch **5 parallel Sonnet agents** to independently review the diff (the PR diff, or the local branch diff in local / pre-push mode). Each agent reads the changed files and returns a flat list of issues with the reason each was flagged (e.g. rule compliance, bug, historical context):
-   - Agent #1 (rules): Audit the changes for compliance with the project rule files gathered earlier (Step 2, or locally in local / pre-push mode). Note that the rules are guidance for code generation, so not all instructions apply during review.
+3. Launch **5 parallel Sonnet agents** to independently review the PR diff. Each agent reads the changed files and returns a flat list of issues with the reason each was flagged (e.g. rule compliance, bug, historical context):
+   - Agent #1 (rules): Audit the changes for compliance with the project rule files gathered earlier (Step 2). Note that the rules are guidance for code generation, so not all instructions apply during review.
    - Agent #2 (bugs): Scan the diff for obvious bugs. Focus on large bugs; ignore nitpicks and likely false positives. You may read surrounding context in the touched files; pre-existing bugs in those files are in scope.
    - Agent #3 (history): Read git blame and history of the changed files; flag bugs that only make sense in light of that history.
    - Agent #4 (prior PRs): Read previous pull requests that touched the same files; check whether comments on those PRs also apply here.
@@ -52,13 +42,13 @@ Follow these steps precisely (in local / pre-push mode, the **Local / pre-push m
 
    For rule-compliance issues: double-check that the rule file actually calls out that specific issue before scoring above 50.
 
-5. Filter out issues with a score below 80. If none remain, skip to step 8 (in local / pre-push mode: report that no findings survived and conclude — no comment).
+5. Filter out issues with a score below 80. If none remain, skip to step 8.
 
-6. *(PR flow only — skipped in local / pre-push mode.)* **You must call `AskUserQuestion` before applying any fix.** Present up to 4 issues per batch, asking for each: "Fix this? (yes / skip)". Wait for responses before the next batch. Record every decision.
+6. **You must call `AskUserQuestion` before applying any fix.** Present up to 4 issues per batch, asking for each: "Fix this? (yes / skip)". Wait for responses before the next batch. Record every decision.
 
-7. *(In local / pre-push mode: apply every finding that survived Step 5 directly to the working tree — no approval gate, no separate branch.)* In the PR flow, implement every finding the user approved. Before editing any file, create a git branch following the naming convention in **scope-agents** (e.g. `claude/review-fixes-a3f9b2c`) and commit all fixes to that branch. Keep each fix minimal — do not refactor unrelated code.
+7. Implement every finding the user approved. Before editing any file, create a git branch following the naming convention in **scope-agents** (e.g. `claude/review-fixes-a3f9b2c`) and commit all fixes to that branch. Keep each fix minimal — do not refactor unrelated code.
 
-8. *(PR flow only — never post a comment in local / pre-push mode.)* Use a Haiku agent to repeat the eligibility check from Step 1. If still eligible, post a comment using `gh pr comment <number> --body "..."`. Follow the comment format below.
+8. Use a Haiku agent to repeat the eligibility check from Step 1. If still eligible, post a comment using `gh pr comment <number> --body "..."`. Follow the comment format below.
 
 ## False Positives to Ignore
 
