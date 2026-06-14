@@ -15,6 +15,7 @@ logger = logging.getLogger("code_review")
 
 HUNK_HEADER: Final[re.Pattern[str]] = re.compile(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 FENCE: Final[re.Pattern[str]] = re.compile(r"```(?:json)?\s*(\{.*\})\s*```", re.DOTALL)
+PRIOR_COMMENTS_LIMIT: Final[int] = 100
 
 
 class ReviewConfig(TypedDict):
@@ -104,8 +105,8 @@ def posted_finding_keys(repo: str, pr_number: str, token: str) -> set[tuple[str,
     raw = run_gh(
         [
             "api",
-            "--paginate",
-            f"repos/{repo}/pulls/{pr_number}/comments",
+            f"repos/{repo}/pulls/{pr_number}/comments"
+            f"?per_page={PRIOR_COMMENTS_LIMIT}&sort=created&direction=desc",
             "--jq",
             '.[] | select(.user.type == "Bot") | {path, body}',
         ],
