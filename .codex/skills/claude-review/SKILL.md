@@ -15,7 +15,7 @@ Review a GitHub pull request with parallel specialized agents and post the findi
 
 If no PR is detected, stop and ask the user to provide a PR number or URL.
 
-Then use a Haiku agent to check eligibility: stop without proceeding if the PR is (a) closed, (b) a draft, (c) clearly automated or trivially simple and obviously fine, or (d) already has a review or code-review comment from you **for the PR's current head commit** — a new push since your last review makes the PR eligible again.
+Then use a Haiku agent to check eligibility: stop without proceeding if the PR is (a) closed, (b) a draft, (c) clearly automated or trivially simple and obviously fine, or (d) already has a review or code-review comment from you **for the PR's current head commit** — a new push since your last review makes the PR eligible again. To check (d), list the PR's existing reviews and comments (`gh api repos/<owner>/<repo>/pulls/<number>/reviews`) and compare their commit against the current head SHA.
 
 **Step 2 (two parallel Haiku agents):**
 
@@ -34,7 +34,7 @@ Launch **5 parallel Sonnet agents** to independently review the PR diff. Each ag
 
 ## Step 4 — Validity and severity
 
-First **deduplicate**: the five agents overlap, so merge findings that report the same issue at the same file and line — or the same issue on adjacent lines — into a single finding (keep the clearest wording). Then drop **clear false positives** only (see the list below). **Keep every remaining valid finding** and assign it a severity — do **not** discard a finding for being minor; a real-but-minor issue is a **Low**, not a drop. This is the bar: validity, not a confidence cutoff.
+First **deduplicate**: the five agents overlap, so merge findings that report the same issue at the same file and line — or the same issue on adjacent lines — into a single finding (keep the clearest wording). Then drop **clear false positives** only (see the **False Positives to Ignore** section near the end). **Keep every remaining valid finding** and assign it a severity — do **not** discard a finding for being minor; a real-but-minor issue is a **Low**, not a drop. This is the bar: validity, not a confidence cutoff.
 
 - **Critical** — data loss, security/auth bypass, a crash, or clearly broken core behavior.
 - **High** — a real bug likely hit in normal use, or a clear violation of a project rule that matters in practice.
@@ -68,6 +68,7 @@ Then:
 gh api --method POST "repos/<owner>/<repo>/pulls/<number>/reviews" --input review.json
 ```
 
+- Set `commit_id` to the PR's **current** head SHA (fetch it fresh: `gh api repos/<owner>/<repo>/pulls/<number> --jq .head.sha`); do not reuse a SHA captured earlier in the run.
 - The review **body** carries only a one-line summary (for example `Found 2 issues.` or `No issues found.`), optionally followed by an `Outside the diff:` list. Never include a "what was reviewed" / coverage summary, a list of areas checked, or any description of your process.
 - `comments[]` holds one entry per finding **that is on a diff line** — `side: "RIGHT"` for added/current lines, `side: "LEFT"` for removed lines. It may be empty (`[]`), e.g. `No issues found.` or when every finding is off-diff.
 - A finding on a line **not present in the PR diff** (a pre-existing line GitHub rejects as an inline target) goes in the body under `Outside the diff:` (file:line — severity — explanation), never in `comments[]`.
