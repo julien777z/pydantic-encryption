@@ -14,11 +14,18 @@ on:
 permissions:
   contents: read
   pull-requests: write
+  statuses: write
 
 jobs:
   determine-agent:
     name: Determine Agent
     runs-on: ubuntu-latest
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch'
+          || github.event_name == 'pull_request'
+          || (github.event_name == 'issue_comment'
+              && github.event.issue.pull_request != null
+              && startsWith(github.event.comment.body, 'claude review')) }}
     outputs:
       claude: ${{ steps.secrets.outputs.claude }}
       cursor: ${{ steps.secrets.outputs.cursor }}
@@ -138,7 +145,7 @@ jobs:
       ${{ needs.determine-agent.outputs.cursor == 'true'
           && github.event_name == 'pull_request'
           && (github.event.action == 'synchronize'
-              || (github.event.action == 'opened'
+              || ((github.event.action == 'opened' || github.event.action == 'ready_for_review')
                   && needs.determine-agent.outputs.claude == 'false'))
           && github.event.pull_request.head.repo.full_name == github.repository
           && github.event.sender.type != 'Bot'

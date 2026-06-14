@@ -24,6 +24,7 @@ class ReviewConfig(TypedDict):
     routine_beta: str
     cursor_marker: str
     claude_marker: str
+    cursor_status_context: str
 
 
 CONFIG: Final[ReviewConfig] = ReviewConfig(
@@ -32,6 +33,7 @@ CONFIG: Final[ReviewConfig] = ReviewConfig(
     routine_beta="experimental-cc-routine-2026-04-01",
     cursor_marker="<!-- code-review:cursor -->",
     claude_marker="<!-- code-review:claude -->",
+    cursor_status_context="code-review/cursor",
 )
 
 
@@ -90,13 +92,52 @@ def already_reviewed(repo: str, pr_number: str, head_sha: str, token: str, marke
             "--paginate",
             f"repos/{repo}/pulls/{pr_number}/reviews",
             "--jq",
-            '.[] | select(.user.type == "Bot" and .state != "PENDING" and .state != "DISMISSED" '
+            '.[] | select(.state != "PENDING" and .state != "DISMISSED" '
             f'and ((.body // "") | contains("{marker}"))) | .commit_id',
         ],
         token=token,
     )
 
     return head_sha in raw.split()
+
+
+def head_reviewed(repo: str, head_sha: str, token: str) -> bool:
+    """Return True if a successful Cursor review commit status is already recorded for this head."""
+
+    raw = run_gh(
+        [
+            "api",
+            f"repos/{repo}/commits/{head_sha}/statuses",
+            "--jq",
+            f'.[] | select(.context == "{CONFIG["cursor_status_context"]}") | .state',
+        ],
+        token=token,
+    )
+
+    return "success" in raw.split()
+
+
+def mark_head_reviewed(repo: str, head_sha: str, token: str) -> None:
+    """Record a successful Cursor review commit status so a later re-run of the same head can skip it."""
+
+    try:
+        run_gh(
+            [
+                "api",
+                "--method",
+                "POST",
+                f"repos/{repo}/statuses/{head_sha}",
+                "-f",
+                "state=success",
+                "-f",
+                f"context={CONFIG['cursor_status_context']}",
+                "-f",
+                "description=Cursor code review complete",
+            ],
+            token=token,
+        )
+    except subprocess.CalledProcessError as exc:
+        logger.warning("Could not record reviewed status for %s: %s", head_sha, exc.stderr.strip())
 
 
 def posted_finding_keys(repo: str, pr_number: str, token: str) -> set[tuple[str, str]]:
@@ -382,8 +423,10 @@ async def run_cursor_review() -> int:
     token = os.environ["GITHUB_TOKEN"]
     model = os.environ.get("CURSOR_AGENT_MODEL", "composer-2.5")
 
-    if already_reviewed(repo, pr_number, head_sha, token, CONFIG["cursor_marker"]):
-        logger.info("Head %s already reviewed by the bot; skipping.", head_sha)
+    if head_reviewed(repo, head_sha, token) or already_reviewed(
+        repo, pr_number, head_sha, token, CONFIG["cursor_marker"]
+    ):
+        logger.info("Head %s already reviewed by Cursor; skipping.", head_sha)
 
         return 0
 
@@ -413,7 +456,8 @@ async def run_cursor_review() -> int:
         return 1
 
     if not findings:
-        logger.info("No findings; not posting a review.")
+        logger.info("No findings; recording reviewed status without posting.")
+        mark_head_reviewed(repo, head_sha, token)
 
         return 0
 
@@ -421,7 +465,8 @@ async def run_cursor_review() -> int:
     findings = [finding for finding in findings if (finding["path"], finding["title"]) not in posted]
 
     if not findings:
-        logger.info("Every finding was already posted on this PR; nothing new to add.")
+        logger.info("Every finding was already posted on this PR; recording reviewed status.")
+        mark_head_reviewed(repo, head_sha, token)
 
         return 0
 
@@ -432,14 +477,18 @@ async def run_cursor_review() -> int:
 
         return 0
 
-    if already_reviewed(repo, pr_number, head_sha, token, CONFIG["cursor_marker"]):
-        logger.info("Head %s reviewed by the bot during the run; skipping.", head_sha)
+    if head_reviewed(repo, head_sha, token) or already_reviewed(
+        repo, pr_number, head_sha, token, CONFIG["cursor_marker"]
+    ):
+        logger.info("Head %s reviewed by Cursor during the run; skipping.", head_sha)
 
         return 0
 
     payload = build_review(head_sha, findings, anchors)
     if not post_review(repo, pr_number, payload, token):
         return 1
+
+    mark_head_reviewed(repo, head_sha, token)
 
     return 0
 
