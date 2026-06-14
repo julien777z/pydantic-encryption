@@ -345,7 +345,7 @@ async def run_cursor_review() -> int:
     token = os.environ["GITHUB_TOKEN"]
     model = os.environ.get("CURSOR_AGENT_MODEL", "composer-2.5")
 
-    if already_reviewed(repo, pr_number, head_sha, token):
+    if already_reviewed(repo, pr_number, head_sha, token, CONFIG["cursor_marker"]):
         logger.info("Head %s already reviewed by the bot; skipping.", head_sha)
 
         return 0
@@ -387,7 +387,7 @@ async def run_cursor_review() -> int:
 
         return 0
 
-    if already_reviewed(repo, pr_number, head_sha, token):
+    if already_reviewed(repo, pr_number, head_sha, token, CONFIG["cursor_marker"]):
         logger.info("Head %s reviewed by the bot during the run; skipping.", head_sha)
 
         return 0
