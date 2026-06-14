@@ -15,7 +15,7 @@ Review a GitHub pull request with parallel specialized agents and post the findi
 
 If no PR is detected, stop and ask the user to provide a PR number or URL.
 
-Then use a Haiku agent to check eligibility: stop without proceeding if the PR is (a) closed, (b) a draft, (c) clearly automated or trivially simple and obviously fine, or (d) already has a review or code-review comment from you **for the PR's current head commit** — a new push since your last review makes the PR eligible again. To check (d), look at **both** the PR's existing reviews (`gh api repos/<owner>/<repo>/pulls/<number>/reviews`) **and** its issue comments (`gh api repos/<owner>/<repo>/issues/<number>/comments`) — an earlier run may have left its summary as a plain issue comment rather than a review. Keep only entries **authored by you**, and check whether any targets the current head SHA — another person's review does not count.
+Then use a Haiku agent to check eligibility: stop without proceeding if the PR is (a) closed, (b) a draft, (c) clearly automated or trivially simple and obviously fine, or (d) already has a review or code-review comment from you **for the PR's current head commit** — a new push since your last review makes the PR eligible again. To check (d), look at **both** the PR's existing reviews (`gh api repos/<owner>/<repo>/pulls/<number>/reviews`) **and** its issue comments (`gh api repos/<owner>/<repo>/issues/<number>/comments`), keeping only entries **authored by you**. Match each kind to the current head SHA differently: a **review** carries a `commit_id`, so it counts only when that equals the head SHA; an **issue comment** (a summary an earlier run may have left instead of a review) has no `commit_id`, so treat it as covering the current head when its `created_at` is at or after the head commit's timestamp (`gh api repos/<owner>/<repo>/commits/<head-sha> --jq .commit.committer.date`). Another person's review or comment never counts.
 
 **Step 2 (two parallel Haiku agents):**
 
@@ -24,7 +24,7 @@ Then use a Haiku agent to check eligibility: stop without proceeding if the PR i
 
 ## Step 3 — Review
 
-Launch **5 parallel Sonnet agents** to independently review the PR diff. Each agent reads the changed files and returns a flat list of issues — each with its **file path, line number, and diff side** (`RIGHT` for an added/current line, `LEFT` for a removed line, or `off-diff` for a line the PR did not touch) so it can be anchored inline — and the reason it was flagged (e.g. rule compliance, bug, historical context):
+Launch **5 parallel Sonnet agents** to independently review the PR diff. Each agent reads the changed files and returns a flat list of issues — each with its **file path, line number, and diff side** (`RIGHT` for an added/current line, `LEFT` for a removed line, or `off-diff` for a line the PR did not touch) so it can be anchored inline — and the reason it was flagged (e.g. rule compliance, bug, historical context). For a `RIGHT` line use the line number in the new (head) file; for a `LEFT` line use the line number on the diff's **base** side (the pre-change file), since removed lines are not present in the head file:
 
 - Agent #1 (rules): Audit the changes for compliance with the project rule files gathered earlier (Step 2). Note that the rules are guidance for code generation, so not all instructions apply during review.
 - Agent #2 (bugs): Scan the diff for obvious bugs. Focus on real defects; ignore likely false positives. You may read surrounding context in the touched files; pre-existing bugs in those files are in scope.
@@ -68,11 +68,12 @@ Then:
 gh api --method POST "repos/<owner>/<repo>/pulls/<number>/reviews" --input review.json
 ```
 
-- Set `commit_id` to the PR's **current** head SHA (fetch it fresh: `gh api repos/<owner>/<repo>/pulls/<number> --jq .head.sha`); do not reuse a SHA captured earlier in the run.
+- Set `commit_id` to the PR's **current** head SHA (fetch it fresh: `gh api repos/<owner>/<repo>/pulls/<number> --jq .head.sha`); do not reuse a SHA captured earlier in the run. If that SHA differs from the one the diff and findings were gathered against, the head moved mid-run: **re-fetch the diff for the new head and re-validate every anchor against it** before posting — never anchor stale findings to a newer commit.
 - The review **body** carries only a one-line summary (for example `Found 2 issues.` or `No issues found.`), optionally followed by an `Outside the diff:` list. Never include a "what was reviewed" / coverage summary, a list of areas checked, or any description of your process.
-- `comments[]` holds one entry per finding **that is on a diff line** — set `side` from the side each agent recorded in Step 3 (`RIGHT` for added/current lines, `LEFT` for removed lines). It may be empty (`[]`), e.g. `No issues found.` or when every finding is off-diff.
-- A finding marked `off-diff` in Step 3 (a line not present in the PR diff, which GitHub rejects as an inline target) goes in the body under `Outside the diff:` (file:line — severity — explanation), never in `comments[]`.
-- A single `comments[]` entry whose line is not in the diff makes GitHub reject the **entire** review with 422. If the post fails on an inline target, **remove that entry from `comments[]`**, move it to the `Outside the diff:` list, and retry — so the bad anchor is gone from the payload and one finding never blocks the others.
+- **Validate anchors against the diff first.** From the head diff (`gh api repos/<owner>/<repo>/pulls/<number>/files`, reading each file's `patch`) build the set of valid `(path, line, side)` targets the diff exposes. Keep a finding in `comments[]` only when its anchor is in that set; route every other finding to `Outside the diff:`. Doing this up front means a 422 should not happen.
+- `comments[]` holds one entry per finding **whose anchor is in the valid set** — set `side` from the side each agent recorded in Step 3 (`RIGHT` for added/current lines, `LEFT` for removed lines). It may be empty (`[]`), e.g. `No issues found.` or when every finding is off-diff.
+- A finding marked `off-diff` in Step 3, or one whose anchor is not in the valid set, goes in the body under `Outside the diff:` (file:line — severity — explanation), never in `comments[]`.
+- A single `comments[]` entry GitHub rejects as an invalid anchor makes it reject the **entire** review with 422. If a post still 422s, the error body names the offending `path`/position — remove **that** entry from `comments[]`, move it to the `Outside the diff:` list, and retry, so one bad anchor never blocks the others.
 
 ## Inline comment format
 
