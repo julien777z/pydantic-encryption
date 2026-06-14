@@ -14,14 +14,14 @@ concurrency:
 
 jobs:
   fire-review-routine:
-    name: Fire Claude review routine
+    name: Start Code Review
     if: >-
       ${{ github.event.pull_request.head.repo.full_name == github.repository
           && github.event.sender.type != 'Bot'
           && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.pull_request.author_association) }}
     runs-on: ubuntu-latest
     steps:
-      - name: Fire routine
+      - name: Start Code Review
         env:
           CLAUDE_REVIEW_ROUTINE_API_KEY: ${{ secrets.CLAUDE_REVIEW_ROUTINE_API_KEY }}
           CLAUDE_REVIEW_ROUTINE_ID: ${{ secrets.CLAUDE_REVIEW_ROUTINE_ID }}
