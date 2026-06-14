@@ -21,14 +21,16 @@ class ReviewConfig(TypedDict):
     routine_host: str
     anthropic_version: str
     routine_beta: str
-    review_marker: str
+    cursor_marker: str
+    claude_marker: str
 
 
 CONFIG: Final[ReviewConfig] = ReviewConfig(
     routine_host="https://api.anthropic.com/v1/claude_code/routines",
     anthropic_version="2023-06-01",
     routine_beta="experimental-cc-routine-2026-04-01",
-    review_marker="<!-- code-review -->",
+    cursor_marker="<!-- code-review:cursor -->",
+    claude_marker="<!-- code-review:claude -->",
 )
 
 
@@ -78,8 +80,8 @@ def current_head_sha(repo: str, pr_number: str, token: str) -> str:
     ).strip()
 
 
-def already_reviewed(repo: str, pr_number: str, head_sha: str, token: str) -> bool:
-    """Return True if a code-review (either tier) was already posted for the given head commit (skill Step 1d)."""
+def already_reviewed(repo: str, pr_number: str, head_sha: str, token: str, marker: str) -> bool:
+    """Return True if this tier already posted a review (carrying its marker) for the given head commit."""
 
     raw = run_gh(
         [
@@ -88,7 +90,7 @@ def already_reviewed(repo: str, pr_number: str, head_sha: str, token: str) -> bo
             f"repos/{repo}/pulls/{pr_number}/reviews",
             "--jq",
             '.[] | select(.state != "PENDING" and .state != "DISMISSED" '
-            f'and ((.body // "") | contains("{CONFIG["review_marker"]}"))) | .commit_id',
+            f'and ((.body // "") | contains("{marker}"))) | .commit_id',
         ],
         token=token,
     )
@@ -261,7 +263,7 @@ def build_review(
     if off_diff:
         body = f"{body}\n\nOutside the diff:\n" + "\n".join(off_diff)
 
-    body = f"{body}\n\n{CONFIG['review_marker']}"
+    body = f"{body}\n\n{CONFIG['cursor_marker']}"
 
     return {"commit_id": head_sha, "event": "COMMENT", "body": body, "comments": comments}
 
@@ -296,8 +298,8 @@ def fire_claude_routine() -> int:
     head_sha = os.environ["HEAD_SHA"]
     token = os.environ["GITHUB_TOKEN"]
 
-    if already_reviewed(repo, pr_number, head_sha, token):
-        logger.info("Head %s already reviewed; not firing the routine.", head_sha)
+    if already_reviewed(repo, pr_number, head_sha, token, CONFIG["claude_marker"]):
+        logger.info("Head %s already reviewed by Claude; not firing the routine.", head_sha)
 
         return 0
 
