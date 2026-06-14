@@ -166,11 +166,11 @@ def build_prompt(repo: str, pr_number: str, head_sha: str, diff: str) -> str:
     """Compose the review prompt: the skill reference, the PR context, and the strict JSON output contract."""
 
     return (
-        "Follow your `claude-review` skill to review the pull request below.\n"
-        "You are a single Cursor agent running in CI with only the unified diff below — no GitHub "
-        "tools, no sub-agents, no repository checkout. Ignore any skill steps about launching parallel "
-        "agents, reading blame/prior PRs, or posting via tools; the runner posts the review. Apply the "
-        "skill's review lenses and severity bar to the diff yourself, then reply with ONLY a JSON object "
+        "Follow your `code-review` skill to review the pull request below.\n"
+        "You are a single agent running in CI: you have no sub-agents and no GitHub posting tools, "
+        "so ignore any skill steps about launching parallel agents or posting via tools — the runner "
+        "posts the review. Apply the skill's review lenses and severity bar to the diff yourself, "
+        "then reply with ONLY a JSON object "
         "(no prose, no code fence) of the form:\n"
         '{"findings": [{"path": "<repo-relative>", "line": <int>, "side": "RIGHT|LEFT", '
         '"severity": "Critical|High|Medium|Low", "title": "<short>", "body": "<1-3 sentences>"}]}\n'

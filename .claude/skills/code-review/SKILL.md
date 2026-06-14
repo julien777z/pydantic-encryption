@@ -1,5 +1,5 @@
 ---
-name: claude-review
+name: code-review
 description: Review a GitHub pull request with parallel specialized agents and post inline review comments rated by severity. Surfaces every valid issue; does not fix anything. Use when asked to review a PR or run /code-review.
 ---
 
@@ -22,7 +22,7 @@ If your runtime cannot launch parallel sub-agents, run the per-agent steps below
 
 Identify the target PR: its number and repo slug (owner/repo) are normally supplied by the runner (repo, PR number/URL, head ref and SHA, author). If not supplied, detect the PR from the current branch (`pull_request_read`, or `gh pr view --json number,headRefOid,state,isDraft`). If no PR is detectable, stop and ask the user for a PR number or URL.
 
-Then check eligibility (a Haiku agent when sub-agents are available): stop without proceeding if the PR is (a) closed, (b) a draft, (c) clearly automated or trivially simple and obviously fine, or (d) you **already reviewed the current head commit** — a new push since your last review makes it eligible again. For (d): list the PR's reviews (`pull_request_read` `method: "get_reviews"`, paging through all pages), keep only **submitted** reviews **authored by you** (ignore `PENDING`/`DISMISSED`), and treat the head as already reviewed only when one has a `commit_id` equal to the current head SHA. Match on `commit_id`, never on timestamps; another person's review does not count.
+Then check eligibility (delegate to a sub-agent when sub-agents are available): stop without proceeding if the PR is (a) closed, (b) a draft, (c) clearly automated or trivially simple and obviously fine, or (d) you **already reviewed the current head commit** — a new push since your last review makes it eligible again. For (d): list the PR's reviews (`pull_request_read` `method: "get_reviews"`, paging through all pages), keep only **submitted** reviews **authored by you** (ignore `PENDING`/`DISMISSED`), and treat the head as already reviewed only when one has a `commit_id` equal to the current head SHA. Match on `commit_id`, never on timestamps; another person's review does not count.
 
 ## Step 2 — Context (two parallel agents)
 
