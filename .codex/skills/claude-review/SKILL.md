@@ -45,32 +45,33 @@ For rule-compliance findings: confirm the rule file actually calls out that spec
 
 ## Step 5 — Post one inline review
 
-Use a Haiku agent to repeat the eligibility check from Step 1. If still eligible, post **one** pull request review containing an **inline comment per finding**, anchored to the exact file and line, via the GitHub API.
+Use a Haiku agent to repeat the eligibility check from Step 1. If still eligible, post **one** pull request review, with an inline comment for each finding **on a diff line** and any off-diff findings listed in the review body.
 
-**Assemble the JSON payload with `jq` — never hand-write it** — so the newlines and quotes in each multi-line comment body are escaped correctly. Build the `comments` array (one object per finding), then post the review:
+**Write the payload to a JSON file, then post it with `--input`.** Do not build the JSON with shell `printf`/`jq` string interpolation — finding text can contain quotes, backticks, `%`, or `$(...)` that the shell would mangle. Write the file directly as valid JSON, escaping each newline inside a body as `\n`:
 
-```bash
-# Append one comment object per finding (jq escapes each multi-line body via
-# --arg). Run this jq line once per finding so the objects accumulate — start
-# from an empty file and append (>>); do not overwrite it.
-: > /tmp/review-comments.ndjson
-jq -nc --arg path "relative/path.tsx" --argjson line 402 \
-  --arg body "$(printf '### Short title\n\n**Low Severity**\n\nExplanation.')" \
-  '{path: $path, line: $line, side: "RIGHT", body: $body}' >> /tmp/review-comments.ndjson
-# ... repeat the jq line above for each additional finding ...
+`review.json`:
 
-# Slurp every finding into the comments array and post one review:
-jq -n --arg commit "<full head sha>" --arg summary "Found 2 issues." \
-  --slurpfile comments /tmp/review-comments.ndjson \
-  '{commit_id: $commit, event: "COMMENT", body: $summary, comments: $comments}' \
-  | gh api --method POST "repos/<owner>/<repo>/pulls/<number>/reviews" --input -
+```json
+{
+  "commit_id": "<full head sha>",
+  "event": "COMMENT",
+  "body": "Found 2 issues.\n\nOutside the diff:\n- path/to/file.py:88 — High — explanation.",
+  "comments": [
+    { "path": "src/file.tsx", "line": 402, "side": "RIGHT", "body": "### Short title\n\n**Low Severity**\n\nExplanation." }
+  ]
+}
 ```
 
-- The review **body** carries only a one-line summary (for example `Found 2 issues.` or `No issues found.`) plus, when needed, the off-diff findings described below. Never include a "what was reviewed" / coverage summary, a list of areas checked, or any description of your process.
-- One entry in `comments[]` per finding, anchored to the line the issue is on (`side: "RIGHT"` for added/current lines; `side: "LEFT"` for removed lines).
-- If a finding sits on a line **not present in the PR diff** (a pre-existing line GitHub will reject as an inline target), append it to the body under an `Outside the diff:` heading — one line per finding with its file:line, severity, and explanation — rather than as an inline comment.
-- A single `comments[]` entry whose line is not in the diff makes GitHub reject the **entire** review with 422. Anchor inline comments only to diff lines; if the post still fails on an inline target, drop that one comment (fold it into the `Outside the diff:` body list) and retry, so one bad anchor never blocks the other findings.
-- If there are no valid findings, post the review with an empty `comments` array and `body` = `No issues found.`
+Then:
+
+```bash
+gh api --method POST "repos/<owner>/<repo>/pulls/<number>/reviews" --input review.json
+```
+
+- The review **body** carries only a one-line summary (for example `Found 2 issues.` or `No issues found.`), optionally followed by an `Outside the diff:` list. Never include a "what was reviewed" / coverage summary, a list of areas checked, or any description of your process.
+- `comments[]` holds one entry per finding **that is on a diff line** — `side: "RIGHT"` for added/current lines, `side: "LEFT"` for removed lines. It may be empty (`[]`), e.g. `No issues found.` or when every finding is off-diff.
+- A finding on a line **not present in the PR diff** (a pre-existing line GitHub rejects as an inline target) goes in the body under `Outside the diff:` (file:line — severity — explanation), never in `comments[]`.
+- A single `comments[]` entry whose line is not in the diff makes GitHub reject the **entire** review with 422. If the post fails on an inline target, move that one comment to the `Outside the diff:` list and retry, so one bad anchor never blocks the other findings.
 
 ## Inline comment format
 
