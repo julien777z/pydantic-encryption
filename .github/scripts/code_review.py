@@ -258,7 +258,7 @@ def build_review(
             )
 
     count = len(findings)
-    body = f"Found {count} issue{'s' if count != 1 else ''}." if count else "No issues found."
+    body = f"Found {count} issue{'s' if count != 1 else ''}."
     if off_diff:
         body = f"{body}\n\nOutside the diff:\n" + "\n".join(off_diff)
 
@@ -363,6 +363,11 @@ async def run_cursor_review() -> int:
         logger.error("Could not parse agent reply: %s", exc)
 
         return 1
+
+    if not findings:
+        logger.info("No findings; not posting a review.")
+
+        return 0
 
     # Re-gate before posting (skill Step 5): the PR must not have advanced and must not have
     # been reviewed by another concurrent run for this head commit.

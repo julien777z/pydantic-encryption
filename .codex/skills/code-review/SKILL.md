@@ -56,10 +56,10 @@ Repeat the eligibility check from Step 1, and re-fetch the head SHA. If it diffe
 
 ## Step 6 — Post one inline review
 
-Post **one** review: an inline comment per **on-diff** finding, plus any off-diff findings collected into a single summary comment. Use the posting tool for your runner (see **GitHub tools** above).
+**If there are no findings, do not post anything — skip the review entirely.** Never post a "no issues" / "looks good" review. Otherwise post **one** review: an inline comment per **on-diff** finding, plus any off-diff findings collected into a single summary comment. Use the posting tool for your runner (see **GitHub tools** above).
 
 - Anchor each inline comment to the finding's `path`, line, and `side`, using the **full head SHA**. **Validate each anchor against the diff first** — a comment on a line not present in the diff is silently dropped or rejected, so move anything that will not anchor into the summary instead.
-- The summary body is one line (e.g. `Found 3 issues.` or `No issues found.`), optionally followed by an `Outside the diff:` list, one entry per off-diff finding (`path:line — Severity — explanation`). The count covers **every** finding, inline plus off-diff. Never include a "what was reviewed" / coverage summary or any description of your process.
+- The summary body is one line (e.g. `Found 3 issues.`), optionally followed by an `Outside the diff:` list, one entry per off-diff finding (`path:line — Severity — explanation`). The count covers **every** finding, inline plus off-diff. Never include a "what was reviewed" / coverage summary or any description of your process.
 
 ## Inline comment format
 
