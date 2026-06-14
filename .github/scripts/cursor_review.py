@@ -64,6 +64,23 @@ def current_head_sha(repo: str, pr_number: str, token: str) -> str:
     ).strip()
 
 
+def already_reviewed(repo: str, pr_number: str, head_sha: str, token: str) -> bool:
+    """Return True if this runner's bot already reviewed the given head commit (skill Step 1d)."""
+
+    raw = run_gh(
+        [
+            "api",
+            "--paginate",
+            f"repos/{repo}/pulls/{pr_number}/reviews",
+            "--jq",
+            '.[] | select(.user.login == "github-actions[bot]") | .commit_id',
+        ],
+        token=token,
+    )
+
+    return head_sha in raw.split()
+
+
 def parse_patch(patch: str) -> tuple[set[int], set[int]]:
     """Return the (RIGHT new-side, LEFT old-side) line numbers a unified-diff patch exposes."""
 
@@ -71,13 +88,19 @@ def parse_patch(patch: str) -> tuple[set[int], set[int]]:
     left: set[int] = set()
     old_line = 0
     new_line = 0
+    in_hunk = False
 
     for raw in patch.splitlines():
         header = HUNK_HEADER.match(raw)
         if header is not None:
             old_line = int(header.group(1))
             new_line = int(header.group(2))
+            in_hunk = True
 
+            continue
+
+        if not in_hunk:
+            # Ignore any `diff --git` / `---` / `+++` headers before the first hunk.
             continue
 
         if raw.startswith("+"):
@@ -243,11 +266,26 @@ def post_review(repo: str, pr_number: str, payload: ReviewPayload, token: str) -
 
     try:
         logger.info("Posted review: %s", submit(payload))
-    except subprocess.CalledProcessError as exc:
-        logger.warning("Review POST failed (%s); retrying summary-only: %s", exc.returncode, exc.stderr.strip())
 
-        summary_only: ReviewPayload = {**payload, "comments": []}
-        logger.info("Posted review (summary-only): %s", submit(summary_only))
+        return
+    except subprocess.CalledProcessError as exc:
+        logger.warning("Review POST failed (%s); retrying without inline anchors: %s", exc.returncode, exc.stderr.strip())
+
+    # The first attempt rejected an inline anchor, so drop anchors but keep every
+    # finding's text by folding the inline comments into the body — none are lost.
+    folded = "\n\n".join(
+        f"**{entry['path']}:{entry['line']}**\n\n{entry['body']}" for entry in payload["comments"]
+    )
+    body = payload["body"]
+    if folded:
+        body = f"{body}\n\nInline findings (could not anchor):\n\n{folded}"
+
+    fallback: ReviewPayload = {**payload, "body": body, "comments": []}
+
+    try:
+        logger.info("Posted review (no inline anchors): %s", submit(fallback))
+    except subprocess.CalledProcessError as exc:
+        logger.error("Review POST failed again (%s): %s", exc.returncode, exc.stderr.strip())
 
 
 async def main() -> int:
@@ -264,6 +302,11 @@ async def main() -> int:
         logger.error("Skill not found at %s", SKILL_PATH)
 
         return 1
+
+    if already_reviewed(repo, pr_number, head_sha, token):
+        logger.info("Head %s already reviewed by the bot; skipping.", head_sha)
+
+        return 0
 
     skill_text = SKILL_PATH.read_text(encoding="utf-8")
     diff = run_gh(["pr", "diff", pr_number, "--repo", repo], token=token)

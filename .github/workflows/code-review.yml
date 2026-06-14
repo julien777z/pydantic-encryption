@@ -2,7 +2,7 @@ name: Code Review
 
 on:
   pull_request:
-    types: [opened, synchronize]
+    types: [opened, synchronize, ready_for_review]
   issue_comment:
     types: [created]
   workflow_dispatch:
@@ -52,6 +52,7 @@ jobs:
     if: >-
       ${{ needs.gate.outputs.claude == 'true' && (
         (github.event_name == 'pull_request' && github.event.action == 'opened'
+          && github.event.pull_request.draft == false
           && github.event.pull_request.head.repo.full_name == github.repository
           && github.event.sender.type != 'Bot'
           && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.pull_request.author_association))
@@ -72,17 +73,25 @@ jobs:
           PR_FROM_COMMENT: ${{ github.event.issue.number }}
           PR_FROM_DISPATCH: ${{ github.event.inputs.pr_number }}
         run: |
+          set -euo pipefail
           case "$EVENT_NAME" in
             pull_request) PR_NUMBER="$PR_FROM_PR" ;;
             issue_comment) PR_NUMBER="$PR_FROM_COMMENT" ;;
             workflow_dispatch) PR_NUMBER="$PR_FROM_DISPATCH" ;;
           esac
 
+          if [ -z "${PR_NUMBER:-}" ]; then
+            echo "Could not determine PR number"; exit 1
+          fi
+
           # pull_request.* fields are empty on issue_comment/workflow_dispatch, so resolve from the API.
-          read -r URL HEAD_REF HEAD_SHA AUTHOR <<EOF
-          $(gh pr view "$PR_NUMBER" --repo "$REPO" --json url,headRefName,headRefOid,author \
-              --jq '[.url, .headRefName, .headRefOid, .author.login] | @tsv')
-          EOF
+          fields=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json url,headRefName,headRefOid,author \
+            --jq '[.url, .headRefName, .headRefOid, .author.login] | @tsv')
+          IFS=$'\t' read -r URL HEAD_REF HEAD_SHA AUTHOR <<< "$fields"
+
+          if [ -z "$HEAD_SHA" ]; then
+            echo "Could not resolve head SHA for PR $PR_NUMBER"; exit 1
+          fi
 
           {
             echo "number=$PR_NUMBER"
@@ -127,6 +136,7 @@ jobs:
           && github.event_name == 'pull_request'
           && github.event.pull_request.draft == false
           && (github.event.action == 'synchronize'
+              || github.event.action == 'ready_for_review'
               || (github.event.action == 'opened' && needs.gate.outputs.claude == 'false'))
           && github.event.pull_request.head.repo.full_name == github.repository
           && github.event.sender.type != 'Bot'
