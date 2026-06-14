@@ -50,13 +50,18 @@ Use a Haiku agent to repeat the eligibility check from Step 1. If still eligible
 **Assemble the JSON payload with `jq` — never hand-write it** — so the newlines and quotes in each multi-line comment body are escaped correctly. Build the `comments` array (one object per finding), then post the review:
 
 ```bash
-# One object per finding; pass each multi-line body through --arg so it is escaped.
-comments=$(jq -n \
-  --arg path "relative/path.tsx" --argjson line 402 \
+# Append one comment object per finding (jq escapes each multi-line body via
+# --arg). Run this jq line once per finding so the objects accumulate — start
+# from an empty file and append (>>); do not overwrite it.
+: > /tmp/review-comments.ndjson
+jq -nc --arg path "relative/path.tsx" --argjson line 402 \
   --arg body "$(printf '### Short title\n\n**Low Severity**\n\nExplanation.')" \
-  '[{path: $path, line: $line, side: "RIGHT", body: $body}]')   # repeat/extend for each finding
+  '{path: $path, line: $line, side: "RIGHT", body: $body}' >> /tmp/review-comments.ndjson
+# ... repeat the jq line above for each additional finding ...
 
-jq -n --arg commit "<full head sha>" --arg summary "Found 1 issue." --argjson comments "$comments" \
+# Slurp every finding into the comments array and post one review:
+jq -n --arg commit "<full head sha>" --arg summary "Found 2 issues." \
+  --slurpfile comments /tmp/review-comments.ndjson \
   '{commit_id: $commit, event: "COMMENT", body: $summary, comments: $comments}' \
   | gh api --method POST "repos/<owner>/<repo>/pulls/<number>/reviews" --input -
 ```
