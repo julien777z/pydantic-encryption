@@ -89,7 +89,7 @@ def already_reviewed(repo: str, pr_number: str, head_sha: str, token: str, marke
             "--paginate",
             f"repos/{repo}/pulls/{pr_number}/reviews",
             "--jq",
-            '.[] | select(.state != "PENDING" and .state != "DISMISSED" '
+            '.[] | select(.user.type == "Bot" and .state != "PENDING" and .state != "DISMISSED" '
             f'and ((.body // "") | contains("{marker}"))) | .commit_id',
         ],
         token=token,
@@ -300,6 +300,11 @@ def fire_claude_routine() -> int:
 
     if already_reviewed(repo, pr_number, head_sha, token, CONFIG["claude_marker"]):
         logger.info("Head %s already reviewed by Claude; not firing the routine.", head_sha)
+
+        return 0
+
+    if current_head_sha(repo, pr_number, token) != head_sha:
+        logger.info("Head moved since the event; not firing for superseded commit %s.", head_sha)
 
         return 0
 
