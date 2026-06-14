@@ -2,7 +2,7 @@ name: Code Review
 
 on:
   pull_request:
-    types: [opened, synchronize, ready_for_review]
+    types: [opened, synchronize]
   issue_comment:
     types: [created]
   workflow_dispatch:
@@ -16,7 +16,7 @@ permissions:
   pull-requests: write
 
 jobs:
-  gate:
+  determine-agent:
     name: Determine Agent
     runs-on: ubuntu-latest
     outputs:
@@ -43,16 +43,15 @@ jobs:
 
   start-claude-review:
     name: Start Claude Review
-    needs: gate
+    needs: determine-agent
     # A newer comment/commit on the same PR cancels a superseded Claude fire, but never a Cursor run.
     concurrency:
       group: claude-review-${{ github.event.pull_request.number || github.event.issue.number || github.event.inputs.pr_number }}
       cancel-in-progress: true
     if: >-
-      ${{ needs.gate.outputs.claude == 'true' && (
+      ${{ needs.determine-agent.outputs.claude == 'true' && (
         (github.event_name == 'pull_request'
-          && (github.event.action == 'opened' || github.event.action == 'ready_for_review')
-          && github.event.pull_request.draft == false
+          && github.event.action == 'opened'
           && github.event.pull_request.head.repo.full_name == github.repository
           && github.event.sender.type != 'Bot'
           && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.pull_request.author_association))
@@ -84,17 +83,17 @@ jobs:
             echo "Could not determine PR number"; exit 1
           fi
 
-          fields=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json url,headRefName,headRefOid,author,isDraft,state \
-            --jq '[.url, .headRefName, .headRefOid, .author.login, .isDraft, .state] | @tsv')
-          IFS=$'\t' read -r URL HEAD_REF HEAD_SHA AUTHOR IS_DRAFT STATE <<< "$fields"
+          fields=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json url,headRefName,headRefOid,author,state \
+            --jq '[.url, .headRefName, .headRefOid, .author.login, .state] | @tsv')
+          IFS=$'\t' read -r URL HEAD_REF HEAD_SHA AUTHOR STATE <<< "$fields"
 
           if [ -z "$HEAD_SHA" ]; then
             echo "Could not resolve head SHA for PR $PR_NUMBER"; exit 1
           fi
 
-          # The skill stops on draft/closed PRs; skip the fire here too for comment/dispatch triggers.
-          if [ "$IS_DRAFT" = "true" ] || [ "$STATE" != "OPEN" ]; then
-            echo "PR $PR_NUMBER is draft or not open; skipping."
+          # The skill stops on closed PRs; skip the fire here too for comment/dispatch triggers.
+          if [ "$STATE" != "OPEN" ]; then
+            echo "PR $PR_NUMBER is not open; skipping."
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -130,17 +129,16 @@ jobs:
 
   start-cursor-review:
     name: Start Cursor Review
-    needs: gate
+    needs: determine-agent
     concurrency:
       group: cursor-review-${{ github.event.pull_request.number }}
       cancel-in-progress: true
     if: >-
-      ${{ needs.gate.outputs.cursor == 'true'
+      ${{ needs.determine-agent.outputs.cursor == 'true'
           && github.event_name == 'pull_request'
-          && github.event.pull_request.draft == false
           && (github.event.action == 'synchronize'
-              || ((github.event.action == 'opened' || github.event.action == 'ready_for_review')
-                  && needs.gate.outputs.claude == 'false'))
+              || (github.event.action == 'opened'
+                  && needs.determine-agent.outputs.claude == 'false'))
           && github.event.pull_request.head.repo.full_name == github.repository
           && github.event.sender.type != 'Bot'
           && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.pull_request.author_association) }}
