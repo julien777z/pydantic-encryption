@@ -8,13 +8,11 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
-from pathlib import Path
 from typing import Final, TypedDict
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger("code_review")
 
-SKILL_PATH: Final[Path] = Path(".agents/skills/claude-review/SKILL.md")
 HUNK_HEADER: Final[re.Pattern[str]] = re.compile(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 FENCE: Final[re.Pattern[str]] = re.compile(r"```(?:json)?\s*(\{.*\})\s*```", re.DOTALL)
 
@@ -164,12 +162,11 @@ def diff_anchors(repo: str, pr_number: str, token: str) -> dict[str, tuple[set[i
     return anchors
 
 
-def build_prompt(skill_text: str, repo: str, pr_number: str, head_sha: str, diff: str) -> str:
-    """Compose the review prompt: the skill, the PR context, and the strict JSON output contract."""
+def build_prompt(repo: str, pr_number: str, head_sha: str, diff: str) -> str:
+    """Compose the review prompt: the skill reference, the PR context, and the strict JSON output contract."""
 
     return (
-        f"{skill_text}\n\n"
-        "---\n"
+        "Follow your `claude-review` skill to review the pull request below.\n"
         "You are a single Cursor agent running in CI with only the unified diff below — no GitHub "
         "tools, no sub-agents, no repository checkout. Ignore any skill steps about launching parallel "
         "agents, reading blame/prior PRs, or posting via tools; the runner posts the review. Apply the "
@@ -337,20 +334,14 @@ async def run_cursor_review() -> int:
     token = os.environ["GITHUB_TOKEN"]
     model = os.environ.get("CURSOR_AGENT_MODEL", "composer-2.5")
 
-    if not SKILL_PATH.exists():
-        logger.error("Skill not found at %s", SKILL_PATH)
-
-        return 1
-
     if already_reviewed(repo, pr_number, head_sha, token):
         logger.info("Head %s already reviewed by the bot; skipping.", head_sha)
 
         return 0
 
-    skill_text = SKILL_PATH.read_text(encoding="utf-8")
     diff = run_gh(["pr", "diff", pr_number, "--repo", repo], token=token)
     anchors = diff_anchors(repo, pr_number, token)
-    prompt = build_prompt(skill_text, repo, pr_number, head_sha, diff)
+    prompt = build_prompt(repo, pr_number, head_sha, diff)
 
     try:
         client = await AsyncClient.launch_bridge()
