@@ -15,7 +15,7 @@ Review a GitHub pull request with parallel specialized agents and post the findi
 
 If no PR is detected, stop and ask the user to provide a PR number or URL.
 
-Then use a Haiku agent to check eligibility: stop without proceeding if the PR is (a) closed, (b) a draft, (c) clearly automated or trivially simple and obviously fine, or (d) already has a review or code-review comment from you **for the PR's current head commit** — a new push since your last review makes the PR eligible again. To check (d), list the PR's existing reviews and comments (`gh api repos/<owner>/<repo>/pulls/<number>/reviews`) and compare their commit against the current head SHA.
+Then use a Haiku agent to check eligibility: stop without proceeding if the PR is (a) closed, (b) a draft, (c) clearly automated or trivially simple and obviously fine, or (d) already has a review or code-review comment from you **for the PR's current head commit** — a new push since your last review makes the PR eligible again. To check (d), list the PR's existing reviews and comments (`gh api repos/<owner>/<repo>/pulls/<number>/reviews`), keep only those **authored by you**, and check whether any targets the current head SHA — another person's review does not count.
 
 **Step 2 (two parallel Haiku agents):**
 
