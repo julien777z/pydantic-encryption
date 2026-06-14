@@ -14,7 +14,7 @@ from typing import Final, TypedDict
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger("code_review")
 
-SKILL_PATH: Final[Path] = Path(".cursor/skills/claude-review/SKILL.md")
+SKILL_PATH: Final[Path] = Path(".agents/skills/claude-review/SKILL.md")
 HUNK_HEADER: Final[re.Pattern[str]] = re.compile(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 FENCE: Final[re.Pattern[str]] = re.compile(r"```(?:json)?\s*(\{.*\})\s*```", re.DOTALL)
 
