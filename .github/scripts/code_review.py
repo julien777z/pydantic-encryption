@@ -194,13 +194,17 @@ def parse_findings(reply: str) -> list[Finding]:
         text = fenced.group(1)
 
     data = json.loads(text)
-    if not isinstance(data, dict):
-        return []
+    if isinstance(data, dict):
+        raw_findings = data.get("findings") or []
+    elif isinstance(data, list):
+        raw_findings = data
+    else:
+        raise ValueError(f"unexpected findings JSON root: {type(data).__name__}")
 
     seen: set[tuple[str, int, str, str]] = set()
     findings: list[Finding] = []
 
-    for item in (data.get("findings") or []):
+    for item in raw_findings:
         side = "LEFT" if str(item.get("side", "RIGHT")).upper() == "LEFT" else "RIGHT"
         title = str(item["title"])
         key = (str(item["path"]), int(item["line"]), side, title)

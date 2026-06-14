@@ -59,7 +59,7 @@ jobs:
         || (github.event_name == 'issue_comment' && github.event.issue.pull_request != null
           && github.event.sender.type != 'Bot'
           && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
-          && contains(github.event.comment.body, 'claude review'))
+          && startsWith(github.event.comment.body, 'claude review'))
         || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-latest
     steps:
