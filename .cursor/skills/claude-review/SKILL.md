@@ -15,7 +15,7 @@ Review a GitHub pull request with parallel specialized agents and post the findi
 
 If no PR is detected, stop and ask the user to provide a PR number or URL.
 
-Then use a Haiku agent to check eligibility: stop without proceeding if the PR is (a) closed, (b) a draft, (c) clearly automated or trivially simple and obviously fine, or (d) already has a review or code-review comment from you **for the PR's current head commit** — a new push since your last review makes the PR eligible again. To check (d), list the PR's existing reviews and comments (`gh api repos/<owner>/<repo>/pulls/<number>/reviews`), keep only those **authored by you**, and check whether any targets the current head SHA — another person's review does not count.
+Then use a Haiku agent to check eligibility: stop without proceeding if the PR is (a) closed, (b) a draft, (c) clearly automated or trivially simple and obviously fine, or (d) already has a review or code-review comment from you **for the PR's current head commit** — a new push since your last review makes the PR eligible again. To check (d), look at **both** the PR's existing reviews (`gh api repos/<owner>/<repo>/pulls/<number>/reviews`) **and** its issue comments (`gh api repos/<owner>/<repo>/issues/<number>/comments`) — an earlier run may have left its summary as a plain issue comment rather than a review. Keep only entries **authored by you**, and check whether any targets the current head SHA — another person's review does not count.
 
 **Step 2 (two parallel Haiku agents):**
 
@@ -24,7 +24,7 @@ Then use a Haiku agent to check eligibility: stop without proceeding if the PR i
 
 ## Step 3 — Review
 
-Launch **5 parallel Sonnet agents** to independently review the PR diff. Each agent reads the changed files and returns a flat list of issues — each with its **file path and line number** (so it can be anchored inline) and the reason it was flagged (e.g. rule compliance, bug, historical context):
+Launch **5 parallel Sonnet agents** to independently review the PR diff. Each agent reads the changed files and returns a flat list of issues — each with its **file path, line number, and diff side** (`RIGHT` for an added/current line, `LEFT` for a removed line, or `off-diff` for a line the PR did not touch) so it can be anchored inline — and the reason it was flagged (e.g. rule compliance, bug, historical context):
 
 - Agent #1 (rules): Audit the changes for compliance with the project rule files gathered earlier (Step 2). Note that the rules are guidance for code generation, so not all instructions apply during review.
 - Agent #2 (bugs): Scan the diff for obvious bugs. Focus on real defects; ignore likely false positives. You may read surrounding context in the touched files; pre-existing bugs in those files are in scope.
@@ -70,9 +70,9 @@ gh api --method POST "repos/<owner>/<repo>/pulls/<number>/reviews" --input revie
 
 - Set `commit_id` to the PR's **current** head SHA (fetch it fresh: `gh api repos/<owner>/<repo>/pulls/<number> --jq .head.sha`); do not reuse a SHA captured earlier in the run.
 - The review **body** carries only a one-line summary (for example `Found 2 issues.` or `No issues found.`), optionally followed by an `Outside the diff:` list. Never include a "what was reviewed" / coverage summary, a list of areas checked, or any description of your process.
-- `comments[]` holds one entry per finding **that is on a diff line** — `side: "RIGHT"` for added/current lines, `side: "LEFT"` for removed lines. It may be empty (`[]`), e.g. `No issues found.` or when every finding is off-diff.
-- A finding on a line **not present in the PR diff** (a pre-existing line GitHub rejects as an inline target) goes in the body under `Outside the diff:` (file:line — severity — explanation), never in `comments[]`.
-- A single `comments[]` entry whose line is not in the diff makes GitHub reject the **entire** review with 422. If the post fails on an inline target, move that one comment to the `Outside the diff:` list and retry, so one bad anchor never blocks the other findings.
+- `comments[]` holds one entry per finding **that is on a diff line** — set `side` from the side each agent recorded in Step 3 (`RIGHT` for added/current lines, `LEFT` for removed lines). It may be empty (`[]`), e.g. `No issues found.` or when every finding is off-diff.
+- A finding marked `off-diff` in Step 3 (a line not present in the PR diff, which GitHub rejects as an inline target) goes in the body under `Outside the diff:` (file:line — severity — explanation), never in `comments[]`.
+- A single `comments[]` entry whose line is not in the diff makes GitHub reject the **entire** review with 422. If the post fails on an inline target, **remove that entry from `comments[]`**, move it to the `Outside the diff:` list, and retry — so the bad anchor is gone from the payload and one finding never blocks the others.
 
 ## Inline comment format
 
