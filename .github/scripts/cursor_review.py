@@ -55,6 +55,15 @@ def run_gh(args: list[str], *, token: str) -> str:
     return result.stdout
 
 
+def current_head_sha(repo: str, pr_number: str, token: str) -> str:
+    """Return the PR's current head SHA."""
+
+    return run_gh(
+        ["pr", "view", pr_number, "--repo", repo, "--json", "headRefOid", "--jq", ".headRefOid"],
+        token=token,
+    ).strip()
+
+
 def parse_patch(patch: str) -> tuple[set[int], set[int]]:
     """Return the (RIGHT new-side, LEFT old-side) line numbers a unified-diff patch exposes."""
 
@@ -123,11 +132,11 @@ def build_prompt(skill_text: str, repo: str, pr_number: str, head_sha: str, diff
         "You are running as a Cursor agent inside CI. Do NOT post anything yourself; "
         "the runner posts the review. Review the pull request below following the skill, "
         "then reply with ONLY a JSON object (no prose, no code fence) of the form:\n"
-        '{"summary": "<one line>", "findings": [{"path": "<repo-relative>", "line": <int>, '
-        '"side": "RIGHT|LEFT", "severity": "Critical|High|Medium|Low", "title": "<short>", '
-        '"body": "<1-3 sentences>"}]}\n'
+        '{"findings": [{"path": "<repo-relative>", "line": <int>, "side": "RIGHT|LEFT", '
+        '"severity": "Critical|High|Medium|Low", "title": "<short>", "body": "<1-3 sentences>"}]}\n'
         "Use RIGHT with new-file line numbers for added/current lines and LEFT with base-file "
-        "line numbers for removed lines. Surface every valid finding rated by severity.\n\n"
+        "line numbers for removed lines. Surface every valid finding rated by severity; return "
+        'an empty list ({"findings": []}) when there are none.\n\n'
         f"Repository: {repo}\nPull request: #{pr_number}\nHead commit: {head_sha}\n\n"
         f"Unified diff:\n{diff}\n"
     )
@@ -152,8 +161,8 @@ async def run_agent(prompt: str, model: str, api_key: str) -> str:
         await agent.close()
 
 
-def parse_findings(reply: str) -> tuple[str, list[Finding]]:
-    """Extract the summary line and findings list from the agent's JSON reply."""
+def parse_findings(reply: str) -> list[Finding]:
+    """Extract the findings list from the agent's JSON reply."""
 
     text = reply.strip()
     fenced = FENCE.search(text)
@@ -161,7 +170,8 @@ def parse_findings(reply: str) -> tuple[str, list[Finding]]:
         text = fenced.group(1)
 
     data = json.loads(text)
-    findings: list[Finding] = [
+
+    return [
         {
             "path": str(item["path"]),
             "line": int(item["line"]),
@@ -170,10 +180,8 @@ def parse_findings(reply: str) -> tuple[str, list[Finding]]:
             "title": str(item["title"]),
             "body": str(item["body"]),
         }
-        for item in data.get("findings", [])
+        for item in (data.get("findings") or [])
     ]
-
-    return str(data.get("summary", "")), findings
 
 
 def comment_body(finding: Finding) -> str:
@@ -184,7 +192,6 @@ def comment_body(finding: Finding) -> str:
 
 def build_review(
     head_sha: str,
-    summary: str,
     findings: list[Finding],
     anchors: dict[str, tuple[set[int], set[int]]],
 ) -> ReviewPayload:
@@ -212,7 +219,7 @@ def build_review(
             )
 
     count = len(findings)
-    body = summary or (f"Found {count} issue{'s' if count != 1 else ''}." if count else "No issues found.")
+    body = f"Found {count} issue{'s' if count != 1 else ''}." if count else "No issues found."
     if off_diff:
         body = f"{body}\n\nOutside the diff:\n" + "\n".join(off_diff)
 
@@ -220,18 +227,27 @@ def build_review(
 
 
 def post_review(repo: str, pr_number: str, payload: ReviewPayload, token: str) -> None:
-    """Post the assembled review via the GitHub REST reviews API."""
+    """Post the review; on a validation failure, retry with the summary only so it still lands."""
 
-    process = subprocess.run(
-        ["gh", "api", "--method", "POST", f"repos/{repo}/pulls/{pr_number}/reviews", "--input", "-"],
-        input=json.dumps(payload),
-        capture_output=True,
-        text=True,
-        check=True,
-        env={**os.environ, "GH_TOKEN": token},
-    )
+    def submit(body: ReviewPayload) -> str:
+        process = subprocess.run(
+            ["gh", "api", "--method", "POST", f"repos/{repo}/pulls/{pr_number}/reviews", "--input", "-"],
+            input=json.dumps(body),
+            capture_output=True,
+            text=True,
+            check=True,
+            env={**os.environ, "GH_TOKEN": token},
+        )
 
-    logger.info("Posted review: %s", process.stdout.strip())
+        return process.stdout.strip()
+
+    try:
+        logger.info("Posted review: %s", submit(payload))
+    except subprocess.CalledProcessError as exc:
+        logger.warning("Review POST failed (%s); retrying summary-only: %s", exc.returncode, exc.stderr.strip())
+
+        summary_only: ReviewPayload = {**payload, "comments": []}
+        logger.info("Posted review (summary-only): %s", submit(summary_only))
 
 
 async def main() -> int:
@@ -262,8 +278,21 @@ async def main() -> int:
 
         return 1
 
-    summary, findings = parse_findings(reply)
-    payload = build_review(head_sha, summary, findings, anchors)
+    try:
+        findings = parse_findings(reply)
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+        logger.error("Could not parse agent reply: %s", exc)
+
+        return 1
+
+    # Re-gate on the head SHA (skill Step 5): if the PR advanced during the run,
+    # the diff and findings are stale, so do not anchor them to a different commit.
+    if current_head_sha(repo, pr_number, token) != head_sha:
+        logger.info("Head moved since the diff was loaded; skipping post.")
+
+        return 0
+
+    payload = build_review(head_sha, findings, anchors)
     post_review(repo, pr_number, payload, token)
 
     return 0
