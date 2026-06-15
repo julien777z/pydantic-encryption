@@ -141,15 +141,20 @@ def mark_head_reviewed(repo: str, head_sha: str, token: str) -> None:
         logger.warning("Could not record reviewed status for %s: %s", head_sha, exc.stderr.strip())
 
 
-def resolve_stale_threads(repo: str, pr_number: str, token: str) -> None:
-    """Resolve this runner's own inline-comment threads that GitHub has marked outdated."""
+def resolve_stale_threads(
+    repo: str, pr_number: str, token: str, current_keys: set[tuple[str, str]]
+) -> None:
+    """Resolve outdated bot inline threads whose finding the current review no longer raises."""
+
+    if not current_keys:
+        return
 
     owner, _, name = repo.partition("/")
     list_query = (
         "query($owner:String!,$name:String!,$number:Int!){"
         "repository(owner:$owner,name:$name){pullRequest(number:$number){"
         "reviewThreads(first:100){nodes{id isResolved isOutdated "
-        "comments(first:1){nodes{author{login} body}}}}}}}"
+        "comments(first:1){nodes{author{login} body path}}}}}}}"
     )
 
     try:
@@ -189,6 +194,13 @@ def resolve_stale_threads(repo: str, pr_number: str, token: str) -> None:
             if author not in ("github-actions", "github-actions[bot]") or "Severity**" not in body:
                 continue
 
+            title = next(
+                (row[4:].strip() for row in body.splitlines() if row.startswith("### ")),
+                None,
+            )
+            if title is None or (comment.get("path"), title) in current_keys:
+                continue
+
             run_gh(
                 ["api", "graphql", "-f", f"query={resolve_mutation}", "-f", f"id={thread['id']}"],
                 token=token,
@@ -197,10 +209,12 @@ def resolve_stale_threads(repo: str, pr_number: str, token: str) -> None:
             logger.warning("Could not resolve a review thread: %s", exc)
 
 
-def record_reviewed(repo: str, pr_number: str, head_sha: str, token: str) -> None:
-    """Resolve this runner's now-outdated threads, then record the reviewed commit status."""
+def record_reviewed(
+    repo: str, pr_number: str, head_sha: str, token: str, current_keys: set[tuple[str, str]]
+) -> None:
+    """Resolve outdated threads for findings no longer raised, then record the reviewed status."""
 
-    resolve_stale_threads(repo, pr_number, token)
+    resolve_stale_threads(repo, pr_number, token, current_keys)
     mark_head_reviewed(repo, head_sha, token)
 
 
@@ -557,6 +571,8 @@ async def run_cursor_review() -> int:
 
         return 1
 
+    current_keys = {(finding["path"], finding["title"]) for finding in findings}
+
     # Re-gate on the head SHA once the agent run is done (skill Step 5): if the head advanced
     # while the agent worked, neither post nor record a status for the superseded commit — the
     # next event reviews the new head.
@@ -567,7 +583,7 @@ async def run_cursor_review() -> int:
 
     if not findings:
         logger.info("No findings; recording reviewed status without posting.")
-        record_reviewed(repo, pr_number, head_sha, token)
+        record_reviewed(repo, pr_number, head_sha, token, current_keys)
 
         return 0
 
@@ -579,7 +595,7 @@ async def run_cursor_review() -> int:
 
     if not findings:
         logger.info("No new in-scope findings to post; recording reviewed status.")
-        record_reviewed(repo, pr_number, head_sha, token)
+        record_reviewed(repo, pr_number, head_sha, token, current_keys)
 
         return 0
 
@@ -601,7 +617,7 @@ async def run_cursor_review() -> int:
     if not post_review(repo, pr_number, payload, token):
         return 1
 
-    record_reviewed(repo, pr_number, head_sha, token)
+    record_reviewed(repo, pr_number, head_sha, token, current_keys)
 
     return 0
 
