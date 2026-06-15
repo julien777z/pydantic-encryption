@@ -148,15 +148,18 @@ def resolve_stale_threads(
 
     owner, _, name = repo.partition("/")
     list_query = (
-        "query($owner:String!,$name:String!,$number:Int!){"
+        "query($owner:String!,$name:String!,$number:Int!,$after:String){"
         "repository(owner:$owner,name:$name){pullRequest(number:$number){"
-        "reviewThreads(first:100){nodes{id isResolved isOutdated "
+        "reviewThreads(first:100,after:$after){pageInfo{hasNextPage endCursor} "
+        "nodes{id isResolved isOutdated "
         "comments(first:1){nodes{author{login} body path}}}}}}}"
     )
 
+    threads = []
+    after = None
     try:
-        raw = run_gh(
-            [
+        while True:
+            args = [
                 "api",
                 "graphql",
                 "-f",
@@ -167,10 +170,18 @@ def resolve_stale_threads(
                 f"name={name}",
                 "-F",
                 f"number={pr_number}",
-            ],
-            token=token,
-        )
-        threads = json.loads(raw)["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"]
+            ]
+            if after is not None:
+                args += ["-f", f"after={after}"]
+
+            page = json.loads(run_gh(args, token=token))["data"]["repository"]["pullRequest"][
+                "reviewThreads"
+            ]
+            threads.extend(page["nodes"])
+            if not page["pageInfo"]["hasNextPage"]:
+                break
+
+            after = page["pageInfo"]["endCursor"]
     except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError, TypeError) as exc:
         logger.warning("Could not list review threads to resolve: %s", exc)
 
@@ -242,7 +253,7 @@ def posted_finding_keys(repo: str, pr_number: str, token: str) -> set[tuple[str,
 
         entry = json.loads(line)
         title = next(
-            (row[4:].strip() for row in entry.get("body", "").splitlines() if row.startswith("### ")),
+            (row[4:].strip() for row in (entry.get("body") or "").splitlines() if row.startswith("### ")),
             None,
         )
         if title:
