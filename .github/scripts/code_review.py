@@ -142,17 +142,9 @@ def mark_head_reviewed(repo: str, head_sha: str, token: str) -> None:
 
 
 def resolve_stale_threads(
-    repo: str,
-    pr_number: str,
-    head_sha: str,
-    token: str,
-    current_keys: set[tuple[str, str]],
-    marker: str,
+    repo: str, pr_number: str, token: str, current_keys: set[tuple[str, str]], marker: str
 ) -> None:
     """Resolve this tier's own outdated inline threads whose finding the current review dropped."""
-
-    if current_head_sha(repo, pr_number, token) != head_sha:
-        return
 
     owner, _, name = repo.partition("/")
     list_query = (
@@ -234,7 +226,10 @@ def record_reviewed(
 ) -> None:
     """Resolve outdated threads for findings no longer raised, then record the reviewed status."""
 
-    resolve_stale_threads(repo, pr_number, head_sha, token, current_keys, marker)
+    if current_head_sha(repo, pr_number, token) != head_sha:
+        return
+
+    resolve_stale_threads(repo, pr_number, token, current_keys, marker)
     mark_head_reviewed(repo, head_sha, token)
 
 
