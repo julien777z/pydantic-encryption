@@ -48,6 +48,8 @@ First **deduplicate**: merge findings that report the same issue at the same fil
 - **Medium** — a real issue with limited, conditional, or non-obvious impact.
 - **Low** — valid but minor: a nitpick the change genuinely got wrong, a rare edge case, or a small correctness/UX deviation.
 
+**Calibrate severity by how likely the trigger is, not by how severe the worst case sounds.** An issue that only manifests under unlikely timing, a race, or concurrent runs — or whose impact is narrowly scoped (e.g. only one runner's own data) or self-corrects on the next run — is **at most Medium**, and Low when the effect is trivial or cosmetic. Reserve **High** for a bug whose trigger is common in normal use. Do not rate a rare, scoped, or recoverable edge case High just because its failure mode reads as serious.
+
 For rule-compliance findings, confirm the rule file actually calls out that specific issue before rating it above Low. **Before flagging a convention as required, also confirm the codebase itself follows it** — read the surrounding/sibling code. If the project consistently does the opposite (for example, a rule mentions async patterns but the code and its tests are entirely synchronous), the convention does not apply here: **drop the finding** rather than asserting a rule the repository does not keep. Never turn a general style preference into a stated rule the codebase contradicts.
 
 ## Step 5 — Re-gate before posting
