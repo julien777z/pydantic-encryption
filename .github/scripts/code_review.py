@@ -632,14 +632,6 @@ async def run_cursor_review() -> int:
     findings = [finding for finding in findings if is_postable(finding, anchors, unpatched)]
     findings = cap_low_findings(findings)
 
-    # Re-check the head before resolving stale threads or posting: it can move during the
-    # prior-comment fetch, and acting on findings gathered against a superseded commit would
-    # resolve threads using stale keys.
-    if current_head_sha(repo, pr_number, token) != head_sha:
-        logger.info("Head moved since the diff was loaded; skipping.")
-
-        return 0
-
     if not findings:
         logger.info("No new in-scope findings to post; recording reviewed status.")
         record_reviewed(repo, pr_number, head_sha, token, current_keys, CONFIG["cursor_marker"])
@@ -650,6 +642,13 @@ async def run_cursor_review() -> int:
         repo, pr_number, head_sha, token, CONFIG["cursor_marker"]
     ):
         logger.info("Head %s reviewed by Cursor during the run; skipping.", head_sha)
+
+        return 0
+
+    # Re-check the head right before posting: it can advance during the prior-comment fetch and the
+    # concurrent-review checks above, and a review must not anchor to a superseded commit.
+    if current_head_sha(repo, pr_number, token) != head_sha:
+        logger.info("Head moved before posting; skipping (the new commit reviews next).")
 
         return 0
 
