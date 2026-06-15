@@ -548,7 +548,7 @@ async def run_cursor_review() -> int:
     """Run the cheap Cursor (composer-2.5) review for one PR and post the result."""
 
     # cursor_sdk is a Cursor-only dependency, imported here so the Claude path need not install it.
-    from cursor_sdk import AsyncAgent, AsyncClient, CloudAgentOptions, CursorAgentError
+    from cursor_sdk import AsyncAgent, AsyncClient, CloudAgentOptions, CursorAgentError, ModelSelection
 
     repo = os.environ["REPO"]
     pr_number = os.environ["PR_NUMBER"]
@@ -570,7 +570,32 @@ async def run_cursor_review() -> int:
 
     try:
         client = await AsyncClient.launch_bridge()
-        agent = await AsyncAgent.create(client=client, model=model, api_key=api_key, cloud=CloudAgentOptions())
+
+        # Composer 2.5 defaults to the "fast" variant (≈6x the token cost); select the
+        # non-default (standard) variant from the catalog so background reviews use the cheaper tier.
+        model_selection: str | ModelSelection = model
+        try:
+            catalog = await client.list_models(api_key=api_key)
+            sdk_model = next((entry for entry in catalog if entry.id == model), None)
+            standard_variant = next(
+                (
+                    variant
+                    for variant in (sdk_model.variants if sdk_model else ())
+                    if not variant.is_default
+                ),
+                None,
+            )
+            if standard_variant is not None:
+                model_selection = ModelSelection(id=model, params=list(standard_variant.params))
+                logger.info("Using non-default (standard) variant of %s.", model)
+            else:
+                logger.info("No non-default variant for %s; using the default tier.", model)
+        except CursorAgentError as exc:
+            logger.warning("Could not list models; using the default tier of %s: %s", model, exc)
+
+        agent = await AsyncAgent.create(
+            client=client, model=model_selection, api_key=api_key, cloud=CloudAgentOptions()
+        )
 
         try:
             run = await agent.send(prompt)
