@@ -41,14 +41,23 @@ Launch the following review agents in parallel (or sequentially in this thread i
 
 ## Step 4 — Validate, dedup, severity
 
-First **deduplicate**: merge findings that report the same issue at the same file and line — or on adjacent lines — into one (keep the clearest wording). Then **drop any finding already raised on this PR**: fetch a **bounded, recent page** of the PR's existing inline review comments (about the 100 most recent, newest first — do not page through the entire history) and read **only each comment's file path and title line**, not full bodies, so prior reviews never overload your context. Skip a finding whose file path and short title match one already posted, so a new push does not repost the same issue you already flagged on an earlier commit. Then drop **clear false positives** (see the **False Positives to Ignore** section near the end). Assign each remaining finding a severity. **Post every Critical, High, and Medium finding. Cap Low findings at the three most important per review and drop the rest** — Low is for genuinely minor issues, and a long tail of nitpicks reads as noise. When you are unsure whether something is a Low or not worth posting at all, drop it.
+First **deduplicate**: merge findings that report the same issue at the same file and line — or on adjacent lines — into one (keep the clearest wording). Then **drop any finding already raised on this PR**: fetch a **bounded, recent page** of the PR's existing inline review comments (about the 100 most recent, newest first — do not page through the entire history) and read **only each comment's file path and title line**, not full bodies, so prior reviews never overload your context. Skip a finding whose file path and short title match one already posted — **even if its line number has shifted because the code moved between commits** — so a new push never reposts the same concern you already flagged on an earlier commit. Match on the issue's substance (path plus title), not its current line. Then drop **clear false positives** (see the **False Positives to Ignore** section near the end). Assign each remaining finding a severity. **Post every Critical, High, and Medium finding. Cap Low findings at the three most important per review and drop the rest** — Low is for genuinely minor issues, and a long tail of nitpicks reads as noise. When you are unsure whether something is a Low or not worth posting at all, drop it.
 
 - **Critical** — data loss, security/auth bypass, a crash, or clearly broken core behavior.
 - **High** — a real bug likely hit in normal use, or a clear violation of a project rule that matters in practice.
 - **Medium** — a real issue with limited, conditional, or non-obvious impact.
 - **Low** — valid but minor: a nitpick the change genuinely got wrong, a rare edge case, or a small correctness/UX deviation.
 
-For rule-compliance findings, confirm the rule file actually calls out that specific issue before rating it above Low.
+**Calibrate severity by how likely the trigger is, not by how severe the worst case sounds.** An issue that only manifests under unlikely timing, a race, or concurrent runs — or whose impact is narrowly scoped (e.g. only one runner's own data) or self-corrects on the next run — is **at most Medium**, and Low when the effect is trivial or cosmetic. Reserve **High** for a bug whose trigger is common in normal use. Do not rate a rare, scoped, or recoverable edge case High just because its failure mode reads as serious.
+
+**Be selective — a short, high-signal review beats an exhaustive one.** Post a finding only when you are highly confident it is a real defect a maintainer would act on, with a concrete trigger that is realistically hit. A review carrying many findings is itself a signal you are over-flagging: keep the few that clearly matter and drop the rest. In particular, **do not post**:
+- **Deliberate configuration or design choices** — a coverage-ignore entry, a chosen permission scope, an intentional dedup or tier-scoping rule — unless you can point to a concrete, demonstrable failure they cause.
+- **Transitional or migration states** that self-resolve over time, such as pre-existing data or comments that lack a newly-added field or marker.
+- **Speculative compound failures** that only bite if some unrelated thing also breaks ("if X also fails, then…") without evidence that it does.
+
+When you cannot tie a finding to a concrete, likely-hit failure, drop it.
+
+For rule-compliance findings, confirm the rule file actually calls out that specific issue before rating it above Low. **Before flagging a convention as required, also confirm the codebase itself follows it** — read the surrounding/sibling code. If the project consistently does the opposite (for example, a rule mentions async patterns but the code and its tests are entirely synchronous), the convention does not apply here: **drop the finding** rather than asserting a rule the repository does not keep. Never turn a general style preference into a stated rule the codebase contradicts.
 
 ## Step 5 — Re-gate before posting
 
@@ -61,6 +70,8 @@ Repeat the eligibility check from Step 1, and re-fetch the head SHA. If it diffe
 - Anchor each inline comment to the finding's `path`, line, and `side`, using the **full head SHA**. **Validate each anchor against the diff first.** Drop any finding whose line is not in the diff — it is out of scope — **except** when GitHub returned no patch for that changed file (it was too large to diff), where no line can be anchored: list those in the summary body instead.
 - The summary body is one line (e.g. `Found 3 issues.`) covering every posted finding, optionally followed by a list of findings on changed files too large to show a diff (`path:line — Severity — explanation`). Never include a "what was reviewed" / coverage summary or any description of your process.
 - End the summary body with **your runner's** hidden marker on its own line — `<!-- code-review:claude -->` if you are a Claude runner, `<!-- code-review:cursor -->` if you are a Cursor runner. A later run treats the head as already reviewed (Step 1c) when a non-dismissed review carrying **your** marker exists for the current head SHA, so the marker is what lets re-triggers skip re-reviewing the same commit.
+- End **every inline comment body** with your runner's same hidden marker on its own line, so your threads are distinguishable from the other tier's (both tiers post as the same bot).
+- After posting, resolve **your own** earlier inline-comment threads that GitHub now marks **outdated** (the code they were anchored to has since changed), if your runner can resolve review threads. Identify yours by **your marker**, and resolve a thread only when the current review no longer raises that finding (same file and title) — a finding you raised again, even on a shifted line, keeps its thread. This keeps superseded findings from piling up across pushes. Never resolve another reviewer's, the other tier's, or a human's threads.
 
 ## Inline comment format
 
@@ -70,6 +81,8 @@ Repeat the eligibility check from Step 1, and re-fetch the head SHA. If it diffe
 **<Severity> Severity**
 
 <1–3 sentences: what is wrong and when it bites. Cite the rule file when the finding is rule-based.>
+
+<your runner's marker — `<!-- code-review:claude -->` or `<!-- code-review:cursor -->`>
 ```
 
 ## False Positives to Ignore

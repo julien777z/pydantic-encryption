@@ -141,6 +141,98 @@ def mark_head_reviewed(repo: str, head_sha: str, token: str) -> None:
         logger.warning("Could not record reviewed status for %s: %s", head_sha, exc.stderr.strip())
 
 
+def resolve_stale_threads(
+    repo: str, pr_number: str, token: str, current_keys: set[tuple[str, str]], marker: str
+) -> None:
+    """Resolve this tier's own outdated inline threads whose finding the current review dropped."""
+
+    owner, _, name = repo.partition("/")
+    list_query = (
+        "query($owner:String!,$name:String!,$number:Int!,$after:String){"
+        "repository(owner:$owner,name:$name){pullRequest(number:$number){"
+        "reviewThreads(first:100,after:$after){pageInfo{hasNextPage endCursor} "
+        "nodes{id isResolved isOutdated "
+        "comments(first:1){nodes{author{login} body path}}}}}}}"
+    )
+
+    threads = []
+    after = None
+    try:
+        while True:
+            args = [
+                "api",
+                "graphql",
+                "-f",
+                f"query={list_query}",
+                "-f",
+                f"owner={owner}",
+                "-f",
+                f"name={name}",
+                "-F",
+                f"number={pr_number}",
+            ]
+            if after is not None:
+                args += ["-f", f"after={after}"]
+
+            page = json.loads(run_gh(args, token=token))["data"]["repository"]["pullRequest"][
+                "reviewThreads"
+            ]
+            threads.extend(page["nodes"])
+            if not page["pageInfo"]["hasNextPage"]:
+                break
+
+            after = page["pageInfo"]["endCursor"]
+    except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError, TypeError) as exc:
+        logger.warning("Could not list all review threads to resolve; using what was fetched: %s", exc)
+
+    resolve_mutation = "mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{id}}}"
+
+    for thread in threads:
+        try:
+            if thread["isResolved"] or not thread["isOutdated"]:
+                continue
+
+            comment = next(iter(thread["comments"]["nodes"]), None)
+            if comment is None:
+                continue
+
+            author = (comment["author"] or {}).get("login")
+            body = comment.get("body") or ""
+            if author not in ("github-actions", "github-actions[bot]") or marker not in body:
+                continue
+
+            title = next(
+                (row[4:].strip() for row in body.splitlines() if row.startswith("### ")),
+                None,
+            )
+            if title is None or (comment.get("path"), title) in current_keys:
+                continue
+
+            run_gh(
+                ["api", "graphql", "-f", f"query={resolve_mutation}", "-f", f"id={thread['id']}"],
+                token=token,
+            )
+        except (subprocess.CalledProcessError, KeyError, TypeError) as exc:
+            logger.warning("Could not resolve a review thread: %s", exc)
+
+
+def record_reviewed(
+    repo: str,
+    pr_number: str,
+    head_sha: str,
+    token: str,
+    current_keys: set[tuple[str, str]],
+    marker: str,
+) -> None:
+    """Resolve outdated threads for findings no longer raised, then record the reviewed status."""
+
+    if current_head_sha(repo, pr_number, token) != head_sha:
+        return
+
+    resolve_stale_threads(repo, pr_number, token, current_keys, marker)
+    mark_head_reviewed(repo, head_sha, token)
+
+
 def posted_finding_keys(repo: str, pr_number: str, token: str) -> set[tuple[str, str]]:
     """Return (path, title) keys for inline review comments a bot already posted on this PR."""
 
@@ -163,7 +255,7 @@ def posted_finding_keys(repo: str, pr_number: str, token: str) -> set[tuple[str,
 
         entry = json.loads(line)
         title = next(
-            (row[4:].strip() for row in entry.get("body", "").splitlines() if row.startswith("### ")),
+            (row[4:].strip() for row in (entry.get("body") or "").splitlines() if row.startswith("### ")),
             None,
         )
         if title:
@@ -326,7 +418,10 @@ def cap_low_findings(findings: list[Finding]) -> list[Finding]:
 def comment_body(finding: Finding) -> str:
     """Render one inline comment body in the shared severity format."""
 
-    return f"### {finding['title']}\n\n**{finding['severity']} Severity**\n\n{finding['body']}"
+    return (
+        f"### {finding['title']}\n\n**{finding['severity']} Severity**\n\n{finding['body']}"
+        f"\n\n{CONFIG['cursor_marker']}"
+    )
 
 
 def finding_anchors(finding: Finding, anchors: dict[str, tuple[set[int], set[int]]]) -> bool:
@@ -453,7 +548,7 @@ async def run_cursor_review() -> int:
     """Run the cheap Cursor (composer-2.5) review for one PR and post the result."""
 
     # cursor_sdk is a Cursor-only dependency, imported here so the Claude path need not install it.
-    from cursor_sdk import AsyncAgent, AsyncClient, CloudAgentOptions, CursorAgentError
+    from cursor_sdk import AsyncAgent, AsyncClient, CloudAgentOptions, CursorAgentError, ModelSelection
 
     repo = os.environ["REPO"]
     pr_number = os.environ["PR_NUMBER"]
@@ -475,7 +570,28 @@ async def run_cursor_review() -> int:
 
     try:
         client = await AsyncClient.launch_bridge()
-        agent = await AsyncAgent.create(client=client, model=model, api_key=api_key, cloud=CloudAgentOptions())
+
+        # Composer 2.5 defaults to the "fast" variant (≈6x the token cost); select the
+        # non-default (standard) variant from the catalog so background reviews use the cheaper tier.
+        catalog = await client.list_models(api_key=api_key)
+        sdk_model = next((entry for entry in catalog if entry.id == model), None)
+        standard_variant = next(
+            (
+                variant
+                for variant in (sdk_model.variants if sdk_model else ())
+                if not variant.is_default
+            ),
+            None,
+        )
+        model_selection: str | ModelSelection = (
+            ModelSelection(id=model, params=list(standard_variant.params))
+            if standard_variant is not None
+            else model
+        )
+
+        agent = await AsyncAgent.create(
+            client=client, model=model_selection, api_key=api_key, cloud=CloudAgentOptions()
+        )
 
         try:
             run = await agent.send(prompt)
@@ -494,6 +610,8 @@ async def run_cursor_review() -> int:
 
         return 1
 
+    current_keys = {(finding["path"], finding["title"].strip()) for finding in findings}
+
     # Re-gate on the head SHA once the agent run is done (skill Step 5): if the head advanced
     # while the agent worked, neither post nor record a status for the superseded commit — the
     # next event reviews the new head.
@@ -504,26 +622,19 @@ async def run_cursor_review() -> int:
 
     if not findings:
         logger.info("No findings; recording reviewed status without posting.")
-        mark_head_reviewed(repo, head_sha, token)
+        record_reviewed(repo, pr_number, head_sha, token, current_keys, CONFIG["cursor_marker"])
 
         return 0
 
     posted = posted_finding_keys(repo, pr_number, token)
-    findings = [finding for finding in findings if (finding["path"], finding["title"]) not in posted]
+    findings = [finding for finding in findings if (finding["path"], finding["title"].strip()) not in posted]
 
     findings = [finding for finding in findings if is_postable(finding, anchors, unpatched)]
     findings = cap_low_findings(findings)
 
     if not findings:
         logger.info("No new in-scope findings to post; recording reviewed status.")
-        mark_head_reviewed(repo, head_sha, token)
-
-        return 0
-
-    # Re-check just before posting: the head can still move during the prior-comment fetch, and a
-    # concurrent run may have reviewed this head.
-    if current_head_sha(repo, pr_number, token) != head_sha:
-        logger.info("Head moved since the diff was loaded; skipping post.")
+        record_reviewed(repo, pr_number, head_sha, token, current_keys, CONFIG["cursor_marker"])
 
         return 0
 
@@ -534,11 +645,18 @@ async def run_cursor_review() -> int:
 
         return 0
 
+    # Re-check the head right before posting: it can advance during the prior-comment fetch and the
+    # concurrent-review checks above, and a review must not anchor to a superseded commit.
+    if current_head_sha(repo, pr_number, token) != head_sha:
+        logger.info("Head moved before posting; skipping (the new commit reviews next).")
+
+        return 0
+
     payload = build_review(head_sha, findings, anchors)
     if not post_review(repo, pr_number, payload, token):
         return 1
 
-    mark_head_reviewed(repo, head_sha, token)
+    record_reviewed(repo, pr_number, head_sha, token, current_keys, CONFIG["cursor_marker"])
 
     return 0
 
