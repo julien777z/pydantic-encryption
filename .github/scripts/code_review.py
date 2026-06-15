@@ -576,7 +576,7 @@ async def run_cursor_review() -> int:
 
         return 1
 
-    current_keys = {(finding["path"], finding["title"]) for finding in findings}
+    current_keys = {(finding["path"], finding["title"].strip()) for finding in findings}
 
     # Re-gate on the head SHA once the agent run is done (skill Step 5): if the head advanced
     # while the agent worked, neither post nor record a status for the superseded commit — the
@@ -593,7 +593,7 @@ async def run_cursor_review() -> int:
         return 0
 
     posted = posted_finding_keys(repo, pr_number, token)
-    findings = [finding for finding in findings if (finding["path"], finding["title"]) not in posted]
+    findings = [finding for finding in findings if (finding["path"], finding["title"].strip()) not in posted]
 
     findings = [finding for finding in findings if is_postable(finding, anchors, unpatched)]
     findings = cap_low_findings(findings)
