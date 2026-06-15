@@ -61,7 +61,8 @@ Repeat the eligibility check from Step 1, and re-fetch the head SHA. If it diffe
 - Anchor each inline comment to the finding's `path`, line, and `side`, using the **full head SHA**. **Validate each anchor against the diff first.** Drop any finding whose line is not in the diff — it is out of scope — **except** when GitHub returned no patch for that changed file (it was too large to diff), where no line can be anchored: list those in the summary body instead.
 - The summary body is one line (e.g. `Found 3 issues.`) covering every posted finding, optionally followed by a list of findings on changed files too large to show a diff (`path:line — Severity — explanation`). Never include a "what was reviewed" / coverage summary or any description of your process.
 - End the summary body with **your runner's** hidden marker on its own line — `<!-- code-review:claude -->` if you are a Claude runner, `<!-- code-review:cursor -->` if you are a Cursor runner. A later run treats the head as already reviewed (Step 1c) when a non-dismissed review carrying **your** marker exists for the current head SHA, so the marker is what lets re-triggers skip re-reviewing the same commit.
-- After posting, resolve **your own** earlier inline-comment threads that GitHub now marks **outdated** (the code they were anchored to has since changed), if your runner can resolve review threads. This keeps superseded findings from piling up across pushes. Never resolve another reviewer's or a human's threads.
+- End **every inline comment body** with your runner's same hidden marker on its own line, so your threads are distinguishable from the other tier's (both tiers post as the same bot).
+- After posting, resolve **your own** earlier inline-comment threads that GitHub now marks **outdated** (the code they were anchored to has since changed), if your runner can resolve review threads. Identify yours by **your marker**, and resolve a thread only when the current review no longer raises that finding (same file and title) — a finding you raised again, even on a shifted line, keeps its thread. This keeps superseded findings from piling up across pushes. Never resolve another reviewer's, the other tier's, or a human's threads.
 
 ## Inline comment format
 
@@ -71,6 +72,8 @@ Repeat the eligibility check from Step 1, and re-fetch the head SHA. If it diffe
 **<Severity> Severity**
 
 <1–3 sentences: what is wrong and when it bites. Cite the rule file when the finding is rule-based.>
+
+<your runner's marker — `<!-- code-review:claude -->` or `<!-- code-review:cursor -->`>
 ```
 
 ## False Positives to Ignore

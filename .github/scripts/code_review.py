@@ -142,12 +142,9 @@ def mark_head_reviewed(repo: str, head_sha: str, token: str) -> None:
 
 
 def resolve_stale_threads(
-    repo: str, pr_number: str, token: str, current_keys: set[tuple[str, str]]
+    repo: str, pr_number: str, token: str, current_keys: set[tuple[str, str]], marker: str
 ) -> None:
-    """Resolve outdated bot inline threads whose finding the current review no longer raises."""
-
-    if not current_keys:
-        return
+    """Resolve this tier's own outdated inline threads whose finding the current review dropped."""
 
     owner, _, name = repo.partition("/")
     list_query = (
@@ -191,7 +188,7 @@ def resolve_stale_threads(
 
             author = (comment["author"] or {}).get("login")
             body = comment.get("body") or ""
-            if author not in ("github-actions", "github-actions[bot]") or "Severity**" not in body:
+            if author not in ("github-actions", "github-actions[bot]") or marker not in body:
                 continue
 
             title = next(
@@ -210,11 +207,16 @@ def resolve_stale_threads(
 
 
 def record_reviewed(
-    repo: str, pr_number: str, head_sha: str, token: str, current_keys: set[tuple[str, str]]
+    repo: str,
+    pr_number: str,
+    head_sha: str,
+    token: str,
+    current_keys: set[tuple[str, str]],
+    marker: str,
 ) -> None:
     """Resolve outdated threads for findings no longer raised, then record the reviewed status."""
 
-    resolve_stale_threads(repo, pr_number, token, current_keys)
+    resolve_stale_threads(repo, pr_number, token, current_keys, marker)
     mark_head_reviewed(repo, head_sha, token)
 
 
@@ -403,7 +405,10 @@ def cap_low_findings(findings: list[Finding]) -> list[Finding]:
 def comment_body(finding: Finding) -> str:
     """Render one inline comment body in the shared severity format."""
 
-    return f"### {finding['title']}\n\n**{finding['severity']} Severity**\n\n{finding['body']}"
+    return (
+        f"### {finding['title']}\n\n**{finding['severity']} Severity**\n\n{finding['body']}"
+        f"\n\n{CONFIG['cursor_marker']}"
+    )
 
 
 def finding_anchors(finding: Finding, anchors: dict[str, tuple[set[int], set[int]]]) -> bool:
@@ -583,7 +588,7 @@ async def run_cursor_review() -> int:
 
     if not findings:
         logger.info("No findings; recording reviewed status without posting.")
-        record_reviewed(repo, pr_number, head_sha, token, current_keys)
+        record_reviewed(repo, pr_number, head_sha, token, current_keys, CONFIG["cursor_marker"])
 
         return 0
 
@@ -595,7 +600,7 @@ async def run_cursor_review() -> int:
 
     if not findings:
         logger.info("No new in-scope findings to post; recording reviewed status.")
-        record_reviewed(repo, pr_number, head_sha, token, current_keys)
+        record_reviewed(repo, pr_number, head_sha, token, current_keys, CONFIG["cursor_marker"])
 
         return 0
 
@@ -617,7 +622,7 @@ async def run_cursor_review() -> int:
     if not post_review(repo, pr_number, payload, token):
         return 1
 
-    record_reviewed(repo, pr_number, head_sha, token, current_keys)
+    record_reviewed(repo, pr_number, head_sha, token, current_keys, CONFIG["cursor_marker"])
 
     return 0
 
