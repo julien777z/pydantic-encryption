@@ -573,25 +573,21 @@ async def run_cursor_review() -> int:
 
         # Composer 2.5 defaults to the "fast" variant (≈6x the token cost); select the
         # non-default (standard) variant from the catalog so background reviews use the cheaper tier.
-        model_selection: str | ModelSelection = model
-        try:
-            catalog = await client.list_models(api_key=api_key)
-            sdk_model = next((entry for entry in catalog if entry.id == model), None)
-            standard_variant = next(
-                (
-                    variant
-                    for variant in (sdk_model.variants if sdk_model else ())
-                    if not variant.is_default
-                ),
-                None,
-            )
-            if standard_variant is not None:
-                model_selection = ModelSelection(id=model, params=list(standard_variant.params))
-                logger.info("Using non-default (standard) variant of %s.", model)
-            else:
-                logger.info("No non-default variant for %s; using the default tier.", model)
-        except (CursorAgentError, TypeError, AttributeError, ValueError) as exc:
-            logger.warning("Could not select model variant; using the default tier of %s: %s", model, exc)
+        catalog = await client.list_models(api_key=api_key)
+        sdk_model = next((entry for entry in catalog if entry.id == model), None)
+        standard_variant = next(
+            (
+                variant
+                for variant in (sdk_model.variants if sdk_model else ())
+                if not variant.is_default
+            ),
+            None,
+        )
+        model_selection: str | ModelSelection = (
+            ModelSelection(id=model, params=list(standard_variant.params))
+            if standard_variant is not None
+            else model
+        )
 
         agent = await AsyncAgent.create(
             client=client, model=model_selection, api_key=api_key, cloud=CloudAgentOptions()
