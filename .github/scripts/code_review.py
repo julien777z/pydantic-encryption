@@ -141,6 +141,69 @@ def mark_head_reviewed(repo: str, head_sha: str, token: str) -> None:
         logger.warning("Could not record reviewed status for %s: %s", head_sha, exc.stderr.strip())
 
 
+def resolve_stale_threads(repo: str, pr_number: str, token: str) -> None:
+    """Resolve this runner's own inline-comment threads that GitHub has marked outdated."""
+
+    owner, _, name = repo.partition("/")
+    list_query = (
+        "query($owner:String!,$name:String!,$number:Int!){"
+        "repository(owner:$owner,name:$name){pullRequest(number:$number){"
+        "reviewThreads(first:100){nodes{id isResolved isOutdated "
+        "comments(first:1){nodes{author{login} body}}}}}}}"
+    )
+
+    try:
+        raw = run_gh(
+            [
+                "api",
+                "graphql",
+                "-f",
+                f"query={list_query}",
+                "-f",
+                f"owner={owner}",
+                "-f",
+                f"name={name}",
+                "-F",
+                f"number={pr_number}",
+            ],
+            token=token,
+        )
+        threads = json.loads(raw)["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"]
+    except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError, TypeError) as exc:
+        logger.warning("Could not list review threads to resolve: %s", exc)
+
+        return
+    resolve_mutation = "mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{id}}}"
+
+    for thread in threads:
+        try:
+            if thread["isResolved"] or not thread["isOutdated"]:
+                continue
+
+            comment = next(iter(thread["comments"]["nodes"]), None)
+            if comment is None:
+                continue
+
+            author = (comment["author"] or {}).get("login")
+            body = comment.get("body") or ""
+            if author not in ("github-actions", "github-actions[bot]") or "Severity**" not in body:
+                continue
+
+            run_gh(
+                ["api", "graphql", "-f", f"query={resolve_mutation}", "-f", f"id={thread['id']}"],
+                token=token,
+            )
+        except (subprocess.CalledProcessError, KeyError, TypeError) as exc:
+            logger.warning("Could not resolve a review thread: %s", exc)
+
+
+def record_reviewed(repo: str, pr_number: str, head_sha: str, token: str) -> None:
+    """Resolve this runner's now-outdated threads, then record the reviewed commit status."""
+
+    resolve_stale_threads(repo, pr_number, token)
+    mark_head_reviewed(repo, head_sha, token)
+
+
 def posted_finding_keys(repo: str, pr_number: str, token: str) -> set[tuple[str, str]]:
     """Return (path, title) keys for inline review comments a bot already posted on this PR."""
 
@@ -504,7 +567,7 @@ async def run_cursor_review() -> int:
 
     if not findings:
         logger.info("No findings; recording reviewed status without posting.")
-        mark_head_reviewed(repo, head_sha, token)
+        record_reviewed(repo, pr_number, head_sha, token)
 
         return 0
 
@@ -516,7 +579,7 @@ async def run_cursor_review() -> int:
 
     if not findings:
         logger.info("No new in-scope findings to post; recording reviewed status.")
-        mark_head_reviewed(repo, head_sha, token)
+        record_reviewed(repo, pr_number, head_sha, token)
 
         return 0
 
@@ -538,7 +601,7 @@ async def run_cursor_review() -> int:
     if not post_review(repo, pr_number, payload, token):
         return 1
 
-    mark_head_reviewed(repo, head_sha, token)
+    record_reviewed(repo, pr_number, head_sha, token)
 
     return 0
 
