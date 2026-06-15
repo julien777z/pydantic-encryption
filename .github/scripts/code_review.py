@@ -16,6 +16,7 @@ logger = logging.getLogger("code_review")
 HUNK_HEADER: Final[re.Pattern[str]] = re.compile(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 FENCE: Final[re.Pattern[str]] = re.compile(r"```(?:json)?\s*(\{.*\})\s*```", re.DOTALL)
 PRIOR_COMMENTS_LIMIT: Final[int] = 100
+LOW_FINDINGS_CAP: Final[int] = 3
 
 
 class ReviewConfig(TypedDict):
@@ -208,8 +209,10 @@ def parse_patch(patch: str) -> tuple[set[int], set[int]]:
     return right, left
 
 
-def diff_anchors(repo: str, pr_number: str, token: str) -> dict[str, tuple[set[int], set[int]]]:
-    """Map each changed file path to its valid (RIGHT, LEFT) inline-comment line numbers."""
+def diff_anchors(
+    repo: str, pr_number: str, token: str
+) -> tuple[dict[str, tuple[set[int], set[int]]], set[str]]:
+    """Map patched changed files to their (RIGHT, LEFT) anchor lines, plus changed files GitHub gave no patch for."""
 
     raw = run_gh(
         [
@@ -223,6 +226,7 @@ def diff_anchors(repo: str, pr_number: str, token: str) -> dict[str, tuple[set[i
     )
 
     anchors: dict[str, tuple[set[int], set[int]]] = {}
+    unpatched: set[str] = set()
 
     for line in raw.splitlines():
         if not line.strip():
@@ -232,8 +236,10 @@ def diff_anchors(repo: str, pr_number: str, token: str) -> dict[str, tuple[set[i
         patch = entry.get("patch")
         if patch:
             anchors[entry["filename"]] = parse_patch(patch)
+        else:
+            unpatched.add(entry["filename"])
 
-    return anchors
+    return anchors, unpatched
 
 
 def build_prompt(repo: str, pr_number: str, head_sha: str, diff: str) -> str:
@@ -249,7 +255,9 @@ def build_prompt(repo: str, pr_number: str, head_sha: str, diff: str) -> str:
         '{"findings": [{"path": "<repo-relative>", "line": <int>, "side": "RIGHT|LEFT", '
         '"severity": "Critical|High|Medium|Low", "title": "<short>", "body": "<1-3 sentences>"}]}\n'
         "Use RIGHT with new-file line numbers for added/current lines and LEFT with base-file line "
-        "numbers for removed lines. Surface every valid finding rated by severity; return an empty "
+        "numbers for removed lines. Only report findings on the diff's changed lines. Apply the "
+        "skill's severity bar: post every Critical, High, and Medium finding, but at most the three "
+        "most important Low findings. Order findings most-important-first. Return an empty "
         'list ({"findings": []}) when there are none.\n\n'
         f"Repository: {repo}\nPull request: #{pr_number}\nHead commit: {head_sha}\n\n"
         f"Unified diff:\n{diff}\n"
@@ -297,27 +305,56 @@ def parse_findings(reply: str) -> list[Finding]:
     return findings
 
 
+def cap_low_findings(findings: list[Finding]) -> list[Finding]:
+    """Keep every Critical/High/Medium finding but at most LOW_FINDINGS_CAP Low ones, in order."""
+
+    capped: list[Finding] = []
+    low_count = 0
+
+    for finding in findings:
+        if finding["severity"].strip().lower() == "low":
+            if low_count >= LOW_FINDINGS_CAP:
+                continue
+
+            low_count += 1
+
+        capped.append(finding)
+
+    return capped
+
+
 def comment_body(finding: Finding) -> str:
     """Render one inline comment body in the shared severity format."""
 
     return f"### {finding['title']}\n\n**{finding['severity']} Severity**\n\n{finding['body']}"
 
 
+def finding_anchors(finding: Finding, anchors: dict[str, tuple[set[int], set[int]]]) -> bool:
+    """Return True if the finding's line is present on its diff side."""
+
+    right, left = anchors.get(finding["path"], (set(), set()))
+
+    return finding["line"] in (left if finding["side"] == "LEFT" else right)
+
+
+def is_postable(
+    finding: Finding, anchors: dict[str, tuple[set[int], set[int]]], unpatched: set[str]
+) -> bool:
+    """Return True if the finding can be posted: inline-anchorable, or on a changed file with no patch."""
+
+    return finding_anchors(finding, anchors) or finding["path"] in unpatched
+
+
 def build_review(
-    head_sha: str,
-    findings: list[Finding],
-    anchors: dict[str, tuple[set[int], set[int]]],
+    head_sha: str, findings: list[Finding], anchors: dict[str, tuple[set[int], set[int]]]
 ) -> ReviewPayload:
-    """Build one BugBot-style review: an inline comment per on-diff finding plus an off-diff summary."""
+    """Build one review: inline comments for anchorable findings, a summary list for the rest."""
 
     comments: list[ReviewComment] = []
-    off_diff: list[str] = []
+    summary: list[str] = []
 
     for finding in findings:
-        right, left = anchors.get(finding["path"], (set(), set()))
-        valid = finding["line"] in (left if finding["side"] == "LEFT" else right)
-
-        if valid:
+        if finding_anchors(finding, anchors):
             comments.append(
                 {
                     "path": finding["path"],
@@ -327,14 +364,16 @@ def build_review(
                 }
             )
         else:
-            off_diff.append(
+            # Callers only pass postable findings, so a non-anchorable one is on a changed file
+            # that GitHub returned no patch for (too large) — surface it in the summary.
+            summary.append(
                 f"- {finding['path']}:{finding['line']} — {finding['severity']} — {finding['body']}"
             )
 
     count = len(findings)
     body = f"Found {count} issue{'s' if count != 1 else ''}."
-    if off_diff:
-        body = f"{body}\n\nOutside the diff:\n" + "\n".join(off_diff)
+    if summary:
+        body = f"{body}\n\nOn files too large to anchor inline:\n" + "\n".join(summary)
 
     body = f"{body}\n\n{CONFIG['cursor_marker']}"
 
@@ -431,7 +470,7 @@ async def run_cursor_review() -> int:
         return 0
 
     diff = run_gh(["pr", "diff", pr_number, "--repo", repo], token=token)
-    anchors = diff_anchors(repo, pr_number, token)
+    anchors, unpatched = diff_anchors(repo, pr_number, token)
     prompt = build_prompt(repo, pr_number, head_sha, diff)
 
     try:
@@ -472,8 +511,11 @@ async def run_cursor_review() -> int:
     posted = posted_finding_keys(repo, pr_number, token)
     findings = [finding for finding in findings if (finding["path"], finding["title"]) not in posted]
 
+    findings = [finding for finding in findings if is_postable(finding, anchors, unpatched)]
+    findings = cap_low_findings(findings)
+
     if not findings:
-        logger.info("Every finding was already posted on this PR; recording reviewed status.")
+        logger.info("No new in-scope findings to post; recording reviewed status.")
         mark_head_reviewed(repo, head_sha, token)
 
         return 0
