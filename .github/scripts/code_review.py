@@ -590,8 +590,8 @@ async def run_cursor_review() -> int:
                 logger.info("Using non-default (standard) variant of %s.", model)
             else:
                 logger.info("No non-default variant for %s; using the default tier.", model)
-        except CursorAgentError as exc:
-            logger.warning("Could not list models; using the default tier of %s: %s", model, exc)
+        except (CursorAgentError, TypeError, AttributeError, ValueError) as exc:
+            logger.warning("Could not select model variant; using the default tier of %s: %s", model, exc)
 
         agent = await AsyncAgent.create(
             client=client, model=model_selection, api_key=api_key, cloud=CloudAgentOptions()
