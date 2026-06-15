@@ -183,9 +183,8 @@ def resolve_stale_threads(
 
             after = page["pageInfo"]["endCursor"]
     except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError, TypeError) as exc:
-        logger.warning("Could not list review threads to resolve: %s", exc)
+        logger.warning("Could not list all review threads to resolve; using what was fetched: %s", exc)
 
-        return
     resolve_mutation = "mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{id}}}"
 
     for thread in threads:
@@ -609,16 +608,17 @@ async def run_cursor_review() -> int:
     findings = [finding for finding in findings if is_postable(finding, anchors, unpatched)]
     findings = cap_low_findings(findings)
 
-    if not findings:
-        logger.info("No new in-scope findings to post; recording reviewed status.")
-        record_reviewed(repo, pr_number, head_sha, token, current_keys, CONFIG["cursor_marker"])
+    # Re-check the head before resolving stale threads or posting: it can move during the
+    # prior-comment fetch, and acting on findings gathered against a superseded commit would
+    # resolve threads using stale keys.
+    if current_head_sha(repo, pr_number, token) != head_sha:
+        logger.info("Head moved since the diff was loaded; skipping.")
 
         return 0
 
-    # Re-check just before posting: the head can still move during the prior-comment fetch, and a
-    # concurrent run may have reviewed this head.
-    if current_head_sha(repo, pr_number, token) != head_sha:
-        logger.info("Head moved since the diff was loaded; skipping post.")
+    if not findings:
+        logger.info("No new in-scope findings to post; recording reviewed status.")
+        record_reviewed(repo, pr_number, head_sha, token, current_keys, CONFIG["cursor_marker"])
 
         return 0
 
