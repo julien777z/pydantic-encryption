@@ -12,9 +12,9 @@ on:
         required: true
 
 permissions:
+  checks: write
   contents: write
   pull-requests: write
-  statuses: write
 
 jobs:
   determine-agent:

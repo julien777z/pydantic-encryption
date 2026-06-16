@@ -4,8 +4,10 @@ import json
 import logging
 import os
 import re
+import signal
 import subprocess
 import sys
+from types import FrameType
 import urllib.error
 import urllib.request
 from typing import Final, TypedDict
@@ -15,7 +17,6 @@ logger = logging.getLogger("code_review")
 
 HUNK_HEADER: Final[re.Pattern[str]] = re.compile(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 FENCE: Final[re.Pattern[str]] = re.compile(r"```(?:json)?\s*(\{.*\})\s*```", re.DOTALL)
-PRIOR_COMMENTS_LIMIT: Final[int] = 100
 LOW_FINDINGS_CAP: Final[int] = 3
 
 
@@ -102,57 +103,116 @@ def already_reviewed(repo: str, pr_number: str, head_sha: str, token: str, marke
     return head_sha in raw.split()
 
 
-def head_reviewed(repo: str, head_sha: str, token: str) -> bool:
-    """Return True if a successful Cursor review commit status is already recorded for this head."""
+def head_check_concluded(repo: str, head_sha: str, token: str) -> bool:
+    """Return True if a completed Cursor review check run already exists for this head commit."""
 
     raw = run_gh(
         [
             "api",
-            f"repos/{repo}/commits/{head_sha}/statuses",
+            "--paginate",
+            f"repos/{repo}/commits/{head_sha}/check-runs",
             "--jq",
-            f'.[] | select(.context == "{CONFIG["cursor_status_context"]}") | .state',
+            f'.check_runs[] | select(.name == "{CONFIG["cursor_status_context"]}" '
+            'and .status == "completed" and (.conclusion == "success" '
+            'or .conclusion == "neutral" or .conclusion == "failure")) | .id',
         ],
         token=token,
     )
 
-    return "success" in raw.split()
+    return bool(raw.split())
 
 
-def mark_head_reviewed(repo: str, head_sha: str, token: str) -> None:
-    """Record a successful Cursor review commit status so a later re-run of the same head can skip it."""
+def start_check_run(repo: str, head_sha: str, token: str) -> str | None:
+    """Open an in-progress review check run (yellow/pending while the agent reviews) and return its id."""
+
+    try:
+        raw = run_gh(
+            [
+                "api",
+                "--method",
+                "POST",
+                f"repos/{repo}/check-runs",
+                "-f",
+                f"name={CONFIG['cursor_status_context']}",
+                "-f",
+                f"head_sha={head_sha}",
+                "-f",
+                "status=in_progress",
+                "-f",
+                "output[title]=Cursor code review",
+                "-f",
+                "output[summary]=Reviewing the changes…",
+            ],
+            token=token,
+        )
+
+        return str(json.loads(raw)["id"])
+    except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError) as exc:
+        logger.warning("Could not open the review check run: %s", exc)
+
+        return None
+
+
+def complete_check_run(
+    repo: str, check_id: str | None, conclusion: str, title: str, summary: str, token: str
+) -> bool:
+    """Conclude the review check run with the round's verdict; return whether it is no longer pending."""
+
+    if check_id is None:
+        return True
 
     try:
         run_gh(
             [
                 "api",
                 "--method",
-                "POST",
-                f"repos/{repo}/statuses/{head_sha}",
+                "PATCH",
+                f"repos/{repo}/check-runs/{check_id}",
                 "-f",
-                "state=success",
+                "status=completed",
                 "-f",
-                f"context={CONFIG['cursor_status_context']}",
+                f"conclusion={conclusion}",
                 "-f",
-                "description=Cursor code review complete",
+                f"output[title]={title}",
+                "-f",
+                f"output[summary]={summary}",
             ],
             token=token,
         )
+
+        return True
     except subprocess.CalledProcessError as exc:
-        logger.warning("Could not record reviewed status for %s: %s", head_sha, exc.stderr.strip())
+        logger.warning("Could not conclude the review check run: %s", exc)
+
+        return False
 
 
-def resolve_stale_threads(
-    repo: str, pr_number: str, token: str, current_keys: set[tuple[str, str]], marker: str
-) -> None:
-    """Resolve this tier's own outdated inline threads whose finding the current review dropped."""
+def reconcile_threads(
+    repo: str,
+    pr_number: str,
+    token: str,
+    marker: str,
+    current_keys: set[tuple[str, str]],
+    reviewed_files: set[str],
+) -> tuple[set[tuple[str, str]], set[tuple[str, str]], list[str], set[tuple[str, str]]]:
+    """Classify this tier's threads without mutating: read-only so a head move can still bail.
+
+    Returns (posted_keys, open_keys, stale_ids, kept_critical_keys): every (path, title) this tier
+    has already posted (so the round does not repost them, honoring threads resolved by hand), the
+    open set (threads still unresolved whose finding is still raised, plus finding-gone threads on
+    files the agent did not review this round — kept open because their absence is not trustworthy),
+    the ids to resolve later (finding-gone threads that are outdated, or non-Critical threads whose
+    file was re-reviewed), and the kept-open keys whose thread body shows Critical severity (the only
+    severity source for an open thread the current round did not re-raise — a still-current Critical
+    thread is never resolved on file-touch alone).
+    """
 
     owner, _, name = repo.partition("/")
     list_query = (
         "query($owner:String!,$name:String!,$number:Int!,$after:String){"
         "repository(owner:$owner,name:$name){pullRequest(number:$number){"
         "reviewThreads(first:100,after:$after){pageInfo{hasNextPage endCursor} "
-        "nodes{id isResolved isOutdated "
-        "comments(first:1){nodes{author{login} body path}}}}}}}"
+        "nodes{id isResolved isOutdated comments(first:1){nodes{author{login} body path}}}}}}}"
     )
 
     threads = []
@@ -183,15 +243,19 @@ def resolve_stale_threads(
 
             after = page["pageInfo"]["endCursor"]
     except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError, TypeError) as exc:
-        logger.warning("Could not list all review threads to resolve; using what was fetched: %s", exc)
+        # A partial thread list would drop still-open threads from the verdict and could approve over
+        # them; fail loudly so the caller concludes the check as a failure instead of a false success.
+        logger.error("Could not list review threads to reconcile: %s", exc)
 
-    resolve_mutation = "mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{id}}}"
+        raise
+
+    posted_keys: set[tuple[str, str]] = set()
+    open_keys: set[tuple[str, str]] = set()
+    stale_ids: list[str] = []
+    kept_critical_keys: set[tuple[str, str]] = set()
 
     for thread in threads:
         try:
-            if thread["isResolved"] or not thread["isOutdated"]:
-                continue
-
             comment = next(iter(thread["comments"]["nodes"]), None)
             if comment is None:
                 continue
@@ -205,63 +269,61 @@ def resolve_stale_threads(
                 (row[4:].strip() for row in body.splitlines() if row.startswith("### ")),
                 None,
             )
-            if title is None or (comment.get("path"), title) in current_keys:
+            if title is None:
                 continue
 
+            key = (comment.get("path"), title)
+            posted_keys.add(key)
+            if thread["isResolved"]:
+                continue
+
+            if key in current_keys:
+                open_keys.add(key)
+
+                continue
+
+            # The finding is gone this round. An outdated thread is genuinely stale (GitHub marks it
+            # outdated because the anchored code changed), so resolve it at any severity. Otherwise
+            # the absence is not trustworthy: the agent reports findings only on changed diff lines,
+            # so a still-current thread on an unchanged line of a re-reviewed file cannot be re-raised.
+            # Resolve those only when non-Critical (noise reduction); keep Critical threads open so the
+            # verdict never approves over an unconfirmed Critical, and keep every thread on a file the
+            # agent did not review this round.
+            severity_line = next(
+                (
+                    row.lower()
+                    for row in body.splitlines()
+                    if row.strip().startswith("**") and row.strip().lower().endswith("severity**")
+                ),
+                "",
+            )
+            is_critical = "critical" in severity_line
+
+            if thread.get("isOutdated") or (comment.get("path") in reviewed_files and not is_critical):
+                stale_ids.append(thread["id"])
+            else:
+                open_keys.add(key)
+                if is_critical:
+                    kept_critical_keys.add(key)
+        except (KeyError, TypeError) as exc:
+            logger.warning("Could not classify a review thread: %s", exc)
+
+    return posted_keys, open_keys, stale_ids, kept_critical_keys
+
+
+def resolve_threads(repo: str, thread_ids: list[str], token: str) -> None:
+    """Resolve the given review threads — run only after the head is confirmed and the review posted."""
+
+    mutation = "mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{id}}}"
+
+    for thread_id in thread_ids:
+        try:
             run_gh(
-                ["api", "graphql", "-f", f"query={resolve_mutation}", "-f", f"id={thread['id']}"],
+                ["api", "graphql", "-f", f"query={mutation}", "-f", f"id={thread_id}"],
                 token=token,
             )
-        except (subprocess.CalledProcessError, KeyError, TypeError) as exc:
+        except subprocess.CalledProcessError as exc:
             logger.warning("Could not resolve a review thread: %s", exc)
-
-
-def record_reviewed(
-    repo: str,
-    pr_number: str,
-    head_sha: str,
-    token: str,
-    current_keys: set[tuple[str, str]],
-    marker: str,
-) -> None:
-    """Resolve outdated threads for findings no longer raised, then record the reviewed status."""
-
-    if current_head_sha(repo, pr_number, token) != head_sha:
-        return
-
-    resolve_stale_threads(repo, pr_number, token, current_keys, marker)
-    mark_head_reviewed(repo, head_sha, token)
-
-
-def posted_finding_keys(repo: str, pr_number: str, token: str) -> set[tuple[str, str]]:
-    """Return (path, title) keys for inline review comments a bot already posted on this PR."""
-
-    raw = run_gh(
-        [
-            "api",
-            f"repos/{repo}/pulls/{pr_number}/comments"
-            f"?per_page={PRIOR_COMMENTS_LIMIT}&sort=created&direction=desc",
-            "--jq",
-            '.[] | select(.user.type == "Bot") | {path, body}',
-        ],
-        token=token,
-    )
-
-    keys: set[tuple[str, str]] = set()
-
-    for line in raw.splitlines():
-        if not line.strip():
-            continue
-
-        entry = json.loads(line)
-        title = next(
-            (row[4:].strip() for row in (entry.get("body") or "").splitlines() if row.startswith("### ")),
-            None,
-        )
-        if title:
-            keys.add((entry["path"], title))
-
-    return keys
 
 
 def parse_patch(patch: str) -> tuple[set[int], set[int]]:
@@ -350,7 +412,12 @@ def build_prompt(repo: str, pr_number: str, head_sha: str, diff: str) -> str:
         "numbers for removed lines. Only report findings on the diff's changed lines. Apply the "
         "skill's severity bar: post every Critical, High, and Medium finding, but at most the three "
         "most important Low findings. Order findings most-important-first. Return an empty "
-        'list ({"findings": []}) when there are none.\n\n'
+        'list ({"findings": []}) when there are none.\n'
+        "Report the COMPLETE current set of issues in the diff: include every finding that still "
+        "applies even if a similar comment already exists on the PR. Do NOT dedupe or skip findings "
+        "against existing review comments — the runner reconciles your full set against existing "
+        "threads (posting new ones, resolving fixed ones), so omitting a still-valid finding would "
+        "wrongly resolve its thread.\n\n"
         f"Repository: {repo}\nPull request: #{pr_number}\nHead commit: {head_sha}\n\n"
         f"Unified diff:\n{diff}\n"
     )
@@ -441,9 +508,13 @@ def is_postable(
 
 
 def build_review(
-    head_sha: str, findings: list[Finding], anchors: dict[str, tuple[set[int], set[int]]]
+    head_sha: str,
+    findings: list[Finding],
+    anchors: dict[str, tuple[set[int], set[int]]],
+    event: str,
+    open_count: int,
 ) -> ReviewPayload:
-    """Build one review: inline comments for anchorable findings, a summary list for the rest."""
+    """Build the round's review: inline comments for the new findings plus a verdict summary body."""
 
     comments: list[ReviewComment] = []
     summary: list[str] = []
@@ -465,14 +536,20 @@ def build_review(
                 f"- {finding['path']}:{finding['line']} — {finding['severity']} — {finding['body']}"
             )
 
-    count = len(findings)
-    body = f"Found {count} issue{'s' if count != 1 else ''}."
+    plural = "s" if open_count != 1 else ""
+    if event == "APPROVE":
+        body = "No open issues from this tier — approving."
+    elif event == "REQUEST_CHANGES":
+        body = f"{open_count} open issue{plural}, including a Critical — requesting changes."
+    else:
+        body = f"{open_count} open issue{plural} remaining from this tier."
+
     if summary:
         body = f"{body}\n\nOn files too large to anchor inline:\n" + "\n".join(summary)
 
     body = f"{body}\n\n{CONFIG['cursor_marker']}"
 
-    return {"commit_id": head_sha, "event": "COMMENT", "body": body, "comments": comments}
+    return {"commit_id": head_sha, "event": event, "body": body, "comments": comments}
 
 
 def post_review(repo: str, pr_number: str, payload: ReviewPayload, token: str) -> bool:
@@ -557,9 +634,10 @@ async def run_cursor_review() -> int:
     token = os.environ["GITHUB_TOKEN"]
     model = os.environ.get("CURSOR_AGENT_MODEL", "composer-2.5")
 
-    if head_reviewed(repo, head_sha, token) or already_reviewed(
-        repo, pr_number, head_sha, token, CONFIG["cursor_marker"]
-    ):
+    # The check run is the verdict of record. Once this head has a concluded check, skip re-running
+    # the agent: posting the visible review is best-effort within that run, and a clean round the bot
+    # cannot APPROVE already falls back to a COMMENT, so a concluded head needs no further pass.
+    if head_check_concluded(repo, head_sha, token):
         logger.info("Head %s already reviewed by Cursor; skipping.", head_sha)
 
         return 0
@@ -568,97 +646,175 @@ async def run_cursor_review() -> int:
     anchors, unpatched = diff_anchors(repo, pr_number, token)
     prompt = build_prompt(repo, pr_number, head_sha, diff)
 
+    check_id = start_check_run(repo, head_sha, token)
+    concluded = False
+
+    # GitHub Actions cancels a superseded run (cancel-in-progress) and an uncaught exit would leave
+    # this head's check stuck in_progress; conclude it on the cancellation signals before exiting.
+    # Setting concluded keeps the finally from overwriting the cancellation with action_required.
+    def _conclude_on_signal(signum: int, frame: FrameType | None) -> None:
+        """Conclude the pending check run when the job is cancelled, then exit."""
+
+        nonlocal concluded
+        complete_check_run(
+            repo, check_id, "cancelled", "Superseded", "The review job was cancelled.", token
+        )
+        concluded = True
+
+        sys.exit(1)
+
+    for cancel_signal in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(cancel_signal, _conclude_on_signal)
+
+    # The in-progress check must always reach a conclusion. Every explicit exit below records a
+    # verdict; if any other error escapes first (bridge launch, model listing, reconciliation, a
+    # gh/network failure), the finally concludes it as action_required so it never stays pending.
     try:
-        client = await AsyncClient.launch_bridge()
+        try:
+            client = await AsyncClient.launch_bridge()
 
-        # Composer 2.5 defaults to the "fast" variant (≈6x the token cost); select the
-        # non-default (standard) variant from the catalog so background reviews use the cheaper tier.
-        catalog = await client.list_models(api_key=api_key)
-        sdk_model = next((entry for entry in catalog if entry.id == model), None)
-        standard_variant = next(
-            (
-                variant
-                for variant in (sdk_model.variants if sdk_model else ())
-                if not variant.is_default
-            ),
-            None,
-        )
-        model_selection: str | ModelSelection = (
-            ModelSelection(id=model, params=list(standard_variant.params))
-            if standard_variant is not None
-            else model
-        )
+            # Composer 2.5 defaults to the "fast" variant (≈6x the token cost); select the
+            # non-default (standard) variant from the catalog so background reviews use the cheaper tier.
+            catalog = await client.list_models(api_key=api_key)
+            sdk_model = next((entry for entry in catalog if entry.id == model), None)
+            standard_variant = next(
+                (
+                    variant
+                    for variant in (sdk_model.variants if sdk_model else ())
+                    if not variant.is_default
+                ),
+                None,
+            )
+            model_selection: str | ModelSelection = (
+                ModelSelection(id=model, params=list(standard_variant.params))
+                if standard_variant is not None
+                else model
+            )
 
-        agent = await AsyncAgent.create(
-            client=client, model=model_selection, api_key=api_key, cloud=CloudAgentOptions()
-        )
+            agent = await AsyncAgent.create(
+                client=client, model=model_selection, api_key=api_key, cloud=CloudAgentOptions()
+            )
+
+            try:
+                run = await agent.send(prompt)
+                reply = await run.text()
+            finally:
+                await agent.close()
+        except CursorAgentError as exc:
+            logger.error("Cursor agent run failed: %s", exc)
+            complete_check_run(
+                repo, check_id, "action_required", "Review failed", "The Cursor agent run failed.", token
+            )
+            concluded = True
+
+            return 1
 
         try:
-            run = await agent.send(prompt)
-            reply = await run.text()
-        finally:
-            await agent.close()
-    except CursorAgentError as exc:
-        logger.error("Cursor agent run failed: %s", exc)
+            findings = parse_findings(reply)
+        except (json.JSONDecodeError, AttributeError, KeyError, TypeError, ValueError) as exc:
+            logger.error("Could not parse agent reply: %s", exc)
+            complete_check_run(
+                repo, check_id, "action_required", "Review failed", "Could not parse the agent reply.", token
+            )
+            concluded = True
 
-        return 1
+            return 1
 
-    try:
-        findings = parse_findings(reply)
-    except (json.JSONDecodeError, AttributeError, KeyError, TypeError, ValueError) as exc:
-        logger.error("Could not parse agent reply: %s", exc)
+        current_keys = {(finding["path"], finding["title"].strip()) for finding in findings}
 
-        return 1
+        # Re-gate on the head SHA once the agent run is done: if the head advanced while the agent
+        # worked, do not act on the superseded commit — the next event reviews the new head.
+        if current_head_sha(repo, pr_number, token) != head_sha:
+            logger.info("Head moved during the agent run; skipping (the new commit reviews next).")
+            complete_check_run(
+                repo, check_id, "cancelled", "Superseded", "The head moved during review.", token
+            )
+            concluded = True
 
-    current_keys = {(finding["path"], finding["title"].strip()) for finding in findings}
+            return 0
 
-    # Re-gate on the head SHA once the agent run is done (skill Step 5): if the head advanced
-    # while the agent worked, neither post nor record a status for the superseded commit — the
-    # next event reviews the new head.
-    if current_head_sha(repo, pr_number, token) != head_sha:
-        logger.info("Head moved during the agent run; skipping (the new commit reviews next).")
+        # Reconcile this tier's existing threads against the round's findings: resolve the ones whose
+        # finding is gone, and learn which keys are already posted and which remain open.
+        reviewed_files = set(anchors) | unpatched
+        posted_keys, open_existing, stale_ids, kept_critical = reconcile_threads(
+            repo, pr_number, token, CONFIG["cursor_marker"], current_keys, reviewed_files
+        )
+
+        postable = [finding for finding in findings if is_postable(finding, anchors, unpatched)]
+
+        new_findings = [
+            finding
+            for finding in postable
+            if (finding["path"], finding["title"].strip()) not in posted_keys
+        ]
+        new_findings = cap_low_findings(new_findings)
+
+        severity_by_key = {
+            (finding["path"], finding["title"].strip()): finding["severity"] for finding in findings
+        }
+        # The verdict's open set is every in-scope finding still raised that is not already resolved
+        # on GitHub: the tier's still-open threads, plus genuinely new findings (those without a
+        # thread yet). A new finding counts even when it fails anchor validation and so cannot be
+        # posted inline — it is still an open issue, so the verdict must not approve over it. A
+        # finding whose thread a human resolved stays resolved. The Low cap only limits how many
+        # inline comments post, not the verdict.
+        new_open_keys = {key for key in current_keys if key not in posted_keys}
+        open_keys = open_existing | new_open_keys
+        open_count = len(open_keys)
+        open_critical = bool(kept_critical) or any(
+            (severity_by_key.get(key) or "").lower() == "critical" for key in open_keys
+        )
+
+        if open_count == 0:
+            event, conclusion, title = "APPROVE", "success", "No open issues"
+            summary = "No open issues from this tier — approving."
+        elif open_critical:
+            event, conclusion, title = "REQUEST_CHANGES", "failure", "Critical issue open"
+            summary = f"{open_count} open issue(s), including a Critical — requesting changes."
+        else:
+            plural = "s" if open_count != 1 else ""
+            event, conclusion, title = "COMMENT", "neutral", f"{open_count} open issue{plural}"
+            summary = f"{open_count} open issue{plural} remaining from this tier."
+
+        # Re-check the head right before mutating: it can advance during reconciliation, and a review
+        # must not anchor to a superseded commit.
+        if current_head_sha(repo, pr_number, token) != head_sha:
+            logger.info("Head moved before posting; skipping (the new commit reviews next).")
+            complete_check_run(
+                repo, check_id, "cancelled", "Superseded", "The head moved before posting.", token
+            )
+            concluded = True
+
+            return 0
+
+        # The check run is the authoritative verdict; posting the review is best-effort. Post it
+        # unless this head already has one (re-run or concurrent run), and if posting fails (e.g.
+        # GitHub rejects a bot APPROVE) still resolve threads and conclude so the verdict is recorded.
+        if not already_reviewed(repo, pr_number, head_sha, token, CONFIG["cursor_marker"]):
+            payload = build_review(head_sha, new_findings, anchors, event, open_count)
+            if not post_review(repo, pr_number, payload, token):
+                # GitHub forbids github-actions[bot] from APPROVE-ing the PR, so a clean round would
+                # otherwise leave only the green check with no visible review. Re-post the approving
+                # body as a COMMENT (which the bot may submit); the check run stays the real verdict.
+                if event == "APPROVE":
+                    payload["event"] = "COMMENT"
+
+                if event != "APPROVE" or not post_review(repo, pr_number, payload, token):
+                    logger.warning(
+                        "Could not post the %s review; the check run still records the verdict.", event
+                    )
+
+        resolve_threads(repo, stale_ids, token)
+
+        complete_check_run(repo, check_id, conclusion, title, summary, token)
+        concluded = True
 
         return 0
-
-    if not findings:
-        logger.info("No findings; recording reviewed status without posting.")
-        record_reviewed(repo, pr_number, head_sha, token, current_keys, CONFIG["cursor_marker"])
-
-        return 0
-
-    posted = posted_finding_keys(repo, pr_number, token)
-    findings = [finding for finding in findings if (finding["path"], finding["title"].strip()) not in posted]
-
-    findings = [finding for finding in findings if is_postable(finding, anchors, unpatched)]
-    findings = cap_low_findings(findings)
-
-    if not findings:
-        logger.info("No new in-scope findings to post; recording reviewed status.")
-        record_reviewed(repo, pr_number, head_sha, token, current_keys, CONFIG["cursor_marker"])
-
-        return 0
-
-    if head_reviewed(repo, head_sha, token) or already_reviewed(
-        repo, pr_number, head_sha, token, CONFIG["cursor_marker"]
-    ):
-        logger.info("Head %s reviewed by Cursor during the run; skipping.", head_sha)
-
-        return 0
-
-    # Re-check the head right before posting: it can advance during the prior-comment fetch and the
-    # concurrent-review checks above, and a review must not anchor to a superseded commit.
-    if current_head_sha(repo, pr_number, token) != head_sha:
-        logger.info("Head moved before posting; skipping (the new commit reviews next).")
-
-        return 0
-
-    payload = build_review(head_sha, findings, anchors)
-    if not post_review(repo, pr_number, payload, token):
-        return 1
-
-    record_reviewed(repo, pr_number, head_sha, token, current_keys, CONFIG["cursor_marker"])
-
-    return 0
+    finally:
+        if not concluded:
+            complete_check_run(
+                repo, check_id, "action_required", "Review failed", "The review run did not complete.", token
+            )
 
 
 def main() -> int:
