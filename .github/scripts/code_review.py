@@ -507,14 +507,31 @@ def is_postable(
     return finding_anchors(finding, anchors) or finding["path"] in unpatched
 
 
+def verdict_summary(event: str, open_count: int, previous_count: int) -> str:
+    """Phrase the verdict as the count of unresolved issues and how many carried from past reviews."""
+
+    if event == "APPROVE":
+        return "No unresolved issues — approving."
+
+    plural = "s" if open_count != 1 else ""
+    verb = "is" if open_count == 1 else "are"
+    carried = f" (including {previous_count} from a previous review)" if previous_count else ""
+    line = f"There {verb} {open_count} unresolved issue{plural}{carried}."
+
+    if event == "REQUEST_CHANGES":
+        return f"{line} A Critical issue is open — requesting changes."
+
+    return line
+
+
 def build_review(
     head_sha: str,
     findings: list[Finding],
     anchors: dict[str, tuple[set[int], set[int]]],
     event: str,
-    open_count: int,
+    summary_line: str,
 ) -> ReviewPayload:
-    """Build the round's review: inline comments for the new findings plus a verdict summary body."""
+    """Build the round's review: inline comments for the new findings plus the verdict summary body."""
 
     comments: list[ReviewComment] = []
     summary: list[str] = []
@@ -536,13 +553,7 @@ def build_review(
                 f"- {finding['path']}:{finding['line']} — {finding['severity']} — {finding['body']}"
             )
 
-    plural = "s" if open_count != 1 else ""
-    if event == "APPROVE":
-        body = "No open issues from this tier — approving."
-    elif event == "REQUEST_CHANGES":
-        body = f"{open_count} open issue{plural}, including a Critical — requesting changes."
-    else:
-        body = f"{open_count} open issue{plural} remaining from this tier."
+    body = summary_line
 
     if summary:
         body = f"{body}\n\nOn files too large to anchor inline:\n" + "\n".join(summary)
@@ -765,16 +776,17 @@ async def run_cursor_review() -> int:
             (severity_by_key.get(key) or "").lower() == "critical" for key in open_keys
         )
 
+        previous_count = len(open_existing)
+        plural = "s" if open_count != 1 else ""
+
         if open_count == 0:
-            event, conclusion, title = "APPROVE", "success", "No open issues"
-            summary = "No open issues from this tier — approving."
+            event, conclusion, title = "APPROVE", "success", "No unresolved issues"
         elif open_critical:
             event, conclusion, title = "REQUEST_CHANGES", "failure", "Critical issue open"
-            summary = f"{open_count} open issue(s), including a Critical — requesting changes."
         else:
-            plural = "s" if open_count != 1 else ""
-            event, conclusion, title = "COMMENT", "neutral", f"{open_count} open issue{plural}"
-            summary = f"{open_count} open issue{plural} remaining from this tier."
+            event, conclusion, title = "COMMENT", "neutral", f"{open_count} unresolved issue{plural}"
+
+        summary = verdict_summary(event, open_count, previous_count)
 
         # Re-check the head right before mutating: it can advance during reconciliation, and a review
         # must not anchor to a superseded commit.
@@ -791,7 +803,7 @@ async def run_cursor_review() -> int:
         # unless this head already has one (re-run or concurrent run), and if posting fails (e.g.
         # GitHub rejects a bot APPROVE) still resolve threads and conclude so the verdict is recorded.
         if not already_reviewed(repo, pr_number, head_sha, token, CONFIG["cursor_marker"]):
-            payload = build_review(head_sha, new_findings, anchors, event, open_count)
+            payload = build_review(head_sha, new_findings, anchors, event, summary)
             if not post_review(repo, pr_number, payload, token):
                 # GitHub forbids github-actions[bot] from APPROVE-ing the PR, so a clean round would
                 # otherwise leave only the green check with no visible review. Re-post the approving
