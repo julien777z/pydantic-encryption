@@ -7,10 +7,12 @@ import re
 import signal
 import subprocess
 import sys
-from types import FrameType
 import urllib.error
 import urllib.request
+from types import FrameType
 from typing import Final, TypedDict
+
+from cursor_sdk import AsyncAgent, AsyncClient, CloudAgentOptions, CursorAgentError, ModelSelection
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger("code_review")
@@ -291,14 +293,7 @@ def list_review_threads(repo: str, pr_number: str, token: str) -> list[ReviewThr
 def existing_finding_titles(
     repo: str, pr_number: str, token: str, marker: str
 ) -> dict[str, list[tuple[str, str]]]:
-    """Map each file to this tier's posted (severity, title) pairs (open and resolved) to anchor titles.
-
-    Resolved threads are included so the agent reuses their exact title for a still-applicable issue;
-    reconciliation then matches it to the resolved thread and keeps it resolved instead of reposting a
-    new comment, so a hand-resolved finding stays resolved across re-reviews. Best-effort: this only
-    feeds the prompt a hint, so a listing failure just omits it; verdict-critical reconciliation calls
-    list_review_threads directly and fails loudly on its own.
-    """
+    """Return this tier's posted (severity, title) pairs per file (open and resolved); best-effort."""
 
     try:
         threads = list_review_threads(repo, pr_number, token)
@@ -330,17 +325,7 @@ def reconcile_threads(
     current_keys: set[tuple[str, str]],
     reviewed_files: set[str],
 ) -> tuple[set[tuple[str, str]], set[tuple[str, str]], list[str], set[tuple[str, str]]]:
-    """Classify this tier's threads without mutating: read-only so a head move can still bail.
-
-    Returns (posted_keys, open_keys, stale_ids, kept_critical_keys): every (path, title) this tier
-    has already posted (so the round does not repost them, honoring threads resolved by hand), the
-    open set (threads still unresolved whose finding is still raised, plus finding-gone threads on
-    files the agent did not review this round — kept open because their absence is not trustworthy),
-    the ids to resolve later (finding-gone threads that are outdated, or non-Critical threads whose
-    file was re-reviewed), and the kept-open keys whose thread body shows Critical severity (the only
-    severity source for an open thread the current round did not re-raise — a still-current Critical
-    thread is never resolved on file-touch alone).
-    """
+    """Classify this tier's threads read-only into posted, open, stale, and kept-critical keys."""
 
     threads = list_review_threads(repo, pr_number, token)
 
@@ -355,7 +340,6 @@ def reconcile_threads(
             if not is_tier_comment(comment, marker) or comment is None:
                 continue
 
-            body = comment.get("body") or ""
             title = thread_title(comment)
             if title is None:
                 continue
@@ -377,15 +361,7 @@ def reconcile_threads(
             # Resolve those only when non-Critical (noise reduction); keep Critical threads open so the
             # verdict never approves over an unconfirmed Critical, and keep every thread on a file the
             # agent did not review this round.
-            severity_line = next(
-                (
-                    row.lower()
-                    for row in body.splitlines()
-                    if row.strip().startswith("**") and row.strip().lower().endswith("severity**")
-                ),
-                "",
-            )
-            is_critical = "critical" in severity_line
+            is_critical = thread_severity(comment).lower() == "critical"
 
             if thread.get("isOutdated") or (comment.get("path") in reviewed_files and not is_critical):
                 stale_ids.append(thread["id"])
@@ -454,7 +430,7 @@ def parse_patch(patch: str) -> tuple[set[int], set[int]]:
 def diff_anchors(
     repo: str, pr_number: str, token: str
 ) -> tuple[dict[str, tuple[set[int], set[int]]], set[str]]:
-    """Map patched changed files to their (RIGHT, LEFT) anchor lines, plus changed files GitHub gave no patch for."""
+    """Map patched changed files to their (RIGHT, LEFT) anchor lines, plus files GitHub gave no patch."""
 
     raw = run_gh(
         [
@@ -591,7 +567,7 @@ def cap_low_findings(findings: list[Finding]) -> list[Finding]:
 
 
 def comment_body(finding: Finding) -> str:
-    """Render one inline comment body in the shared severity format."""
+    """Render one Cursor inline comment body in the severity format."""
 
     return (
         f"### {finding['title']}\n\n**{finding['severity']} Severity**\n\n{finding['body']}"
@@ -630,6 +606,40 @@ def verdict_summary(event: str, open_count: int, previous_count: int) -> str:
         return f"{line} A Critical issue is open — requesting changes."
 
     return line
+
+
+def compute_verdict(open_count: int, open_critical: bool) -> tuple[str, str, str]:
+    """Return the (review event, check conclusion, check title) for the round's open-issue state."""
+
+    if open_count == 0:
+        return "APPROVE", "success", "No unresolved issues"
+
+    if open_critical:
+        return "REQUEST_CHANGES", "failure", "Critical issue open"
+
+    plural = "s" if open_count != 1 else ""
+
+    return "COMMENT", "neutral", f"{open_count} unresolved issue{plural}"
+
+
+def post_review_with_fallback(
+    repo: str, pr_number: str, payload: ReviewPayload, event: str, token: str
+) -> None:
+    """Post the review, re-posting an APPROVE the bot cannot submit as a COMMENT."""
+
+    if post_review(repo, pr_number, payload, token):
+        return
+
+    # GitHub forbids github-actions[bot] from APPROVE-ing the PR, so a clean round would otherwise
+    # leave only the green check with no visible review. Re-post the approving body as a COMMENT
+    # (which the bot may submit); the check run stays the real verdict.
+    if event == "APPROVE":
+        payload["event"] = "COMMENT"
+
+    if event != "APPROVE" or not post_review(repo, pr_number, payload, token):
+        logger.warning(
+            "Could not post the %s review; the check run still records the verdict.", event
+        )
 
 
 def build_review(
@@ -742,9 +752,6 @@ def fire_claude_routine() -> int:
 
 async def run_cursor_review() -> int:
     """Run the cheap Cursor (composer-2.5) review for one PR and post the result."""
-
-    # cursor_sdk is a Cursor-only dependency, imported here so the Claude path need not install it.
-    from cursor_sdk import AsyncAgent, AsyncClient, CloudAgentOptions, CursorAgentError, ModelSelection
 
     repo = os.environ["REPO"]
     pr_number = os.environ["PR_NUMBER"]
@@ -891,15 +898,7 @@ async def run_cursor_review() -> int:
         )
 
         previous_count = len(open_existing)
-        plural = "s" if open_count != 1 else ""
-
-        if open_count == 0:
-            event, conclusion, title = "APPROVE", "success", "No unresolved issues"
-        elif open_critical:
-            event, conclusion, title = "REQUEST_CHANGES", "failure", "Critical issue open"
-        else:
-            event, conclusion, title = "COMMENT", "neutral", f"{open_count} unresolved issue{plural}"
-
+        event, conclusion, title = compute_verdict(open_count, open_critical)
         summary = verdict_summary(event, open_count, previous_count)
 
         # Re-check the head right before mutating: it can advance during reconciliation, and a review
@@ -918,17 +917,7 @@ async def run_cursor_review() -> int:
         # GitHub rejects a bot APPROVE) still resolve threads and conclude so the verdict is recorded.
         if not already_reviewed(repo, pr_number, head_sha, token, CONFIG["cursor_marker"]):
             payload = build_review(head_sha, new_findings, anchors, event, summary)
-            if not post_review(repo, pr_number, payload, token):
-                # GitHub forbids github-actions[bot] from APPROVE-ing the PR, so a clean round would
-                # otherwise leave only the green check with no visible review. Re-post the approving
-                # body as a COMMENT (which the bot may submit); the check run stays the real verdict.
-                if event == "APPROVE":
-                    payload["event"] = "COMMENT"
-
-                if event != "APPROVE" or not post_review(repo, pr_number, payload, token):
-                    logger.warning(
-                        "Could not post the %s review; the check run still records the verdict.", event
-                    )
+            post_review_with_fallback(repo, pr_number, payload, event, token)
 
         logger.info("Resolving %d stale thread(s); %d open issue(s) remain.", len(stale_ids), open_count)
         resolve_threads(repo, stale_ids, token)

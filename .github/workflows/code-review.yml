@@ -126,8 +126,8 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - name: Install Cursor SDK
-        if: steps.ctx.outputs.skip == 'false' && steps.ctx.outputs.agent == 'cursor'
+      - name: Install Dependencies
+        if: steps.ctx.outputs.skip == 'false'
         run: python -m pip install "cursor-sdk>=0.1.7,<0.2"
       - name: Run Cursor Review
         if: steps.ctx.outputs.skip == 'false' && steps.ctx.outputs.agent == 'cursor'
