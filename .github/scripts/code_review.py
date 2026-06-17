@@ -35,7 +35,7 @@ CONFIG: Final[ReviewConfig] = ReviewConfig(
     routine_beta="experimental-cc-routine-2026-04-01",
     cursor_marker="<!-- code-review:cursor -->",
     claude_marker="<!-- code-review:claude -->",
-    cursor_status_context="code-review/cursor",
+    cursor_status_context="Approval Verdict",
 )
 
 
@@ -60,6 +60,23 @@ class ReviewPayload(TypedDict):
     event: str
     body: str
     comments: list[ReviewComment]
+
+
+class ThreadCommentNode(TypedDict):
+    author: dict[str, str] | None
+    body: str
+    path: str | None
+
+
+class ThreadComments(TypedDict):
+    nodes: list[ThreadCommentNode]
+
+
+class ReviewThread(TypedDict):
+    id: str
+    isResolved: bool
+    isOutdated: bool
+    comments: ThreadComments
 
 
 def run_gh(args: list[str], *, token: str) -> str:
@@ -187,25 +204,44 @@ def complete_check_run(
         return False
 
 
-def reconcile_threads(
-    repo: str,
-    pr_number: str,
-    token: str,
-    marker: str,
-    current_keys: set[tuple[str, str]],
-    reviewed_files: set[str],
-) -> tuple[set[tuple[str, str]], set[tuple[str, str]], list[str], set[tuple[str, str]]]:
-    """Classify this tier's threads without mutating: read-only so a head move can still bail.
+def thread_title(comment: ThreadCommentNode) -> str | None:
+    """Return the finding title from this tier's comment body (the `### ` heading), if present."""
 
-    Returns (posted_keys, open_keys, stale_ids, kept_critical_keys): every (path, title) this tier
-    has already posted (so the round does not repost them, honoring threads resolved by hand), the
-    open set (threads still unresolved whose finding is still raised, plus finding-gone threads on
-    files the agent did not review this round — kept open because their absence is not trustworthy),
-    the ids to resolve later (finding-gone threads that are outdated, or non-Critical threads whose
-    file was re-reviewed), and the kept-open keys whose thread body shows Critical severity (the only
-    severity source for an open thread the current round did not re-raise — a still-current Critical
-    thread is never resolved on file-touch alone).
-    """
+    body = comment.get("body") or ""
+
+    return next((row[4:].strip() for row in body.splitlines() if row.startswith("### ")), None)
+
+
+def thread_severity(comment: ThreadCommentNode) -> str:
+    """Return the severity word from this tier's comment body (the `**X Severity**` line), or empty."""
+
+    body = comment.get("body") or ""
+    line = next(
+        (
+            row.strip()
+            for row in body.splitlines()
+            if row.strip().startswith("**") and row.strip().lower().endswith("severity**")
+        ),
+        "",
+    )
+    words = line.strip("*").split()
+
+    return words[0] if words else ""
+
+
+def is_tier_comment(comment: ThreadCommentNode | None, marker: str) -> bool:
+    """Return True when the comment is this tier's own posting (github-actions bot plus the marker)."""
+
+    if comment is None:
+        return False
+
+    author = (comment["author"] or {}).get("login")
+
+    return author in ("github-actions", "github-actions[bot]") and marker in (comment.get("body") or "")
+
+
+def list_review_threads(repo: str, pr_number: str, token: str) -> list[ReviewThread]:
+    """List every review thread on the PR via GraphQL, paginating fully; raise on a partial fetch."""
 
     owner, _, name = repo.partition("/")
     list_query = (
@@ -215,7 +251,7 @@ def reconcile_threads(
         "nodes{id isResolved isOutdated comments(first:1){nodes{author{login} body path}}}}}}}"
     )
 
-    threads = []
+    threads: list[ReviewThread] = []
     after = None
     try:
         while True:
@@ -249,6 +285,65 @@ def reconcile_threads(
 
         raise
 
+    return threads
+
+
+def existing_finding_titles(
+    repo: str, pr_number: str, token: str, marker: str
+) -> dict[str, list[tuple[str, str]]]:
+    """Map each file to this tier's posted (severity, title) pairs (open and resolved) to anchor titles.
+
+    Resolved threads are included so the agent reuses their exact title for a still-applicable issue;
+    reconciliation then matches it to the resolved thread and keeps it resolved instead of reposting a
+    new comment, so a hand-resolved finding stays resolved across re-reviews. Best-effort: this only
+    feeds the prompt a hint, so a listing failure just omits it; verdict-critical reconciliation calls
+    list_review_threads directly and fails loudly on its own.
+    """
+
+    try:
+        threads = list_review_threads(repo, pr_number, token)
+    except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError, TypeError):
+        return {}
+
+    findings: dict[str, list[tuple[str, str]]] = {}
+    for thread in threads:
+        try:
+            comment = next(iter(thread["comments"]["nodes"]), None)
+            if not is_tier_comment(comment, marker) or comment is None:
+                continue
+
+            path = comment.get("path")
+            title = thread_title(comment)
+            if path and title:
+                findings.setdefault(path, []).append((thread_severity(comment), title))
+        except (KeyError, TypeError):
+            continue
+
+    return findings
+
+
+def reconcile_threads(
+    repo: str,
+    pr_number: str,
+    token: str,
+    marker: str,
+    current_keys: set[tuple[str, str]],
+    reviewed_files: set[str],
+) -> tuple[set[tuple[str, str]], set[tuple[str, str]], list[str], set[tuple[str, str]]]:
+    """Classify this tier's threads without mutating: read-only so a head move can still bail.
+
+    Returns (posted_keys, open_keys, stale_ids, kept_critical_keys): every (path, title) this tier
+    has already posted (so the round does not repost them, honoring threads resolved by hand), the
+    open set (threads still unresolved whose finding is still raised, plus finding-gone threads on
+    files the agent did not review this round — kept open because their absence is not trustworthy),
+    the ids to resolve later (finding-gone threads that are outdated, or non-Critical threads whose
+    file was re-reviewed), and the kept-open keys whose thread body shows Critical severity (the only
+    severity source for an open thread the current round did not re-raise — a still-current Critical
+    thread is never resolved on file-touch alone).
+    """
+
+    threads = list_review_threads(repo, pr_number, token)
+
     posted_keys: set[tuple[str, str]] = set()
     open_keys: set[tuple[str, str]] = set()
     stale_ids: list[str] = []
@@ -257,18 +352,11 @@ def reconcile_threads(
     for thread in threads:
         try:
             comment = next(iter(thread["comments"]["nodes"]), None)
-            if comment is None:
+            if not is_tier_comment(comment, marker) or comment is None:
                 continue
 
-            author = (comment["author"] or {}).get("login")
             body = comment.get("body") or ""
-            if author not in ("github-actions", "github-actions[bot]") or marker not in body:
-                continue
-
-            title = next(
-                (row[4:].strip() for row in body.splitlines() if row.startswith("### ")),
-                None,
-            )
+            title = thread_title(comment)
             if title is None:
                 continue
 
@@ -396,8 +484,28 @@ def diff_anchors(
     return anchors, unpatched
 
 
-def build_prompt(repo: str, pr_number: str, head_sha: str, diff: str) -> str:
+def build_prompt(
+    repo: str, pr_number: str, head_sha: str, diff: str, posted_titles: dict[str, list[tuple[str, str]]]
+) -> str:
     """Compose the review prompt: the skill reference, the PR context, and the strict JSON output contract."""
+
+    if posted_titles:
+        listed = "\n".join(
+            f"- {path}: [{severity}] {title}" if severity else f"- {path}: {title}"
+            for path in sorted(posted_titles)
+            for severity, title in posted_titles[path]
+        )
+        existing_block = (
+            "These issues already have review comments on this PR (file: [severity] title); some may "
+            "have been resolved by a human. For any that still applies, report it again on the SAME "
+            "file and with its title and severity copied EXACTLY so the runner matches it to the "
+            "existing comment instead of posting a near-duplicate or downgrading it — this also keeps "
+            "a hand-resolved comment resolved rather than reopening it. Omit a listed title only when "
+            "that issue is now fixed:\n"
+            f"{listed}\n\n"
+        )
+    else:
+        existing_block = ""
 
     return (
         "Follow your `code-review` skill to review the pull request below.\n"
@@ -413,12 +521,12 @@ def build_prompt(repo: str, pr_number: str, head_sha: str, diff: str) -> str:
         "skill's severity bar: post every Critical, High, and Medium finding, but at most the three "
         "most important Low findings. Order findings most-important-first. Return an empty "
         'list ({"findings": []}) when there are none.\n'
-        "Report the COMPLETE current set of issues in the diff: include every finding that still "
-        "applies even if a similar comment already exists on the PR. Do NOT dedupe or skip findings "
-        "against existing review comments — the runner reconciles your full set against existing "
-        "threads (posting new ones, resolving fixed ones), so omitting a still-valid finding would "
-        "wrongly resolve its thread.\n\n"
-        f"Repository: {repo}\nPull request: #{pr_number}\nHead commit: {head_sha}\n\n"
+        "Report every issue that still applies to the diff at the location where it occurs — include "
+        "a finding even when a similar review comment already exists, and never skip a still-valid "
+        "finding. The runner reconciles your full set against the existing threads, so omitting a "
+        "still-applicable finding would wrongly resolve its thread.\n"
+        + existing_block
+        + f"Repository: {repo}\nPull request: #{pr_number}\nHead commit: {head_sha}\n\n"
         f"Unified diff:\n{diff}\n"
     )
 
@@ -655,7 +763,8 @@ async def run_cursor_review() -> int:
 
     diff = run_gh(["pr", "diff", pr_number, "--repo", repo], token=token)
     anchors, unpatched = diff_anchors(repo, pr_number, token)
-    prompt = build_prompt(repo, pr_number, head_sha, diff)
+    posted_titles = existing_finding_titles(repo, pr_number, token, CONFIG["cursor_marker"])
+    prompt = build_prompt(repo, pr_number, head_sha, diff, posted_titles)
 
     check_id = start_check_run(repo, head_sha, token)
     concluded = False
@@ -753,11 +862,16 @@ async def run_cursor_review() -> int:
 
         postable = [finding for finding in findings if is_postable(finding, anchors, unpatched)]
 
-        new_findings = [
-            finding
-            for finding in postable
-            if (finding["path"], finding["title"].strip()) not in posted_keys
-        ]
+        new_findings = []
+        seen_new_keys: set[tuple[str, str]] = set()
+        for finding in postable:
+            key = (finding["path"], finding["title"].strip())
+            if key in posted_keys or key in seen_new_keys:
+                continue
+
+            seen_new_keys.add(key)
+            new_findings.append(finding)
+
         new_findings = cap_low_findings(new_findings)
 
         severity_by_key = {
@@ -816,6 +930,7 @@ async def run_cursor_review() -> int:
                         "Could not post the %s review; the check run still records the verdict.", event
                     )
 
+        logger.info("Resolving %d stale thread(s); %d open issue(s) remain.", len(stale_ids), open_count)
         resolve_threads(repo, stale_ids, token)
 
         complete_check_run(repo, check_id, conclusion, title, summary, token)
