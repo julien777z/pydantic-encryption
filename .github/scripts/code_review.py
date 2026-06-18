@@ -20,6 +20,7 @@ logger = logging.getLogger("code_review")
 HUNK_HEADER: Final[re.Pattern[str]] = re.compile(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 FENCE: Final[re.Pattern[str]] = re.compile(r"```(?:json)?\s*(\{.*\})\s*```", re.DOTALL)
 LOW_FINDINGS_CAP: Final[int] = 3
+MAX_PARSE_ATTEMPTS: Final[int] = 3
 
 
 class ReviewConfig(TypedDict):
@@ -548,6 +549,31 @@ def parse_findings(reply: str) -> list[Finding]:
     return findings
 
 
+async def collect_findings(agent: AsyncAgent, prompt: str) -> list[Finding]:
+    """Send the prompt and parse the reply, re-prompting the agent with the error on an unparseable reply."""
+
+    message = prompt
+    last_error = ""
+    for attempt in range(1, MAX_PARSE_ATTEMPTS + 1):
+        run = await agent.send(message)
+        reply = await run.text()
+
+        try:
+            return parse_findings(reply)
+        except (json.JSONDecodeError, AttributeError, KeyError, TypeError, ValueError) as exc:
+            last_error = str(exc)
+            logger.warning(
+                "Agent reply was not valid findings JSON (attempt %d/%d): %s", attempt, MAX_PARSE_ATTEMPTS, exc
+            )
+            message = (
+                f"Your previous reply could not be parsed as the findings JSON ({last_error}). "
+                "Reply with ONLY the JSON object described above — no prose, no code fence, no explanation. "
+                'Return {"findings": []} if there are no findings.'
+            )
+
+    raise ValueError(f"agent did not return valid findings JSON after {MAX_PARSE_ATTEMPTS} attempts: {last_error}")
+
+
 def cap_low_findings(findings: list[Finding]) -> list[Finding]:
     """Keep every Critical/High/Medium finding but at most LOW_FINDINGS_CAP Low ones, in order."""
 
@@ -823,8 +849,7 @@ async def run_cursor_review() -> int:
             )
 
             try:
-                run = await agent.send(prompt)
-                reply = await run.text()
+                findings = await collect_findings(agent, prompt)
             finally:
                 await agent.close()
         except CursorAgentError as exc:
@@ -835,9 +860,6 @@ async def run_cursor_review() -> int:
             concluded = True
 
             return 1
-
-        try:
-            findings = parse_findings(reply)
         except (json.JSONDecodeError, AttributeError, KeyError, TypeError, ValueError) as exc:
             logger.error("Could not parse agent reply: %s", exc)
             complete_check_run(
