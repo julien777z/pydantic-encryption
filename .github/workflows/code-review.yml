@@ -5,150 +5,21 @@ on:
     types: [opened, synchronize, ready_for_review]
   issue_comment:
     types: [created]
-  workflow_dispatch:
-    inputs:
-      pr_number:
-        description: PR number to review
-        required: true
 
 permissions:
-  checks: write
-  contents: write
+  contents: read
   pull-requests: write
+  checks: write
 
 jobs:
   review:
-    name: Run
     runs-on: ubuntu-latest
-    # All review runs for a PR share one group so a newer event supersedes the in-flight run (the
-    # runner concludes the pending Approval Verdict check on cancellation). A superseding push always
-    # runs Cursor on the new head, so the latest head is always reviewed.
     concurrency:
-      group: code-review-${{ github.event.pull_request.number || github.event.issue.number || github.event.inputs.pr_number }}
+      group: code-review-${{ github.event.pull_request.number || github.event.issue.number }}-${{ github.event_name == 'issue_comment' && 'comment' || 'review' }}
       cancel-in-progress: true
-    if: >-
-      ${{ (github.event_name == 'pull_request'
-            && (github.event.action == 'opened' || github.event.action == 'synchronize' || github.event.action == 'ready_for_review')
-            && github.event.pull_request.head.repo.full_name == github.repository
-            && github.event.sender.type != 'Bot'
-            && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.pull_request.author_association))
-        || (github.event_name == 'issue_comment'
-            && github.event.issue.pull_request != null
-            && github.event.sender.type != 'Bot'
-            && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
-            && startsWith(github.event.comment.body, 'claude review'))
-        || github.event_name == 'workflow_dispatch' }}
     steps:
-      - name: Resolve PR Context and Agent
-        id: ctx
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          EVENT_NAME: ${{ github.event_name }}
-          EVENT_ACTION: ${{ github.event.action }}
-          PR_FROM_PR: ${{ github.event.pull_request.number }}
-          PR_FROM_COMMENT: ${{ github.event.issue.number }}
-          PR_FROM_DISPATCH: ${{ github.event.inputs.pr_number }}
-          CLAUDE_REVIEW_ROUTINE_API_KEY: ${{ secrets.CLAUDE_REVIEW_ROUTINE_API_KEY }}
-          CLAUDE_REVIEW_ROUTINE_ID: ${{ secrets.CLAUDE_REVIEW_ROUTINE_ID }}
-          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
-        run: |
-          set -euo pipefail
-          case "$EVENT_NAME" in
-            pull_request) PR_NUMBER="$PR_FROM_PR" ;;
-            issue_comment) PR_NUMBER="$PR_FROM_COMMENT" ;;
-            workflow_dispatch) PR_NUMBER="$PR_FROM_DISPATCH" ;;
-            *) PR_NUMBER="" ;;
-          esac
-
-          if [ -z "${PR_NUMBER:-}" ]; then
-            echo "Could not determine PR number"; exit 1
-          fi
-
-          claude_available=false
-          cursor_available=false
-          if [ -n "$CLAUDE_REVIEW_ROUTINE_API_KEY" ] && [ -n "$CLAUDE_REVIEW_ROUTINE_ID" ]; then
-            claude_available=true
-          fi
-          if [ -n "$CURSOR_API_KEY" ]; then
-            cursor_available=true
-          fi
-
-          # A push (synchronize) is reviewed by Cursor; every other trigger (open, ready, a
-          # "claude review" comment, manual dispatch) prefers Claude when configured and otherwise
-          # falls back to Cursor.
-          AGENT=none
-          if [ "$EVENT_NAME" = "pull_request" ] && [ "$EVENT_ACTION" = "synchronize" ]; then
-            [ "$cursor_available" = true ] && AGENT=cursor
-          elif [ "$claude_available" = true ]; then
-            AGENT=claude
-          elif [ "$cursor_available" = true ]; then
-            AGENT=cursor
-          fi
-
-          if [ "$AGENT" = "none" ]; then
-            echo "No review agent is configured for this event; skipping."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          fields=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json url,headRefName,headRefOid,author,state \
-            --jq '[.url, .headRefName, .headRefOid, .author.login, .state] | @tsv')
-          IFS=$'\t' read -r URL HEAD_REF HEAD_SHA AUTHOR STATE <<< "$fields"
-
-          if [ -z "$HEAD_SHA" ]; then
-            echo "Could not resolve head SHA for PR $PR_NUMBER"; exit 1
-          fi
-
-          # The skill stops on closed PRs; skip the fire here too for comment/dispatch triggers.
-          if [ "$STATE" != "OPEN" ]; then
-            echo "PR $PR_NUMBER is not open; skipping."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          {
-            echo "skip=false"
-            echo "agent=$AGENT"
-            echo "number=$PR_NUMBER"
-            echo "url=$URL"
-            echo "head_ref=$HEAD_REF"
-            echo "head_sha=$HEAD_SHA"
-            echo "author=$AUTHOR"
-          } >> "$GITHUB_OUTPUT"
-      - name: Checkout PR Head
-        if: steps.ctx.outputs.skip == 'false'
-        uses: actions/checkout@v4
+      - uses: julien777z/code-review-action@v0
         with:
-          ref: ${{ steps.ctx.outputs.head_sha }}
-      - name: Set Up Python
-        if: steps.ctx.outputs.skip == 'false'
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-      - name: Install Dependencies
-        if: steps.ctx.outputs.skip == 'false'
-        run: python -m pip install "cursor-sdk>=0.1.7,<0.2"
-      - name: Run Cursor Review
-        if: steps.ctx.outputs.skip == 'false' && steps.ctx.outputs.agent == 'cursor'
-        env:
-          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ steps.ctx.outputs.number }}
-          HEAD_SHA: ${{ steps.ctx.outputs.head_sha }}
-          CURSOR_AGENT_MODEL: composer-2.5
-        run: python .github/scripts/code_review.py --agent cursor
-      - name: Run Claude Review
-        if: steps.ctx.outputs.skip == 'false' && steps.ctx.outputs.agent == 'claude'
-        env:
-          CLAUDE_REVIEW_ROUTINE_API_KEY: ${{ secrets.CLAUDE_REVIEW_ROUTINE_API_KEY }}
-          CLAUDE_REVIEW_ROUTINE_ID: ${{ secrets.CLAUDE_REVIEW_ROUTINE_ID }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ steps.ctx.outputs.number }}
-          PR_URL: ${{ steps.ctx.outputs.url }}
-          HEAD_REF: ${{ steps.ctx.outputs.head_ref }}
-          HEAD_SHA: ${{ steps.ctx.outputs.head_sha }}
-          PR_AUTHOR: ${{ steps.ctx.outputs.author }}
-        run: python .github/scripts/code_review.py --agent claude
+          cursor-api-key: ${{ secrets.CURSOR_API_KEY }}
+          review-model: cursor
+          author-associations: OWNER,MEMBER,COLLABORATOR
