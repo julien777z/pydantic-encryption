@@ -12,7 +12,7 @@ permissions:
   checks: write
 
 jobs:
-  review:
+  Review:
     runs-on: ubuntu-latest
     concurrency:
       group: code-review-${{ github.event.pull_request.number || github.event.issue.number }}-${{ github.event_name == 'issue_comment' && 'comment' || 'review' }}
