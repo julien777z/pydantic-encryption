@@ -19,8 +19,13 @@ permissions:
 
 jobs:
   sync:
+    name: Agent Sync
+    runs-on: ubuntu-latest
     if: github.event_name != 'push' || github.actor != 'github-actions[bot]'
-    uses: julien777z/agent-sync-action/.github/workflows/agent-sync.yml@v1
-    with:
-      refresh_external_skills: ${{ github.event_name == 'schedule' }}
-    secrets: inherit
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: julien777z/agent-sync-action@v1
+        with:
+          refresh-external-skills: ${{ github.event_name == 'schedule' }}
