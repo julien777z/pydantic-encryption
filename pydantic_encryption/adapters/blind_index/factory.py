@@ -1,6 +1,10 @@
 from pydantic_encryption.adapters.registry import get_blind_index_backend
 from pydantic_encryption.config import settings
-from pydantic_encryption.normalization import normalize_value, validate_normalization_flags
+from pydantic_encryption.normalization import (
+    NormalizationFlags,
+    normalize_value,
+    validate_normalization_flags,
+)
 from pydantic_encryption.types import BlindIndexMethod, BlindIndexValue
 
 
@@ -21,12 +25,14 @@ def make_blind_index(
     if isinstance(value, BlindIndexValue):
         return value
 
-    validate_normalization_flags(
+    flags = NormalizationFlags(
+        strip_whitespace=strip_whitespace,
         strip_non_characters=strip_non_characters,
         strip_non_digits=strip_non_digits,
         normalize_to_lowercase=normalize_to_lowercase,
         normalize_to_uppercase=normalize_to_uppercase,
     )
+    validate_normalization_flags(flags)
 
     resolved_key = key if key is not None else settings.BLIND_INDEX_SECRET_KEY
 
@@ -35,18 +41,7 @@ def make_blind_index(
 
     key_bytes = resolved_key.encode("utf-8") if isinstance(resolved_key, str) else resolved_key
 
-    normalized = (
-        value
-        if isinstance(value, bytes)
-        else normalize_value(
-            value,
-            strip_whitespace=strip_whitespace,
-            strip_non_characters=strip_non_characters,
-            strip_non_digits=strip_non_digits,
-            normalize_to_lowercase=normalize_to_lowercase,
-            normalize_to_uppercase=normalize_to_uppercase,
-        )
-    )
+    normalized = value if isinstance(value, bytes) else normalize_value(value, flags)
 
     backend = get_blind_index_backend(method)
 

@@ -1,6 +1,6 @@
 from enum import Enum
 
-from pydantic_encryption.normalization import validate_normalization_flags
+from pydantic_encryption.normalization import NormalizationFlags, validate_normalization_flags
 
 
 class Encrypted:
@@ -74,19 +74,26 @@ class BlindIndex:
         normalize_to_lowercase: bool = False,
         normalize_to_uppercase: bool = False,
     ):
-        validate_normalization_flags(
-            strip_non_characters=strip_non_characters,
-            strip_non_digits=strip_non_digits,
-            normalize_to_lowercase=normalize_to_lowercase,
-            normalize_to_uppercase=normalize_to_uppercase,
-        )
-
         self.method = method
         self.strip_whitespace = strip_whitespace
         self.strip_non_characters = strip_non_characters
         self.strip_non_digits = strip_non_digits
         self.normalize_to_lowercase = normalize_to_lowercase
         self.normalize_to_uppercase = normalize_to_uppercase
+
+        validate_normalization_flags(self.normalization_flags)
+
+    @property
+    def normalization_flags(self) -> NormalizationFlags:
+        """Return this annotation's normalization flags as a grouped object."""
+
+        return NormalizationFlags(
+            strip_whitespace=self.strip_whitespace,
+            strip_non_characters=self.strip_non_characters,
+            strip_non_digits=self.strip_non_digits,
+            normalize_to_lowercase=self.normalize_to_lowercase,
+            normalize_to_uppercase=self.normalize_to_uppercase,
+        )
 
 
 def is_encrypted(value: object) -> bool:

@@ -1,53 +1,45 @@
 import re
+from typing import TypedDict
 
 
-def validate_normalization_flags(
-    *,
-    strip_non_characters: bool,
-    strip_non_digits: bool,
-    normalize_to_lowercase: bool,
-    normalize_to_uppercase: bool,
-) -> None:
+class NormalizationFlags(TypedDict, total=False):
+    """Grouped string-normalization flags shared across blind index helpers."""
+
+    strip_whitespace: bool
+    strip_non_characters: bool
+    strip_non_digits: bool
+    normalize_to_lowercase: bool
+    normalize_to_uppercase: bool
+
+
+def validate_normalization_flags(flags: NormalizationFlags) -> None:
     """Reject mutually exclusive normalization flag combinations."""
 
-    if strip_non_characters and strip_non_digits:
+    if flags.get("strip_non_characters") and flags.get("strip_non_digits"):
         raise ValueError("strip_non_characters and strip_non_digits cannot both be True.")
 
-    if normalize_to_lowercase and normalize_to_uppercase:
+    if flags.get("normalize_to_lowercase") and flags.get("normalize_to_uppercase"):
         raise ValueError("normalize_to_lowercase and normalize_to_uppercase cannot both be True.")
 
 
-def normalize_value(
-    value: str,
-    *,
-    strip_whitespace: bool = False,
-    strip_non_characters: bool = False,
-    strip_non_digits: bool = False,
-    normalize_to_lowercase: bool = False,
-    normalize_to_uppercase: bool = False,
-) -> str:
+def normalize_value(value: str, flags: NormalizationFlags) -> str:
     """Apply stripping and case normalization to a string value."""
 
-    validate_normalization_flags(
-        strip_non_characters=strip_non_characters,
-        strip_non_digits=strip_non_digits,
-        normalize_to_lowercase=normalize_to_lowercase,
-        normalize_to_uppercase=normalize_to_uppercase,
-    )
+    validate_normalization_flags(flags)
 
-    if strip_whitespace:
+    if flags.get("strip_whitespace"):
         value = re.sub(r"\s+", " ", value.strip())
 
-    if strip_non_characters:
+    if flags.get("strip_non_characters"):
         value = re.sub(r"[^a-zA-Z]", "", value)
 
-    if strip_non_digits:
+    if flags.get("strip_non_digits"):
         value = re.sub(r"[^0-9]", "", value)
 
-    if normalize_to_lowercase:
+    if flags.get("normalize_to_lowercase"):
         value = value.lower()
 
-    if normalize_to_uppercase:
+    if flags.get("normalize_to_uppercase"):
         value = value.upper()
 
     return value

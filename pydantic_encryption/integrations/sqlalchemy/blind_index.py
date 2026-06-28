@@ -8,7 +8,11 @@ from pydantic_encryption.adapters.blind_index import make_blind_index
 from pydantic_encryption.adapters.registry import get_blind_index_backend
 from pydantic_encryption.config import settings
 from pydantic_encryption.integrations.sqlalchemy.async_bridge import run_async_or_sync
-from pydantic_encryption.normalization import normalize_value, validate_normalization_flags
+from pydantic_encryption.normalization import (
+    NormalizationFlags,
+    normalize_value,
+    validate_normalization_flags,
+)
 from pydantic_encryption.types import BlindIndexMethod, BlindIndexValue
 
 
@@ -28,13 +32,6 @@ class SQLAlchemyBlindIndexValue(TypeDecorator):
         normalize_to_lowercase: bool = False,
         normalize_to_uppercase: bool = False,
     ) -> None:
-        validate_normalization_flags(
-            strip_non_characters=strip_non_characters,
-            strip_non_digits=strip_non_digits,
-            normalize_to_lowercase=normalize_to_lowercase,
-            normalize_to_uppercase=normalize_to_uppercase,
-        )
-
         super().__init__()
         self.method = method
         self.strip_whitespace = strip_whitespace
@@ -42,6 +39,20 @@ class SQLAlchemyBlindIndexValue(TypeDecorator):
         self.strip_non_digits = strip_non_digits
         self.normalize_to_lowercase = normalize_to_lowercase
         self.normalize_to_uppercase = normalize_to_uppercase
+
+        validate_normalization_flags(self.normalization_flags)
+
+    @property
+    def normalization_flags(self) -> NormalizationFlags:
+        """Return this column's normalization flags as a grouped object."""
+
+        return NormalizationFlags(
+            strip_whitespace=self.strip_whitespace,
+            strip_non_characters=self.strip_non_characters,
+            strip_non_digits=self.strip_non_digits,
+            normalize_to_lowercase=self.normalize_to_lowercase,
+            normalize_to_uppercase=self.normalize_to_uppercase,
+        )
 
     def key_bytes(self) -> bytes:
         """Return the configured BLIND_INDEX_SECRET_KEY as utf-8 bytes."""
@@ -57,14 +68,7 @@ class SQLAlchemyBlindIndexValue(TypeDecorator):
         if isinstance(value, bytes):
             return value
 
-        return normalize_value(
-            value,
-            strip_whitespace=self.strip_whitespace,
-            strip_non_characters=self.strip_non_characters,
-            strip_non_digits=self.strip_non_digits,
-            normalize_to_lowercase=self.normalize_to_lowercase,
-            normalize_to_uppercase=self.normalize_to_uppercase,
-        )
+        return normalize_value(value, self.normalization_flags)
 
     def compute_blind_index(self, value: str | bytes) -> bytes:
         """Compute a deterministic blind index for the given value."""
@@ -84,11 +88,7 @@ class SQLAlchemyBlindIndexValue(TypeDecorator):
             value,
             method=self.method,
             salt=salt,
-            strip_whitespace=self.strip_whitespace,
-            strip_non_characters=self.strip_non_characters,
-            strip_non_digits=self.strip_non_digits,
-            normalize_to_lowercase=self.normalize_to_lowercase,
-            normalize_to_uppercase=self.normalize_to_uppercase,
+            **self.normalization_flags,
         )
 
     def process(self, value: str | bytes | BlindIndexValue | None) -> bytes | None:
