@@ -10,11 +10,16 @@ on:
   schedule:
     - cron: "0 6 * * 1"
 
+concurrency:
+  group: agent-sync-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
 jobs:
   sync:
+    if: github.event_name != 'push' || github.actor != 'github-actions[bot]'
     uses: julien777z/agent-sync-action/.github/workflows/agent-sync.yml@v1
     with:
       refresh_external_skills: ${{ github.event_name == 'schedule' }}
