@@ -6,8 +6,8 @@ require_optional_dependency("sqlalchemy", "sqlalchemy")
 
 from sqlalchemy.types import LargeBinary, TypeDecorator
 
+from pydantic_encryption.adapters.blind_index import make_blind_index
 from pydantic_encryption.adapters.registry import get_blind_index_backend
-from pydantic_encryption.blind_index import make_blind_index
 from pydantic_encryption.config import settings
 from pydantic_encryption.integrations.sqlalchemy.async_bridge import run_async_or_sync
 from pydantic_encryption.normalization import normalize_value, validate_normalization_flags

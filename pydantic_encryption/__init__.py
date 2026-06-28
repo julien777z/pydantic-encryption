@@ -1,9 +1,9 @@
 from typing import TYPE_CHECKING
 
 from pydantic_encryption.adapters.base import BlindIndexAdapter, EncryptionAdapter, HashingAdapter
+from pydantic_encryption.adapters.blind_index import make_blind_index
 from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
 from pydantic_encryption.adapters.hashing.argon2 import Argon2Adapter
-from pydantic_encryption.blind_index import make_blind_index
 from pydantic_encryption.config import settings
 from pydantic_encryption.models import BaseModel, SecureModel
 from pydantic_encryption.types import (
