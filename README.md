@@ -335,6 +335,46 @@ Available options:
 | `BlindIndexMethod.HMAC_SHA256` | Fast HMAC-SHA256 keyed hash. Standard choice. |
 | `BlindIndexMethod.ARGON2` | Memory-hard Argon2 hash with deterministic salt. Better brute-force resistance. |
 
+### Computing Indexes Directly
+
+`SQLAlchemyBlindIndexValue` and the `BlindIndex` annotation hash automatically, but you can also compute a value yourself with `make_blind_index` — useful when building query filters or precomputing values for bulk writes:
+
+```python
+from pydantic_encryption import make_blind_index, BlindIndexMethod
+
+index = make_blind_index(
+    "john@example.com",
+    method=BlindIndexMethod.HMAC_SHA256,
+    normalize_to_lowercase=True,
+)
+```
+
+It accepts the same normalization options as the annotation, resolves the key from `BLIND_INDEX_SECRET_KEY` (override with `key=...`), and returns a `BlindIndexValue`. Passing an existing `BlindIndexValue` back in returns it unchanged, so a precomputed value flows through the SQLAlchemy column on both writes and equality comparisons.
+
+### Per-Row Salt
+
+By default the same plaintext produces the same index everywhere, which lets anyone with database read access (but not the key) correlate equal values across rows — for example, spotting the same SSN reused across tenants. Fold a **per-row salt** (a stable identifier such as an organization or user id) into the hash so identical values hash differently per row:
+
+```python
+index_a = make_blind_index("123-45-6789", method=BlindIndexMethod.HMAC_SHA256, salt=org_a_id.bytes)
+index_b = make_blind_index("123-45-6789", method=BlindIndexMethod.HMAC_SHA256, salt=org_b_id.bytes)
+# index_a != index_b — the same value can no longer be correlated across organizations
+```
+
+Within a single salt the index is still deterministic, so equality lookups work as long as you query with the same salt the row was written with. `salt=None` (the default) is byte-for-byte identical to an unsalted index, so existing data and unsalted columns are unaffected.
+
+For SQLAlchemy columns, `make_blind_index_value` salts using the column's own method and normalization flags:
+
+```python
+bidx = User.__table__.c.blind_index_email.type  # the SQLAlchemyBlindIndexValue
+
+# Store and later query a per-tenant salted index:
+user.blind_index_email = bidx.make_blind_index_value("john@example.com", salt=tenant_id.bytes)
+session.query(User).filter(
+    User.blind_index_email == bidx.make_blind_index_value("john@example.com", salt=tenant_id.bytes)
+)
+```
+
 ## Custom Encryption or Hashing
 
 Subclass `BaseModel` and override any of `encrypt_data`, `hash_data`, `blind_index_data` (or their async variants) to plug in your own logic. The post-init hook runs automatically:
