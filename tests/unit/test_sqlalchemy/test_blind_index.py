@@ -157,9 +157,6 @@ class TestSQLAlchemyBlindIndexValueMakeBlindIndexValue:
         self.type_adapter = SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256)
         self.digit_adapter = SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256, strip_non_digits=True)
 
-    def test_none_returns_none(self):
-        assert self.type_adapter.make_blind_index_value(None) is None
-
     def test_returns_blind_index_value(self):
         result = self.type_adapter.make_blind_index_value("test@example.com")
         assert isinstance(result, BlindIndexValue)

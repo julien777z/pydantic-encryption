@@ -1,5 +1,3 @@
-from typing import overload
-
 from pydantic_encryption.lazy import require_optional_dependency
 
 require_optional_dependency("sqlalchemy", "sqlalchemy")
@@ -79,17 +77,8 @@ class SQLAlchemyBlindIndexValue(TypeDecorator):
             backend.async_compute_blind_index, backend.compute_blind_index, value, key
         )
 
-    @overload
-    def make_blind_index_value(self, value: str | bytes, *, salt: bytes | None = None) -> BlindIndexValue: ...
-
-    @overload
-    def make_blind_index_value(self, value: None, *, salt: bytes | None = None) -> None: ...
-
-    def make_blind_index_value(self, value: str | bytes | None, *, salt: bytes | None = None) -> BlindIndexValue | None:
+    def make_blind_index_value(self, value: str | bytes, *, salt: bytes | None = None) -> BlindIndexValue:
         """Return a salted blind index using this column's own method and normalization flags."""
-
-        if value is None:
-            return None
 
         return make_blind_index(
             value,
