@@ -10,13 +10,20 @@ class HMACSHA256Adapter(BlindIndexAdapter):
     """Blind index adapter using HMAC-SHA256."""
 
     @classmethod
-    def compute_blind_index(cls, value: str | bytes, key: bytes) -> BlindIndexValue:
-        """Compute a deterministic HMAC-SHA256 blind index."""
+    def compute_blind_index(
+        cls, value: str | bytes, key: bytes, *, salt: bytes | None = None
+    ) -> BlindIndexValue:
+        """Compute a deterministic HMAC-SHA256 blind index, optionally salted."""
 
         if isinstance(value, BlindIndexValue):
             return value
 
-        digest = hmac.new(key, encode_text(value), hashlib.sha256).digest()
+        message = encode_text(value)
+
+        if salt is not None:
+            message = salt + message
+
+        digest = hmac.new(key, message, hashlib.sha256).digest()
 
         return BlindIndexValue(digest)
 

@@ -1,3 +1,5 @@
+from typing import overload
+
 from pydantic_encryption.lazy import require_optional_dependency
 
 require_optional_dependency("sqlalchemy", "sqlalchemy")
@@ -5,6 +7,7 @@ require_optional_dependency("sqlalchemy", "sqlalchemy")
 from sqlalchemy.types import LargeBinary, TypeDecorator
 
 from pydantic_encryption.adapters.registry import get_blind_index_backend
+from pydantic_encryption.blind_index import make_blind_index
 from pydantic_encryption.config import settings
 from pydantic_encryption.integrations.sqlalchemy.async_bridge import run_async_or_sync
 from pydantic_encryption.normalization import normalize_value, validate_normalization_flags
@@ -74,6 +77,29 @@ class SQLAlchemyBlindIndexValue(TypeDecorator):
 
         return run_async_or_sync(
             backend.async_compute_blind_index, backend.compute_blind_index, value, key
+        )
+
+    @overload
+    def make_value(self, value: str | bytes, *, salt: bytes | None = None) -> BlindIndexValue: ...
+
+    @overload
+    def make_value(self, value: None, *, salt: bytes | None = None) -> None: ...
+
+    def make_value(self, value: str | bytes | None, *, salt: bytes | None = None) -> BlindIndexValue | None:
+        """Return a salted blind index using this column's own method and normalization flags."""
+
+        if value is None:
+            return None
+
+        return make_blind_index(
+            value,
+            method=self.method,
+            salt=salt,
+            strip_whitespace=self.strip_whitespace,
+            strip_non_characters=self.strip_non_characters,
+            strip_non_digits=self.strip_non_digits,
+            normalize_to_lowercase=self.normalize_to_lowercase,
+            normalize_to_uppercase=self.normalize_to_uppercase,
         )
 
     def process(self, value: str | bytes | BlindIndexValue | None) -> bytes | None:

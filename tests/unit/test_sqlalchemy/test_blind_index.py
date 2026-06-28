@@ -150,6 +150,50 @@ class TestSQLAlchemyBlindIndexValueConfig:
         assert type_adapter.python_type is type_adapter.impl.python_type
 
 
+class TestSQLAlchemyBlindIndexValueMakeValue:
+    """Test SQLAlchemyBlindIndexValue.make_value salted blind index helper."""
+
+    def setup_method(self):
+        self.type_adapter = SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256)
+        self.digit_adapter = SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256, strip_non_digits=True)
+
+    def test_none_returns_none(self):
+        assert self.type_adapter.make_value(None) is None
+
+    def test_returns_blind_index_value(self):
+        result = self.type_adapter.make_value("test@example.com")
+        assert isinstance(result, BlindIndexValue)
+        assert len(result) == 32
+
+    def test_unsalted_matches_process_bind_param(self):
+        made = self.type_adapter.make_value("test@example.com")
+        bound = self.type_adapter.process_bind_param("test@example.com", None)
+        assert bytes(made) == bytes(bound)
+
+    def test_salted_differs_from_unsalted(self):
+        salted = self.type_adapter.make_value("test@example.com", salt=b"\x01" * 16)
+        unsalted = self.type_adapter.make_value("test@example.com")
+        assert salted != unsalted
+
+    def test_different_salts_differ(self):
+        salted_a = self.type_adapter.make_value("test@example.com", salt=b"\x01" * 16)
+        salted_b = self.type_adapter.make_value("test@example.com", salt=b"\x02" * 16)
+        assert salted_a != salted_b
+
+    def test_uses_column_normalization_flags(self):
+        salt = b"\x01" * 16
+        formatted = self.digit_adapter.make_value("123-45-6789", salt=salt)
+        digits = self.digit_adapter.make_value("123456789", salt=salt)
+        assert formatted == digits
+
+    def test_salted_value_passes_through_bind(self):
+        """A pre-salted BlindIndexValue is stored and compared unchanged by the column."""
+
+        salted = self.type_adapter.make_value("test@example.com", salt=b"\x01" * 16)
+        bound = self.type_adapter.process_bind_param(salted, None)
+        assert bytes(bound) == bytes(salted)
+
+
 class TestSQLAlchemyBlindIndexValueNormalization:
     """Test SQLAlchemyBlindIndexValue with normalization options."""
 

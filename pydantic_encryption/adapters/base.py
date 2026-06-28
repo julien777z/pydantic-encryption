@@ -54,9 +54,13 @@ class BlindIndexAdapter(ABC):
 
     @classmethod
     @abstractmethod
-    def compute_blind_index(cls, value: str | bytes, key: bytes) -> BlindIndexValue:
-        """Compute a deterministic blind index for the given value."""
+    def compute_blind_index(
+        cls, value: str | bytes, key: bytes, *, salt: bytes | None = None
+    ) -> BlindIndexValue:
+        """Compute a deterministic blind index for the given value, optionally salted."""
 
     @classmethod
-    async def async_compute_blind_index(cls, value: str | bytes, key: bytes) -> BlindIndexValue:
-        return await asyncio.to_thread(cls.compute_blind_index, value, key)
+    async def async_compute_blind_index(
+        cls, value: str | bytes, key: bytes, *, salt: bytes | None = None
+    ) -> BlindIndexValue:
+        return await asyncio.to_thread(cls.compute_blind_index, value, key, salt=salt)
