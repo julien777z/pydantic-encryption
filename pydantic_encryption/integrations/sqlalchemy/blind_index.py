@@ -80,12 +80,12 @@ class SQLAlchemyBlindIndexValue(TypeDecorator):
         )
 
     @overload
-    def make_value(self, value: str | bytes, *, salt: bytes | None = None) -> BlindIndexValue: ...
+    def make_blind_index_value(self, value: str | bytes, *, salt: bytes | None = None) -> BlindIndexValue: ...
 
     @overload
-    def make_value(self, value: None, *, salt: bytes | None = None) -> None: ...
+    def make_blind_index_value(self, value: None, *, salt: bytes | None = None) -> None: ...
 
-    def make_value(self, value: str | bytes | None, *, salt: bytes | None = None) -> BlindIndexValue | None:
+    def make_blind_index_value(self, value: str | bytes | None, *, salt: bytes | None = None) -> BlindIndexValue | None:
         """Return a salted blind index using this column's own method and normalization flags."""
 
         if value is None:
