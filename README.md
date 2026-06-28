@@ -335,6 +335,38 @@ Available options:
 | `BlindIndexMethod.HMAC_SHA256` | Fast HMAC-SHA256 keyed hash. Standard choice. |
 | `BlindIndexMethod.ARGON2` | Memory-hard Argon2 hash with deterministic salt. Better brute-force resistance. |
 
+### Computing Indexes Directly
+
+`make_blind_index` computes a `BlindIndexValue` outside the annotation/column path — handy for query filters or bulk-write precomputation:
+
+```python
+from pydantic_encryption import make_blind_index, BlindIndexMethod
+
+index = make_blind_index("john@example.com", method=BlindIndexMethod.HMAC_SHA256, normalize_to_lowercase=True)
+```
+
+It takes the same normalization options, resolves the key from `BLIND_INDEX_SECRET_KEY` (override with `key=...`), and passes an existing `BlindIndexValue` through unchanged.
+
+### Per-Row Salt
+
+Pass a `salt` to fold a per-row identifier (e.g. an organization or user id) into the hash, so the same value indexes differently per row and can't be correlated by a reader without the key:
+
+```python
+a = make_blind_index("john@example.com", method=BlindIndexMethod.HMAC_SHA256, salt=org_a_id.bytes)
+b = make_blind_index("john@example.com", method=BlindIndexMethod.HMAC_SHA256, salt=org_b_id.bytes)  # a != b
+```
+
+Lookups must use the same salt the row was written with; `salt=None` (default) is identical to an unsalted index. On a SQLAlchemy column, assigning a plain string stores an **unsalted** index, so salt both the write and the query with a precomputed value from `make_blind_index_value` (which uses the column's own flags):
+
+```python
+bidx = User.__table__.c.blind_index_email.type
+
+user.blind_index_email = bidx.make_blind_index_value("john@example.com", salt=tenant_id.bytes)
+session.query(User).filter(
+    User.blind_index_email == bidx.make_blind_index_value("john@example.com", salt=tenant_id.bytes)
+)
+```
+
 ## Custom Encryption or Hashing
 
 Subclass `BaseModel` and override any of `encrypt_data`, `hash_data`, `blind_index_data` (or their async variants) to plug in your own logic. The post-init hook runs automatically:
