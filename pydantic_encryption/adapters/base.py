@@ -10,6 +10,15 @@ def encode_text(value: str | bytes) -> bytes:
     return value.encode("utf-8") if isinstance(value, str) else value
 
 
+def fold_salt(message: bytes, salt: bytes | None) -> bytes:
+    """Prepend a length-tagged salt so the salt/message join stays unambiguous across salt lengths."""
+
+    if salt is None:
+        return message
+
+    return len(salt).to_bytes(4, "big") + salt + message
+
+
 class EncryptionAdapter(ABC):
     """Abstract base class for encryption adapters."""
 
@@ -54,9 +63,13 @@ class BlindIndexAdapter(ABC):
 
     @classmethod
     @abstractmethod
-    def compute_blind_index(cls, value: str | bytes, key: bytes) -> BlindIndexValue:
-        """Compute a deterministic blind index for the given value."""
+    def compute_blind_index(
+        cls, value: str | bytes, key: bytes, *, salt: bytes | None = None
+    ) -> BlindIndexValue:
+        """Compute a deterministic blind index for the given value, optionally salted."""
 
     @classmethod
-    async def async_compute_blind_index(cls, value: str | bytes, key: bytes) -> BlindIndexValue:
-        return await asyncio.to_thread(cls.compute_blind_index, value, key)
+    async def async_compute_blind_index(
+        cls, value: str | bytes, key: bytes, *, salt: bytes | None = None
+    ) -> BlindIndexValue:
+        return await asyncio.to_thread(cls.compute_blind_index, value, key, salt=salt)

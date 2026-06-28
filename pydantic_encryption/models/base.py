@@ -133,14 +133,7 @@ class SecureModel:
         if isinstance(value, bytes):
             value = value.decode("utf-8")
 
-        return normalize_value(
-            value,
-            strip_whitespace=annotation.strip_whitespace,
-            strip_non_characters=annotation.strip_non_characters,
-            strip_non_digits=annotation.strip_non_digits,
-            normalize_to_lowercase=annotation.normalize_to_lowercase,
-            normalize_to_uppercase=annotation.normalize_to_uppercase,
-        )
+        return normalize_value(value, annotation.normalization_flags)
 
     def collect_blind_index_tasks(
         self,

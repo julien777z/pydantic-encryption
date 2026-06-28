@@ -158,6 +158,21 @@ class TestHMACSHA256Adapter:
         double_indexed = HMACSHA256Adapter.compute_blind_index(result, self.TEST_KEY)
         assert result == double_indexed
 
+    def test_compute_blind_index_salt_changes_output(self):
+        unsalted = HMACSHA256Adapter.compute_blind_index("test", self.TEST_KEY)
+        salted = HMACSHA256Adapter.compute_blind_index("test", self.TEST_KEY, salt=b"salt-bytes")
+        assert salted != unsalted
+
+    def test_compute_blind_index_salt_none_matches_default(self):
+        explicit_none = HMACSHA256Adapter.compute_blind_index("test", self.TEST_KEY, salt=None)
+        default = HMACSHA256Adapter.compute_blind_index("test", self.TEST_KEY)
+        assert explicit_none == default
+
+    def test_compute_blind_index_salted_deterministic(self):
+        first = HMACSHA256Adapter.compute_blind_index("test", self.TEST_KEY, salt=b"salt-bytes")
+        second = HMACSHA256Adapter.compute_blind_index("test", self.TEST_KEY, salt=b"salt-bytes")
+        assert first == second
+
 
 class TestArgon2BlindIndexAdapter:
     """Test Argon2BlindIndexAdapter blind indexing."""
