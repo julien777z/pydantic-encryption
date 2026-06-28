@@ -88,10 +88,11 @@ class TestMakeBlindIndexHMAC:
 
         assert formatted == digits
 
-    def test_salt_prefixes_normalized_value(self):
-        """Test that the salted HMAC equals HMAC(key, salt + normalized_value)."""
+    def test_salt_uses_length_prefixed_encoding(self):
+        """Test that the salted HMAC folds in a length-tagged salt before the normalized value."""
 
-        expected = hmac.new(TEST_KEY.encode("utf-8"), ORG_SALT + b"123456789", hashlib.sha256).digest()
+        message = len(ORG_SALT).to_bytes(4, "big") + ORG_SALT + b"123456789"
+        expected = hmac.new(TEST_KEY.encode("utf-8"), message, hashlib.sha256).digest()
         result = make_blind_index(
             "123-45-6789",
             method=BlindIndexMethod.HMAC_SHA256,
@@ -101,6 +102,14 @@ class TestMakeBlindIndexHMAC:
         )
 
         assert bytes(result) == expected
+
+    def test_variable_length_salts_do_not_collide(self):
+        """Test that different (salt, value) pairs with the same naive concatenation stay distinct."""
+
+        first = make_blind_index("34", method=BlindIndexMethod.HMAC_SHA256, salt=b"1", key=TEST_KEY)
+        second = make_blind_index("4", method=BlindIndexMethod.HMAC_SHA256, salt=b"13", key=TEST_KEY)
+
+        assert first != second
 
     def test_resolves_key_from_settings(self, monkeypatch):
         """Test that the key defaults to BLIND_INDEX_SECRET_KEY when not passed."""
