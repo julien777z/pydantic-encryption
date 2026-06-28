@@ -43,9 +43,9 @@ class TestMakeBlindIndexHMAC:
     def test_salted_differs_from_unsalted(self):
         """Test that providing a salt changes the output."""
 
-        unsalted = make_blind_index("123456789", method=BlindIndexMethod.HMAC_SHA256, key=TEST_KEY)
+        unsalted = make_blind_index("5550100", method=BlindIndexMethod.HMAC_SHA256, key=TEST_KEY)
         salted = make_blind_index(
-            "123456789", method=BlindIndexMethod.HMAC_SHA256, salt=ORG_SALT, key=TEST_KEY
+            "5550100", method=BlindIndexMethod.HMAC_SHA256, salt=ORG_SALT, key=TEST_KEY
         )
 
         assert salted != unsalted
@@ -53,17 +53,17 @@ class TestMakeBlindIndexHMAC:
     def test_same_value_and_salt_reproduce(self):
         """Test that the same (value, salt) pair is deterministic."""
 
-        first = make_blind_index("123456789", method=BlindIndexMethod.HMAC_SHA256, salt=ORG_SALT, key=TEST_KEY)
-        second = make_blind_index("123456789", method=BlindIndexMethod.HMAC_SHA256, salt=ORG_SALT, key=TEST_KEY)
+        first = make_blind_index("5550100", method=BlindIndexMethod.HMAC_SHA256, salt=ORG_SALT, key=TEST_KEY)
+        second = make_blind_index("5550100", method=BlindIndexMethod.HMAC_SHA256, salt=ORG_SALT, key=TEST_KEY)
 
         assert first == second
 
     def test_different_salts_differ(self):
         """Test that the same value under different salts yields different indices."""
 
-        first = make_blind_index("123456789", method=BlindIndexMethod.HMAC_SHA256, salt=ORG_SALT, key=TEST_KEY)
+        first = make_blind_index("5550100", method=BlindIndexMethod.HMAC_SHA256, salt=ORG_SALT, key=TEST_KEY)
         second = make_blind_index(
-            "123456789", method=BlindIndexMethod.HMAC_SHA256, salt=OTHER_SALT, key=TEST_KEY
+            "5550100", method=BlindIndexMethod.HMAC_SHA256, salt=OTHER_SALT, key=TEST_KEY
         )
 
         assert first != second
@@ -72,14 +72,14 @@ class TestMakeBlindIndexHMAC:
         """Test that normalization runs before the salt is folded in."""
 
         formatted = make_blind_index(
-            "123-45-6789",
+            "555-0100",
             method=BlindIndexMethod.HMAC_SHA256,
             salt=ORG_SALT,
             strip_non_digits=True,
             key=TEST_KEY,
         )
         digits = make_blind_index(
-            "123456789",
+            "5550100",
             method=BlindIndexMethod.HMAC_SHA256,
             salt=ORG_SALT,
             strip_non_digits=True,
@@ -91,10 +91,10 @@ class TestMakeBlindIndexHMAC:
     def test_salt_uses_length_prefixed_encoding(self):
         """Test that the salted HMAC folds in a length-tagged salt before the normalized value."""
 
-        message = len(ORG_SALT).to_bytes(4, "big") + ORG_SALT + b"123456789"
+        message = len(ORG_SALT).to_bytes(4, "big") + ORG_SALT + b"5550100"
         expected = hmac.new(TEST_KEY.encode("utf-8"), message, hashlib.sha256).digest()
         result = make_blind_index(
-            "123-45-6789",
+            "555-0100",
             method=BlindIndexMethod.HMAC_SHA256,
             salt=ORG_SALT,
             strip_non_digits=True,
@@ -133,7 +133,7 @@ class TestMakeBlindIndexHMAC:
         """Test that an already-computed BlindIndexValue is returned unchanged."""
 
         precomputed = make_blind_index(
-            "123456789", method=BlindIndexMethod.HMAC_SHA256, salt=ORG_SALT, key=TEST_KEY
+            "5550100", method=BlindIndexMethod.HMAC_SHA256, salt=ORG_SALT, key=TEST_KEY
         )
         again = make_blind_index(
             precomputed, method=BlindIndexMethod.HMAC_SHA256, salt=OTHER_SALT, key=TEST_KEY

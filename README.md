@@ -352,14 +352,16 @@ It takes the same normalization options, resolves the key from `BLIND_INDEX_SECR
 Pass a `salt` to fold a per-row identifier (e.g. an organization or user id) into the hash, so the same value indexes differently per row and can't be correlated by a reader without the key:
 
 ```python
-a = make_blind_index("123-45-6789", method=BlindIndexMethod.HMAC_SHA256, salt=org_a_id.bytes)
-b = make_blind_index("123-45-6789", method=BlindIndexMethod.HMAC_SHA256, salt=org_b_id.bytes)  # a != b
+a = make_blind_index("john@example.com", method=BlindIndexMethod.HMAC_SHA256, salt=org_a_id.bytes)
+b = make_blind_index("john@example.com", method=BlindIndexMethod.HMAC_SHA256, salt=org_b_id.bytes)  # a != b
 ```
 
-Lookups must use the same salt the row was written with; `salt=None` (default) is identical to an unsalted index. On SQLAlchemy columns, `make_blind_index_value` salts using the column's own flags:
+Lookups must use the same salt the row was written with; `salt=None` (default) is identical to an unsalted index. On a SQLAlchemy column, assigning a plain string stores an **unsalted** index, so salt both the write and the query with a precomputed value from `make_blind_index_value` (which uses the column's own flags):
 
 ```python
 bidx = User.__table__.c.blind_index_email.type
+
+user.blind_index_email = bidx.make_blind_index_value("john@example.com", salt=tenant_id.bytes)
 session.query(User).filter(
     User.blind_index_email == bidx.make_blind_index_value("john@example.com", salt=tenant_id.bytes)
 )
