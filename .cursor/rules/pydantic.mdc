@@ -1,0 +1,121 @@
+---
+alwaysApply: true
+---
+
+# Pydantic Rules
+
+## Prefer Pydantic Over Dataclasses
+
+- Never use `@dataclass` decorator from `dataclasses` module.
+- Use Pydantic `BaseModel` for all class definitions that hold data.
+- Do not use `NamedTuple` for application or script data models; use an explicit `BaseModel` subclass instead.
+- Pydantic provides validation, serialization, and type coercion out of the box.
+
+## Pydantic V2
+
+- Use `model_config = ConfigDict(...)` for model configuration.
+- Use `model_dump()` instead of deprecated `dict()`.
+- Use `model_validator` decorator for custom validation.
+- Do not add `field_validator` or `model_validator` just to coerce enum strings that should be represented by the enum itself; update the enum values to match the real contract instead.
+- Use `Self` from `typing` for class method return types.
+- Do not define `__init__` on `BaseModel` subclasses; use fields, validators, `model_post_init`, or factory/class methods instead.
+- Never use `pydantic.create_model`; define an explicit `BaseModel` subclass instead.
+  If `create_model` feels necessary, the design is probably too dynamic or too clever; refactor toward a named model class.
+
+```python
+from enum import StrEnum
+
+from pydantic import BaseModel, field_validator
+
+
+class ShirtSize(StrEnum):
+    SMALL = "small"
+    LARGE = "large"
+
+# Bad: validator added only to paper over the wrong enum values
+class TShirtOrderBad(BaseModel):
+    size: ShirtSize
+
+    @field_validator("size", mode="before")
+    @classmethod
+    def validate_size(cls, value: str) -> str:
+        return value.upper()
+```
+
+## No Free-Floating BaseModel Builders
+
+- Do not write **named** helper functions (module-level or static) whose role is to construct a `BaseModel` from another shape — for example `build_line_items(raw) -> list[LineItem]`, `convert_dto_to_order(dto) -> Order`, `to_payment_state(response) -> PaymentState`. Construction belongs on a model class.
+- Prefer a `@classmethod from_<source>(cls, source) -> Self` on the **target** model when the target's package can import the source. `from_<source>` is reserved for converting **one logical source** (single argument). Avoid compound names like `from_user_and_roles(...)` — that is a renamed builder, not a conversion.
+- Disambiguate the `<source>` slug from the target's own name. If the target represents the same domain noun (for example `OrderResponse` already concerns an order), naming the classmethod `from_order` reads as "convert an order response from another order response". Name the source by its kind instead — for example `from_orm_order(order)` when the source is an ORM row, or `from_provider_order(...)` when it is an external payload. The same applies when the source's class name overlaps with the target (for example `LineItemResponse.from_line_item` for a `LineItem` ORM row — prefer `from_orm_line_item`).
+- When the construction takes **multiple distinct inputs** (no single "source"), name the classmethod `build_*` instead — for example `build_for_user(cls, user, account_id, roles)`. Still a classmethod on the target; just signals composition rather than conversion.
+- When adding the classmethod to the target would break package layering (for example a shared/library target being asked to import a service-private provider model), put a `to_<target>(self) -> Target` instance method on the **source** `BaseModel` instead. Either form satisfies the rule — what's banned is the named free function.
+
+## Boolean Properties
+
+- Expose zero-argument boolean accessors as `@property` instead of methods when they describe model state or capability.
+- Prefer property names such as `can_access_xyz` over `can_access_xyz()`.
+
+```python
+class AccessPolicy(BaseModel):
+    role: str
+
+    @property
+    def can_access_admin(self) -> bool:
+        return self.role == "admin"
+
+
+policy = AccessPolicy(role="member")
+
+if not policy.can_access_admin:
+    raise PermissionError("Admin access required")
+```
+
+## Protocol vs BaseModel
+
+- Never use `Protocol` for data models that hold data.
+- Use `Protocol` only for structural typing of interfaces (callbacks, duck typing).
+
+## Response Models
+
+- Create response models with `from_orm_model` class method for ORM conversion.
+- Use `Self` return type for class methods.
+
+## Field Usage
+
+- Do not use `Field(...)` when only providing a description; field names should be self-explanatory.
+- Only use `Field(...)` when applying actual constraints (for example, `min_length`, `max_length`, `ge`, `le`, `pattern`).
+- Use `snake_case` for all Pydantic field names, even when an external API returns `camelCase`.
+- When an external payload uses a different key style, keep the Python attribute in `snake_case` and map the external key with `Field(alias=...)` instead of mirroring the external casing in the model.
+
+```python
+from datetime import date
+
+# Good: snake_case field with alias for external camelCase payload
+class ExternalCustomer(BaseModel):
+    last_name: str | None = Field(default=None, alias="lastName")
+    date_of_birth: date | None = Field(default=None, alias="dateOfBirth")
+
+# Bad: camelCase field names copied into the model
+class ExternalCustomer(BaseModel):
+    lastName: str | None = None
+    dateOfBirth: date | None = None
+```
+
+```python
+from pydantic import Field
+
+# Good: no Field when just documenting
+class Point(BaseModel):
+    id: str
+    x: int
+    y: int
+
+# Good: Field with actual constraint
+class CanvasLayout(BaseModel):
+    layout_id: str = Field(..., min_length=1)
+
+# Bad: Field only for description
+class Point(BaseModel):
+    id: str = Field(..., description="Unique point identifier")
+    x: int = Field(..., description="X position")
+```
