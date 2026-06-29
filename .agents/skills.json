@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "skills": [
+    { "name": "python-anti-patterns", "repo": "wshobson/agents" },
+    { "name": "python-background-jobs", "repo": "wshobson/agents" },
+    { "name": "python-configuration", "repo": "wshobson/agents" },
+    { "name": "python-design-patterns", "repo": "wshobson/agents" },
+    { "name": "python-error-handling", "repo": "wshobson/agents" },
+    { "name": "python-performance-optimization", "repo": "wshobson/agents" },
+    { "name": "python-project-structure", "repo": "wshobson/agents" },
+    { "name": "python-resilience", "repo": "wshobson/agents" },
+    { "name": "python-resource-management", "repo": "wshobson/agents" },
+    { "name": "python-testing-patterns", "repo": "wshobson/agents" },
+    { "name": "python-type-safety", "repo": "wshobson/agents" }
+  ]
+}
