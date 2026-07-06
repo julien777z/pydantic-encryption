@@ -11,7 +11,7 @@ dependencies = [
     "pydantic>=2.13.4",
     "pydantic-settings>=2.14.2",
     "pydantic-super-model>=2.0.0",
-    "cryptography>=49.0.0",
+    "cryptography>=44.0.0",
     "argon2-cffi>=25.1.0",
 ]
 
