@@ -29,8 +29,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || format('refs/pull/{0}/head', github.event.issue.number) }}
       - uses: julien777z/code-review-action@v0
         with:
-          cursor-api-key: ${{ secrets.CURSOR_API_KEY }}
-          review-model: cursor
+          codex-auth-json: ${{ secrets.CODEX_AUTH_JSON }}
           author-associations: OWNER,MEMBER,COLLABORATOR
           pr-review-summary: "true"
           enforce-project-rules: "true"
