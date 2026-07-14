@@ -82,7 +82,7 @@ def generate_rule_links(workspace: Workspace, source_path: Path, slug: str) -> l
 
 
 def assemble_agents_instructions(workspace: Workspace) -> str:
-    """Combine canonical rule bodies into Codex project instructions."""
+    """Combine canonical rule bodies into universal project instructions."""
 
     header = (
         "# AGENTS.md\n\n"

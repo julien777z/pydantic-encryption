@@ -9,6 +9,7 @@ __all__ = ["DiffEntry", "OutputFile", "OutputKind"]
 class OutputKind(StrEnum):
     """Identify a generated output category."""
 
+    AGENTS_INSTRUCTIONS = "agents_instructions"
     AGENTS_RULE = "agents_rule"
     AGENTS_CODEX_SETTINGS = "agents_codex_settings"
     CLAUDE_AGENT = "claude_agent"
@@ -17,7 +18,6 @@ class OutputKind(StrEnum):
     CLAUDE_RULE = "claude_rule"
     CLAUDE_SETTINGS = "claude_settings"
     CLAUDE_SKILL = "claude_skill"
-    CODEX_INSTRUCTIONS = "codex_instructions"
     CODEX_RULE = "codex_rule"
     CODEX_SETTINGS = "codex_settings"
     CODEX_SKILL = "codex_skill"

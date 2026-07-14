@@ -42,7 +42,7 @@ def generate_outputs(
 
 
 def generate_agents_instruction_outputs(workspace: Workspace) -> list[OutputFile]:
-    """Generate root Codex instructions from canonical rules."""
+    """Generate universal root instructions from canonical rules."""
 
     rules_dir = workspace.agents / "rules"
 
@@ -53,8 +53,8 @@ def generate_agents_instruction_outputs(workspace: Workspace) -> list[OutputFile
         OutputFile(
             target_path=workspace.root / "AGENTS.md",
             content=assemble_agents_instructions(workspace),
-            kind=OutputKind.CODEX_INSTRUCTIONS,
-            slug=Provider.CODEX.value,
+            kind=OutputKind.AGENTS_INSTRUCTIONS,
+            slug="agents",
             source_path=rules_dir,
         )
     ]
