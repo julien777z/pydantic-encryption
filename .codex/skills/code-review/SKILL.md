@@ -1,102 +1,104 @@
 ---
 name: "code-review"
-description: "Review a GitHub pull request with parallel specialized agents and post inline review comments rated by severity. Reviews the PR's changed lines and caps minor nitpicks; does not fix anything. Use when asked to review a PR or run /code-review."
+description: "Review the complete pull-request diff for the current branch with high-signal review lenses and severity-rated findings. When that diff is empty, review commits this Codex session created or pushed instead. Establish or update the branch and draft PR when needed, report findings in chat by default, never post GitHub review comments directly, and never fix findings. Use when asked to review a PR, review current changes, or run /code-review."
 ---
 
 # Code Review
 
-Review a GitHub pull request with parallel specialized agents and post the findings as **inline review comments**, each rated by severity. Surface real issues, not nitpicks — do not fix anything.
+## Dependencies
 
-**Scope — review only what this PR changes.** Limit the review to the lines this PR adds or modifies. Every finding must anchor to a line in the diff; do not go hunting for pre-existing problems in untouched code. If a real issue sits on a line the PR did not touch — even in a file the PR edited — leave it out.
+- `code-review-loop` — provides the iterative review-and-fix workflow that invokes this review pass.
 
-## GitHub tools — pick by runner
+Perform one high-signal review pass over the complete selected review target. Establish the PR when needed, but do not modify code to fix findings. In manual runs, report only in the current chat. A preceding CI adapter may explicitly adapt PR discovery, review orchestration, and output mechanics; the workflow runner, never this skill, owns GitHub review posting.
 
-All GitHub interaction goes through your platform's pull-request tools — never hand-built REST/JSON.
+**Scope — review only the selected review target.** Every finding must anchor to an added or removed line in that target's diff. Do not report pre-existing issues on untouched lines, even in modified files.
 
-- **If you are a Claude agent:** read with `pull_request_read` (methods `get`, `get_diff`, `get_files`, `get_reviews`). Post each inline comment with `mcp__github_inline_comment__create_inline_comment` (set `confirmed: true`; anchor with the full head SHA and an `Lstart-Lend` line range). If that tool is unavailable in your environment, fall back to the pending-review flow: `pull_request_review_write` (`create` then `submit_pending`) with `add_comment_to_pending_review` per inline comment.
-- **If you are a Cursor agent (or any non-Claude runner):** use your own GitHub pull-request tools — discover them in your available tool list at runtime. Use the tool that reads the PR diff and the tool that posts an inline review comment anchored to a file and line. Do not call Claude-specific `mcp__github__*` names.
+## Step 1 — Establish the current branch PR
 
-If your runtime cannot launch parallel sub-agents, run the per-agent steps below **sequentially within this single thread** instead — same lenses, same output.
+1. Make a todo list.
+2. Detect the repository, remote default branch, current branch, worktree state, and any open PR whose head is exactly the current branch. Never substitute an unrelated PR.
+3. Separate intended current-task changes from unrelated worktree changes. If the intended set is ambiguous, stop and ask before staging.
+4. Ensure intended local changes are represented on the branch:
+   - If on the default branch or detached HEAD, create a collision-free `codex/<short-slug>` branch before committing.
+   - Otherwise retain the current feature branch.
+   - Stage only intended changes and commit them with a concise message.
+   - Push new commits and any intended local-only commits with upstream tracking.
+5. Determine the complete base-to-head branch diff. If it is non-empty, use it as the review target. If it is empty, derive a session review target instead:
+   - Inspect the current Codex session history for commits this session explicitly created or pushed in this repository. Use only recorded commit SHAs; never substitute arbitrary recent commits from `main`, reflog entries, or author/date heuristics.
+   - Verify each recorded SHA exists locally and remains reachable from the current head or remote default-branch head. Preserve session order and deduplicate SHAs.
+   - If the verified commits are a contiguous first-parent sequence, review the combined diff from the parent of the first commit through the last commit. Otherwise, review the union of the individual commit diffs without widening the scope to intervening, unrelated commits.
+   - When this session-derived diff is non-empty, use it as the review target. Do not create a branch or retroactive PR merely to review commits already pushed to the default branch.
+   - Stop only when both the branch/PR diff and the verified session-derived diff are empty or unavailable.
+6. Create a draft PR against the remote default branch only when the selected target is a non-empty branch diff and no matching open PR exists.
 
-## Step 1 — Eligibility and PR discovery
+When a matching PR already exists and intended worktree changes are present, commit and push those changes before reviewing so the PR diff is authoritative. When the worktree is clean, use the existing PR without mutation.
 
-Identify the target PR: its number and repo slug (owner/repo) are normally supplied by the runner (repo, PR number/URL, head ref and SHA, author). If not supplied, detect the PR from the current branch (`pull_request_read`, or `gh pr view --json number,headRefOid,state,isDraft`). If no PR is detectable, stop and ask the user for a PR number or URL.
+Branch creation, commits, pushes, and draft-PR creation are the only mutations this skill permits. Never post a GitHub review, inline comment, issue comment, summary, or thread reply.
 
-Then check eligibility (delegate to a sub-agent when sub-agents are available): stop without proceeding if the PR is (a) closed, (b) clearly automated or trivially simple and obviously fine, or (c) you **already reviewed the current head commit** — a new push since your last review makes it eligible again. Draft PRs are in scope; review them like any other. For (c): list the PR's reviews (`pull_request_read` `method: "get_reviews"`, paging through all pages), keep non-dismissed reviews (ignore `PENDING`/`DISMISSED`) whose body contains **your runner's** review marker — `<!-- code-review:claude -->` if you are a Claude runner, `<!-- code-review:cursor -->` if you are a Cursor runner (see Step 6) — and treat the head as already reviewed only when one has a `commit_id` equal to the current head SHA. Match on `commit_id`, never on timestamps. A review without your marker (a human's, or the other tier's) does not count.
+## Step 2 — Capture review context
 
-## Step 2 — Context (two parallel agents)
+After selecting the review target, record either the PR number, base branch, head branch, and full head SHA, or the verified session commit SHAs and their review range. Fetch the complete selected diff and changed-file list, including every commit rather than only the latest push.
 
-- Agent A: fetch the PR diff and changed files (`pull_request_read` `method: "get_diff"` / `"get_files"`). Return a summary of the change, the changed-file list, and **record the baseline head SHA** the diff was taken at.
-- Agent B: list the project rule files loaded for this repository (the agent's own rules directory, wherever the platform keeps it); names only, not contents.
+In parallel:
 
-## Step 3 — Review (parallel reviewers)
+- Summarize the change intent and changed files, recording the baseline PR head SHA or final session commit SHA.
+- List the repository rule files available to reviewers; names only at first.
 
-Launch the following review agents in parallel (or sequentially in this thread if sub-agents are unavailable). Each reads the changed files and returns a flat list of findings — each with its **file path, line number, and diff side** (`RIGHT` for an added/current line, or `LEFT` for a removed line using the base-side line number) plus the reason it was flagged:
+Use the platform's pull-request tools when available, with `gh` as a fallback. GitHub reads are allowed.
 
-- Agent #1 (rules): audit the changes for compliance with the project rule files from Step 2. The rules are guidance for code generation, so not all apply during review.
-- Agent #2 (bugs): scan the changed lines for real defects; ignore likely false positives.
-- Agent #3 (history): read git blame and history of the changed lines; flag bugs in this PR's changes that only make sense in light of that history.
-- Agent #4 (prior PRs): read previous PRs that touched the same files; check whether their review comments apply to this PR's changes.
-- Agent #5 (comments): read code comments in the modified files; flag anything in the diff that contradicts them.
+## Step 3 — Run review lenses
 
-## Step 4 — Validate, dedup, severity
+Launch these reviewers in parallel when subagents are available, or run them sequentially otherwise. Each reviewer must inspect only lines changed by the selected target and return a flat list with path, line, diff side (`RIGHT` for added/current or `LEFT` for removed/base), severity candidate, concrete trigger, and reasoning.
 
-First **deduplicate**: merge findings that report the same issue at the same file and line — or on adjacent lines — into one (keep the clearest wording). Then **drop any finding already raised on this PR**: fetch a **bounded, recent page** of the PR's existing inline review comments (about the 100 most recent, newest first — do not page through the entire history) and read **only each comment's file path and title line**, not full bodies, so prior reviews never overload your context. Skip a finding whose file path and short title match one already posted — **even if its line number has shifted because the code moved between commits** — so a new push never reposts the same concern you already flagged on an earlier commit. Match on the issue's substance (path plus title), not its current line. Then drop **clear false positives** (see the **False Positives to Ignore** section near the end). Assign each remaining finding a severity. **Post every Critical, High, and Medium finding. Cap Low findings at the three most important per review and drop the rest** — Low is for genuinely minor issues, and a long tail of nitpicks reads as noise. When you are unsure whether something is a Low or not worth posting at all, drop it.
+1. **Rules** — check applicable repository rules against surrounding conventions.
+2. **Bugs** — find high-confidence correctness, data-loss, security, performance, or UX defects.
+3. **History** — use blame and history to identify regressions against prior intent.
+4. **Prior PRs** — inspect earlier changes and review decisions affecting the same code.
+5. **Comments** — find changed behavior that contradicts nearby comments or documented contracts.
 
-- **Critical** — data loss, security/auth bypass, a crash, or clearly broken core behavior.
-- **High** — a real bug likely hit in normal use, or a clear violation of a project rule that matters in practice.
-- **Medium** — a real issue with limited, conditional, or non-obvious impact.
-- **Low** — valid but minor: a nitpick the change genuinely got wrong, a rare edge case, or a small correctness/UX deviation.
+Do not report pre-existing issues on untouched lines.
 
-**Calibrate severity by how likely the trigger is, not by how severe the worst case sounds.** An issue that only manifests under unlikely timing, a race, or concurrent runs — or whose impact is narrowly scoped (e.g. only one runner's own data) or self-corrects on the next run — is **at most Medium**, and Low when the effect is trivial or cosmetic. Reserve **High** for a bug whose trigger is common in normal use. Do not rate a rare, scoped, or recoverable edge case High just because its failure mode reads as serious.
+## Step 4 — Validate findings
 
-**Be selective — a short, high-signal review beats an exhaustive one.** Post a finding only when you are highly confident it is a real defect a maintainer would act on, with a concrete trigger that is realistically hit. A review carrying many findings is itself a signal you are over-flagging: keep the few that clearly matter and drop the rest. In particular, **do not post**:
-- **Deliberate configuration or design choices** — a coverage-ignore entry, a chosen permission scope, an intentional dedup or tier-scoping rule — unless you can point to a concrete, demonstrable failure they cause.
-- **Transitional or migration states** that self-resolve over time, such as pre-existing data or comments that lack a newly-added field or marker.
-- **Speculative compound failures** that only bite if some unrelated thing also breaks ("if X also fails, then…") without evidence that it does.
+Deduplicate findings on the same underlying issue, validate each against the selected diff, and drop false positives. Assign severity by realistic trigger likelihood:
 
-When you cannot tie a finding to a concrete, likely-hit failure, drop it.
+- **Critical** — data loss, security or auth bypass, crash, or broken core behavior.
+- **High** — likely defect in normal use or a consequential rule violation.
+- **Medium** — real but conditional, narrowly scoped, recoverable, or limited-impact defect.
+- **Low** — valid minor or rare-edge issue; retain at most the three most important.
 
-For rule-compliance findings, confirm the rule file actually calls out that specific issue before rating it above Low. **Before flagging a convention as required, also confirm the codebase itself follows it** — read the surrounding/sibling code. If the project consistently does the opposite (for example, a rule mentions async patterns but the code and its tests are entirely synchronous), the convention does not apply here: **drop the finding** rather than asserting a rule the repository does not keep. Never turn a general style preference into a stated rule the codebase contradicts.
+Calibrate severity by trigger likelihood, not the worst imaginable outcome. Reserve High for common normal-use failures. Prefer a short, high-confidence result over exhaustive speculation, and drop findings without a concrete, realistically reachable failure.
 
-## Step 5 — Re-gate before posting
+For rule findings, confirm both that the rule specifically applies and that surrounding repository conventions support it. Do not turn a general preference into a required convention the repository itself contradicts.
 
-Repeat the eligibility check from Step 1, and re-fetch the head SHA. If it differs from the baseline recorded in Step 2, the head moved mid-run — **stop without posting**; the next run reviews the new commit. Never anchor findings gathered against one commit to a different head.
+Drop false positives involving deliberate configuration or design choices without a demonstrable failure, self-resolving transitional states, speculative compound failures, linter or typechecker failures, general test or documentation gaps not required by repository rules, explicitly silenced rules, or intentional behavior changes required by the task.
 
-## Step 6 — Post one inline review
+Every retained finding must be actionable, anchored to a changed line, and explain when it fails. Do not suppress a current finding merely because a similar GitHub comment already exists; this invocation reports the current review result.
 
-**If there are no findings, do not post anything — skip the review entirely.** Never post a "no issues" / "looks good" review. Otherwise post **one** review: an inline comment per finding, plus a one-line summary body. Use the posting tool for your runner (see **GitHub tools** above).
+When this pass is invoked by `code-review-loop`, classify each retained finding clearly enough for the loop to distinguish a functional finding from an optional, behavior-preserving simplification. Never characterize a concrete defect as a simplification.
 
-- Anchor each inline comment to the finding's `path`, line, and `side`, using the **full head SHA**. **Validate each anchor against the diff first.** Drop any finding whose line is not in the diff — it is out of scope — **except** when GitHub returned no patch for that changed file (it was too large to diff), where no line can be anchored: list those in the summary body instead.
-- The summary body is one line (e.g. `Found 3 issues.`) covering every posted finding, optionally followed by a list of findings on changed files too large to show a diff (`path:line — Severity — explanation`). Never include a "what was reviewed" / coverage summary or any description of your process.
-- End the summary body with **your runner's** hidden marker on its own line — `<!-- code-review:claude -->` if you are a Claude runner, `<!-- code-review:cursor -->` if you are a Cursor runner. A later run treats the head as already reviewed (Step 1c) when a non-dismissed review carrying **your** marker exists for the current head SHA, so the marker is what lets re-triggers skip re-reviewing the same commit.
-- End **every inline comment body** with your runner's same hidden marker on its own line, so your threads are distinguishable from the other tier's (both tiers post as the same bot).
-- After posting, resolve **your own** earlier inline-comment threads that GitHub now marks **outdated** (the code they were anchored to has since changed), if your runner can resolve review threads. Identify yours by **your marker**, and resolve a thread only when the current review no longer raises that finding (same file and title) — a finding you raised again, even on a shifted line, keeps its thread. This keeps superseded findings from piling up across pushes. Never resolve another reviewer's, the other tier's, or a human's threads.
+## Step 5 — Re-gate the review target
 
-## Inline comment format
+For a PR target, re-fetch the PR head before reporting. If it differs from the baseline head SHA, discard stale findings and restart against the new complete PR diff. For a session target, re-verify the recorded SHAs and selected diff before reporting; if the commit set is no longer reachable or differs from the baseline, restart target selection. Never report findings gathered against one commit set as though they apply to another.
 
+## Step 6 — Return findings
+
+In a manual or default invocation, report only in the current chat:
+
+```markdown
+## Code review
+
+- [High] Short imperative title — path/to/file.ts:42
+  Concrete trigger, impact, and the expected correction.
 ```
-### <Short imperative title>
 
-**<Severity> Severity**
+If nothing remains, say `No findings.`
 
-<1–3 sentences: what is wrong and when it bites. Cite the rule file when the finding is rule-based.>
+When a preceding CI adapter supplies a machine-readable output contract, follow that contract instead of the chat format. The adapter or runner may post the returned findings, but this skill must never call GitHub to post reviews, comments, summaries, or thread mutations.
 
-<your runner's marker — `<!-- code-review:claude -->` or `<!-- code-review:cursor -->`>
-```
+## Constraints
 
-## False Positives to Ignore
-
-- Something that looks like a bug but is not
-- Pedantic nitpicks a senior engineer would never call out
-- Issues a linter, typechecker, or CI step would catch (assume CI runs separately)
-- General code quality (test coverage, documentation) unless the project rules require it
-- Issues called out in the project rules but explicitly silenced in the code (e.g. a lint-ignore comment)
-- Likely intentional behavior changes related to the broader PR goal
-
-## Notes
-
-- Make a todo list first.
-- Do not attempt to build or typecheck the project, and do not modify code — this skill only reviews and comments.
-- When reporting file paths, use paths relative to the repository root.
-- Anchor inline comments to the full head-commit SHA (not a branch name or `HEAD`).
+- Do not fix findings.
+- Do not build, typecheck, or run tests during the review pass.
+- Do not mark a head as already reviewed; each invocation reviews the current complete PR diff.
+- Do not resolve or create GitHub review threads.

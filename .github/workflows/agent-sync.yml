@@ -6,7 +6,7 @@ on:
       - main
     paths:
       - ".agents/**"
-      - ".github/scripts/agent_sync.py"
+      - ".github/scripts/agent_sync/**"
       - ".github/workflows/agent-sync.yml"
 
 concurrency:
@@ -32,13 +32,15 @@ jobs:
           python-version: "3.13"
 
       - name: Install dependencies
-        run: python -m pip install "pydantic>=2.0.0,<3" "pyyaml>=6.0.0" "rich>=14.0.0"
+        run: python -m pip install "pydantic>=2.0.0,<3" "pyyaml>=6.0.0"
+
+      - name: Validate canonical agent configuration
+        working-directory: .github/scripts
+        run: python -m agent_sync.main validate
 
       - name: Run agent sync
-        run: python .github/scripts/agent_sync.py
-
-      - name: Verify sync idempotence
-        run: python .github/scripts/agent_sync.py --dry-run
+        working-directory: .github/scripts
+        run: python -m agent_sync.main sync
 
       - name: Commit and push generated changes
         shell: bash
@@ -47,9 +49,11 @@ jobs:
 
           git add -u
 
+          if [ -d ".agents" ]; then git add .agents/; fi
           if [ -d ".claude" ]; then git add .claude/; fi
           if [ -d ".cursor" ]; then git add .cursor/; fi
           if [ -d ".codex" ]; then git add .codex/; fi
+          if [ -f "AGENTS.md" ]; then git add AGENTS.md; fi
           if [ -f "AGENTS.override.md" ]; then git add AGENTS.override.md; fi
 
           if git diff --cached --quiet; then
@@ -61,3 +65,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git commit -m "chore: run agent sync"
           git push origin "${{ github.ref_name }}"
+
+      - name: Verify sync idempotence
+        working-directory: .github/scripts
+        run: python -m agent_sync.main sync --dry-run
