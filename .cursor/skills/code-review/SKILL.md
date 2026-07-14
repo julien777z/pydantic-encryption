@@ -1,6 +1,6 @@
 ---
-name: "code-review"
-description: "Review a GitHub pull request with parallel specialized agents and post inline review comments rated by severity. Reviews the PR's changed lines and caps minor nitpicks; does not fix anything. Use when asked to review a PR or run /code-review."
+name: code-review
+description: Review a GitHub pull request with parallel specialized agents and post inline review comments rated by severity. Reviews the PR's changed lines and caps minor nitpicks; does not fix anything. Use when asked to review a PR or run /code-review.
 ---
 
 # Code Review

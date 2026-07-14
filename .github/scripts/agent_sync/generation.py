@@ -15,7 +15,6 @@ from agent_sync.providers import (
 )
 from agent_sync.rules import assemble_agents_instructions, generate_rule_outputs
 from agent_sync.skills import generate_skill_outputs
-from agent_sync.storage import read_text
 from agent_sync.validation import run_validations
 
 __all__ = ["generate_outputs"]
@@ -35,17 +34,37 @@ def generate_outputs(
         *generate_command_outputs(workspace),
         *generate_agent_outputs(workspace, settings, model_overrides),
         *generate_rule_outputs(workspace),
-        *generate_codex_instruction_outputs(workspace, settings),
+        *generate_agents_instruction_outputs(workspace),
+        *generate_codex_settings_outputs(workspace, settings),
         *generate_hook_outputs(workspace),
         *generate_settings_outputs(workspace, settings),
     ]
 
 
-def generate_codex_instruction_outputs(
+def generate_agents_instruction_outputs(workspace: Workspace) -> list[OutputFile]:
+    """Generate root Codex instructions from canonical rules."""
+
+    rules_dir = workspace.agents / "rules"
+
+    if not rules_dir.exists():
+        return []
+
+    return [
+        OutputFile(
+            target_path=workspace.root / "AGENTS.md",
+            content=assemble_agents_instructions(workspace),
+            kind=OutputKind.CODEX_INSTRUCTIONS,
+            slug=Provider.CODEX.value,
+            source_path=rules_dir,
+        )
+    ]
+
+
+def generate_codex_settings_outputs(
     workspace: Workspace,
     settings: AgentSyncSettings,
 ) -> list[OutputFile]:
-    """Generate Codex project instructions and managed configuration."""
+    """Generate canonical and provider Codex settings."""
 
     if settings.codex is None:
         return []
@@ -56,16 +75,9 @@ def generate_codex_instruction_outputs(
         update={"project_doc_max_bytes": len(agents_content.encode("utf-8"))}
     )
     config_path = workspace.root / ".codex" / "config.toml"
-    config_content = generate_codex_config(synchronized_settings, read_text(config_path))
+    config_content = generate_codex_config(synchronized_settings)
 
     outputs = [
-        OutputFile(
-            target_path=workspace.root / "AGENTS.md",
-            content=agents_content,
-            kind=OutputKind.CODEX_INSTRUCTIONS,
-            slug=Provider.CODEX.value,
-            source_path=source_path,
-        ),
         OutputFile(
             target_path=config_path,
             content=config_content,
@@ -76,7 +88,15 @@ def generate_codex_instruction_outputs(
     ]
 
     if source_path.exists():
-        outputs.append(OutputFile(target_path=source_path, content=render_codex_settings(synchronized_settings), kind=OutputKind.AGENTS_CODEX_SETTINGS, slug=Provider.CODEX.value, source_path=source_path))
+        outputs.append(
+            OutputFile(
+                target_path=source_path,
+                content=render_codex_settings(synchronized_settings),
+                kind=OutputKind.AGENTS_CODEX_SETTINGS,
+                slug=Provider.CODEX.value,
+                source_path=source_path,
+            )
+        )
 
     return outputs
 

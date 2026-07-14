@@ -1,6 +1,6 @@
 ---
-name: "python-anti-patterns"
-description: "Common Python anti-patterns to avoid. Use as a checklist when reviewing code, before finalizing implementations, or when debugging issues that might stem from known bad practices."
+name: python-anti-patterns
+description: Common Python anti-patterns to avoid. Use as a checklist when reviewing code, before finalizing implementations, or when debugging issues that might stem from known bad practices.
 ---
 
 # Python Anti-Patterns Checklist

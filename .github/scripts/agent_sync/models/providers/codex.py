@@ -1,13 +1,10 @@
-from typing import Final, Literal
+from typing import Literal
 
 from pydantic import ConfigDict, Field
 
 from agent_sync.models.providers.providers import ProviderSettings
 
-__all__ = ["CodexSettings", "DEFAULT_PROJECT_DOC_MAX_BYTES"]
-
-
-DEFAULT_PROJECT_DOC_MAX_BYTES: Final[int] = 32 * 1024
+__all__ = ["CodexSettings"]
 
 
 class CodexSettings(ProviderSettings):

@@ -1,18 +1,14 @@
 import difflib
 import logging
-import re
 from pathlib import Path
 from typing import Final
 
-from agent_sync.models.outputs import DiffEntry, OutputFile, OutputKind
-from agent_sync.models.providers.providers import Provider
-from agent_sync.models.settings import AgentSyncSettings
+from agent_sync.models.outputs import DiffEntry, OutputFile
 from agent_sync.models.workspace import Workspace
-from agent_sync.rules import is_managed_codex_rule
 from agent_sync.storage import (
     delete_path,
     expected_link_text,
-    missing_exec_bit,
+    has_incorrect_exec_bit,
     read_link,
     read_text,
     write_symlink,
@@ -22,18 +18,13 @@ from agent_sync.storage import (
 __all__ = ["apply_changes", "compute_diffs", "compute_stale_paths", "report_diffs"]
 
 logger = logging.getLogger(__name__)
+
 MAX_DIFF_LINES: Final[int] = 20
-NUMBERED_COPY_PATTERN: Final[re.Pattern[str]] = re.compile(r" \d+$")
-SKILL_OUTPUT_KINDS: Final[frozenset[OutputKind]] = frozenset(
-    {
-        OutputKind.CLAUDE_SKILL,
-        OutputKind.CODEX_SKILL,
-        OutputKind.CURSOR_SKILL,
-    }
-)
+MANAGED_ROOT_NAMES: Final[tuple[str, ...]] = (".claude", ".cursor", ".codex")
+MANAGED_ROOT_FILES: Final[tuple[str, ...]] = ("AGENTS.md", "AGENTS.override.md")
 
 
-def compute_diffs(outputs: list[OutputFile]) -> list[DiffEntry]:
+def compute_diffs(workspace: Workspace, outputs: list[OutputFile]) -> list[DiffEntry]:
     """Compare generated outputs with their on-disk state."""
 
     diffs: list[DiffEntry] = []
@@ -45,110 +36,104 @@ def compute_diffs(outputs: list[OutputFile]) -> list[DiffEntry]:
                 diffs.append(DiffEntry(output=output, existing=existing))
             continue
 
-        existing = read_text(output.target_path)
+        existing = read_text(output.target_path, root=workspace.root)
 
-        if existing is None or existing != output.content or missing_exec_bit(output):
+        if (
+            existing is None
+            or existing != output.content
+            or has_incorrect_exec_bit(output, root=workspace.root)
+        ):
             diffs.append(DiffEntry(output=output, existing=existing))
 
     return diffs
 
 
-def compute_stale_paths(
-    workspace: Workspace,
-    outputs: list[OutputFile],
-    settings: AgentSyncSettings,
-) -> list[Path]:
-    """Find generated paths that no longer map to canonical sources."""
+def compute_stale_paths(workspace: Workspace, outputs: list[OutputFile]) -> list[Path]:
+    """Find every managed path absent from the generated output manifest."""
 
-    expected_paths = {output.target_path for output in outputs}
-    linked_skill_dirs = {
-        output.target_path
-        for output in outputs
-        if output.link_target is not None and output.kind in SKILL_OUTPUT_KINDS
-    }
-    expected_skill_dirs = linked_skill_dirs | {
-        output.target_path.parent
-        for output in outputs
-        if output.link_target is None and output.kind in SKILL_OUTPUT_KINDS
-    }
-    stale_paths = find_stale_managed_files(workspace, expected_paths, linked_skill_dirs)
-    stale_paths.update(find_stale_codex_rules(workspace, expected_paths))
+    expected_outputs = {output.target_path: output for output in outputs}
+    expected_paths = set(expected_outputs)
+    managed_roots = tuple(workspace.root / name for name in MANAGED_ROOT_NAMES)
+    expected_directories = build_expected_directories(managed_roots, expected_paths)
+    stale_paths: set[Path] = set()
 
-    claude_settings = workspace.root / ".claude" / "settings.json"
-
-    if settings.claude is not None and claude_settings.exists() and claude_settings not in expected_paths:
-        stale_paths.add(claude_settings)
-
-    for provider in Provider:
-        skills_dir = workspace.root / f".{provider.value}" / "skills"
-
-        if not skills_dir.exists():
-            continue
+    for managed_root in managed_roots:
         stale_paths.update(
-            path
-            for path in skills_dir.iterdir()
-            if (path.is_dir() or path.is_symlink()) and path not in expected_skill_dirs
+            find_stale_paths(
+                managed_root,
+                expected_outputs,
+                expected_directories,
+            )
         )
+
+    for filename in MANAGED_ROOT_FILES:
+        managed_file = workspace.root / filename
+
+        if managed_file in expected_outputs:
+            if managed_file.is_symlink() or managed_file.is_dir():
+                stale_paths.add(managed_file)
+
+            continue
+
+        if managed_file.exists() or managed_file.is_symlink():
+            stale_paths.add(managed_file)
 
     return sorted(stale_paths, key=str)
 
 
-def find_stale_managed_files(
-    workspace: Workspace,
+def build_expected_directories(
+    managed_roots: tuple[Path, ...],
     expected_paths: set[Path],
-    linked_skill_dirs: set[Path],
 ) -> set[Path]:
-    """Find stale files in provider directories fully managed by agent sync."""
+    """Collect provider directories required by generated output paths."""
 
-    stale_paths: set[Path] = set()
-    for directory, pattern in managed_file_globs(workspace):
-        if not directory.exists():
-            continue
-        stale_paths.update(
-            path
-            for path in directory.glob(pattern)
-            if not any(linked in path.parents for linked in linked_skill_dirs)
-            and (path.is_file() or path.is_symlink())
-            and path not in expected_paths
+    expected_directories: set[Path] = set()
+    for expected_path in expected_paths:
+        managed_root = next(
+            (root for root in managed_roots if expected_path.is_relative_to(root)),
+            None,
         )
 
-    return stale_paths
+        if managed_root is None:
+            continue
+
+        parent = expected_path.parent
+        while parent.is_relative_to(managed_root):
+            expected_directories.add(parent)
+
+            if parent == managed_root:
+                break
+            parent = parent.parent
+
+    return expected_directories
 
 
-def managed_file_globs(workspace: Workspace) -> tuple[tuple[Path, str], ...]:
-    """Return provider directories whose generated files are fully managed."""
+def find_stale_paths(
+    path: Path,
+    expected_outputs: dict[Path, OutputFile],
+    expected_directories: set[Path],
+) -> set[Path]:
+    """Find maximal stale subtrees without traversing symlink targets."""
 
-    return (
-        (workspace.root / ".cursor" / "rules", "*.mdc"),
-        (workspace.root / ".claude" / "rules", "*.md"),
-        (workspace.root / ".cursor" / "commands", "*.md"),
-        (workspace.root / ".claude" / "commands", "*.md"),
-        (workspace.root / ".cursor" / "agents", "*.md"),
-        (workspace.root / ".claude" / "agents", "*.md"),
-        (workspace.root / ".cursor" / "hooks", "*"),
-        (workspace.root / ".claude" / "hooks", "*"),
-        (workspace.root / ".cursor" / "skills", "**/*"),
-        (workspace.root / ".claude" / "skills", "**/*"),
-        (workspace.root / ".codex" / "skills", "**/*"),
-    )
-
-
-def find_stale_codex_rules(workspace: Workspace, expected_paths: set[Path]) -> set[Path]:
-    """Find orphaned Codex policies previously generated by agent sync."""
-
-    rules_dir = workspace.root / ".codex" / "rules"
-
-    if not rules_dir.exists():
+    if not path.exists() and not path.is_symlink():
         return set()
 
-    return {
-        path
-        for path in rules_dir.glob("*.rules")
-        if path.is_file()
-        and path not in expected_paths
-        and (content := read_text(path)) is not None
-        and is_managed_codex_rule(content)
-    }
+    if path in expected_outputs:
+        output = expected_outputs[path]
+
+        if output.link_target is None and (path.is_symlink() or path.is_dir()):
+            return {path}
+
+        return set()
+
+    if path not in expected_directories or path.is_symlink() or not path.is_dir():
+        return {path}
+
+    stale_paths: set[Path] = set()
+    for child in path.iterdir():
+        stale_paths.update(find_stale_paths(child, expected_outputs, expected_directories))
+
+    return stale_paths
 
 
 def apply_changes(
@@ -156,25 +141,28 @@ def apply_changes(
     diffs: list[DiffEntry],
     stale_paths: list[Path],
 ) -> None:
-    """Write generated outputs, links, and stale-path deletions."""
+    """Replace managed outputs with the generated manifest."""
+
+    for stale_path in stale_paths:
+        delete_path(stale_path)
+
+        logger.info("Deleted %s", stale_path)
 
     for diff in diffs:
         output = diff.output
 
         if output.link_target is None:
             write_text(output.target_path, output.content)
+
             logger.info("Wrote %s", output.target_path)
+
     for diff in diffs:
         output = diff.output
 
         if output.link_target is not None:
             write_symlink(output.target_path, output.link_target)
-            logger.info("Linked %s -> %s", output.target_path, expected_link_text(output))
-    for stale_path in stale_paths:
-        delete_path(stale_path)
-        logger.info("Deleted %s", stale_path)
 
-    remove_numbered_rule_copies(workspace)
+            logger.info("Linked %s -> %s", output.target_path, expected_link_text(output))
 
 
 def report_diffs(diffs: list[DiffEntry], stale_paths: list[Path]) -> None:
@@ -182,6 +170,7 @@ def report_diffs(diffs: list[DiffEntry], stale_paths: list[Path]) -> None:
 
     for diff in diffs:
         logger.info("%s: %s", diff.output.target_path, diff_summary(diff))
+
     for stale_path in stale_paths:
         logger.info("%s: will be deleted", stale_path)
 
@@ -202,21 +191,8 @@ def diff_summary(diff: DiffEntry) -> str:
             lineterm="",
         )
     )
+
     if not lines:
         return "(trailing newline difference)" if existing != diff.output.content else "(no changes)"
 
     return "\n".join(lines[:MAX_DIFF_LINES])
-
-
-def remove_numbered_rule_copies(workspace: Workspace) -> None:
-    """Remove operating-system duplicate copies from generated rule directories."""
-
-    for directory in (
-        workspace.root / ".cursor" / "rules",
-        workspace.root / ".claude" / "rules",
-    ):
-        if not directory.exists():
-            continue
-        for path in sorted(directory.iterdir()):
-            if path.is_file() and NUMBERED_COPY_PATTERN.search(path.stem):
-                path.unlink()

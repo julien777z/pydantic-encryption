@@ -7,8 +7,8 @@ from agent_sync.models.outputs import OutputFile
 __all__ = [
     "delete_path",
     "expected_link_text",
+    "has_incorrect_exec_bit",
     "is_executable_output",
-    "missing_exec_bit",
     "read_link",
     "read_text",
     "write_symlink",
@@ -16,10 +16,13 @@ __all__ = [
 ]
 
 
-def read_text(path: Path) -> str | None:
+def read_text(path: Path, *, root: Path | None = None) -> str | None:
     """Read UTF-8 text when a path exists."""
 
-    return path.read_text(encoding="utf-8") if path.exists() else None
+    if path.is_symlink() or has_symlink_ancestor(path, root) or not path.is_file():
+        return None
+
+    return path.read_text(encoding="utf-8")
 
 
 def write_text(path: Path, content: str) -> None:
@@ -29,8 +32,7 @@ def write_text(path: Path, content: str) -> None:
     if path.is_symlink():
         path.unlink()
     path.write_text(content, encoding="utf-8")
-    if is_executable_output(path, content):
-        path.chmod(0o755)
+    path.chmod(0o755 if is_executable_output(path, content) else 0o644)
 
 
 def write_symlink(path: Path, target: Path) -> None:
@@ -82,11 +84,33 @@ def is_executable_output(path: Path, content: str) -> bool:
     return path.suffix == ".sh" or content.startswith("#!")
 
 
-def missing_exec_bit(output: OutputFile) -> bool:
-    """Return whether executable output exists without an executable bit."""
+def has_incorrect_exec_bit(output: OutputFile, *, root: Path | None = None) -> bool:
+    """Return whether an output's executable state differs from the manifest."""
 
     target = output.target_path
 
-    return (
-        is_executable_output(target, output.content) and target.exists() and not target.stat().st_mode & 0o111
-    )
+    if target.is_symlink() or has_symlink_ancestor(target, root) or not target.is_file():
+        return False
+
+    is_executable = bool(target.stat().st_mode & 0o111)
+
+    return is_executable != is_executable_output(target, output.content)
+
+
+def has_symlink_ancestor(path: Path, root: Path | None) -> bool:
+    """Return whether resolving a path would traverse a symlinked directory."""
+
+    if root is None:
+        return False
+
+    parent = path.parent
+    while parent != root:
+        if parent.is_symlink():
+            return True
+
+        if parent == parent.parent:
+            return False
+
+        parent = parent.parent
+
+    return root.is_symlink()
