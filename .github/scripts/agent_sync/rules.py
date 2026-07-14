@@ -114,7 +114,7 @@ def render_rule_section(filename: str, front_matter: RuleFrontMatter, body: str)
 
 
 def render_rule_scope(front_matter: RuleFrontMatter) -> str:
-    """Render the Codex applicability note for one rule."""
+    """Render the universal applicability note for one rule."""
 
     if isinstance(front_matter.globs, str):
         patterns = [front_matter.globs]

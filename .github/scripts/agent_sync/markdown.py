@@ -15,7 +15,6 @@ __all__ = [
     "normalize_text",
     "parse_markdown_file",
     "render_front_matter",
-    "slug_to_codex_name",
     "validate_slug",
 ]
 
@@ -125,14 +124,6 @@ def normalize_text(value: str) -> str:
     """Strip surrounding whitespace from Markdown content."""
 
     return value.strip()
-
-
-def slug_to_codex_name(slug: str) -> str:
-    """Convert a canonical slug into a Codex-compatible name."""
-
-    normalized = re.sub(r"[^a-zA-Z0-9]+", "-", slug).strip("-").lower()
-
-    return normalized or slug
 
 
 def ensure_trailing_newline(text: str) -> str:

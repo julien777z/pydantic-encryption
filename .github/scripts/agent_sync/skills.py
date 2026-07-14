@@ -1,13 +1,8 @@
 import logging
 from pathlib import Path
 
-from agent_sync.markdown import (
-    SAFE_SLUG_PATTERN,
-    parse_markdown_file,
-    slug_to_codex_name,
-    validate_slug,
-)
 from agent_sync.exceptions import AgentSyncConfigError
+from agent_sync.markdown import parse_markdown_file, validate_slug
 from agent_sync.models.frontmatter import SkillFrontMatter
 from agent_sync.models.outputs import OutputFile, OutputKind
 from agent_sync.models.providers.providers import Provider
@@ -36,19 +31,11 @@ def generate_skill_outputs(workspace: Workspace) -> list[OutputFile]:
             continue
 
         front_matter, _ = parse_markdown_file(source_path, SkillFrontMatter)
-        codex_name = validate_codex_skill_metadata(front_matter, source_path)
-
-        if not SAFE_SLUG_PATTERN.match(codex_name):
-            logger.warning(
-                "Invalid Codex skill name %r in %s; using canonical slug",
-                codex_name,
-                source_path,
-            )
-            codex_name = slug_to_codex_name(slug)
+        validate_canonical_skill_metadata(front_matter, source_path)
         outputs.extend(generate_skill_links(workspace, skill_dir, source_path, slug))
         outputs.append(
             OutputFile(
-                target_path=workspace.root / ".codex" / "skills" / codex_name,
+                target_path=workspace.root / ".codex" / "skills" / slug,
                 content="",
                 kind=OutputKind.CODEX_SKILL,
                 slug=slug,
@@ -81,8 +68,8 @@ def generate_skill_links(
     ]
 
 
-def validate_codex_skill_metadata(front_matter: SkillFrontMatter, source_path: Path) -> str:
-    """Require canonical metadata needed by every linked Codex skill."""
+def validate_canonical_skill_metadata(front_matter: SkillFrontMatter, source_path: Path) -> None:
+    """Require metadata shared by every canonical skill."""
 
     if not front_matter.name or not front_matter.description:
         raise AgentSyncConfigError(
@@ -94,9 +81,6 @@ def validate_codex_skill_metadata(front_matter: SkillFrontMatter, source_path: P
             f"Skill {source_path} must use directory name {source_path.parent.name!r} "
             f"as its front matter name, not {front_matter.name!r}"
         )
-
-    return front_matter.name
-
 
 def skill_link_kind(provider: Provider) -> OutputKind:
     """Return the directory-link output kind for one provider."""

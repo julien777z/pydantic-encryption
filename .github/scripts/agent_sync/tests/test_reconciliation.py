@@ -96,7 +96,7 @@ class AuthoritativeOutputTests(unittest.TestCase):
             self.assertFalse((root / "AGENTS.md").exists())
 
     def test_missing_skill_metadata_is_rejected_before_linking(self) -> None:
-        """Require canonical metadata before exposing a skill to Codex."""
+        """Require canonical metadata before linking a skill."""
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
