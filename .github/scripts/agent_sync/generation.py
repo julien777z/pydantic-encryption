@@ -13,7 +13,7 @@ from agent_sync.providers import (
     generate_hook_outputs,
     generate_settings_outputs,
 )
-from agent_sync.rules import assemble_agents_instructions, generate_rule_outputs
+from agent_sync.rules import assemble_universal_agent_instructions, generate_rule_outputs
 from agent_sync.skills import generate_skill_outputs
 from agent_sync.validation import run_validations
 
@@ -34,15 +34,15 @@ def generate_outputs(
         *generate_command_outputs(workspace),
         *generate_agent_outputs(workspace, settings, model_overrides),
         *generate_rule_outputs(workspace),
-        *generate_agents_instruction_outputs(workspace),
+        *generate_universal_agent_instruction_outputs(workspace),
         *generate_codex_settings_outputs(workspace, settings),
         *generate_hook_outputs(workspace),
         *generate_settings_outputs(workspace, settings),
     ]
 
 
-def generate_agents_instruction_outputs(workspace: Workspace) -> list[OutputFile]:
-    """Generate universal root instructions from canonical rules."""
+def generate_universal_agent_instruction_outputs(workspace: Workspace) -> list[OutputFile]:
+    """Generate Universal Agent Instructions from canonical rules."""
 
     rules_dir = workspace.agents / "rules"
 
@@ -52,9 +52,9 @@ def generate_agents_instruction_outputs(workspace: Workspace) -> list[OutputFile
     return [
         OutputFile(
             target_path=workspace.root / "AGENTS.md",
-            content=assemble_agents_instructions(workspace),
-            kind=OutputKind.AGENTS_INSTRUCTIONS,
-            slug="agents",
+            content=assemble_universal_agent_instructions(workspace),
+            kind=OutputKind.UNIVERSAL_AGENT_INSTRUCTIONS,
+            slug="universal-agent-instructions",
             source_path=rules_dir,
         )
     ]
@@ -69,7 +69,7 @@ def generate_codex_settings_outputs(
     if settings.codex is None:
         return []
 
-    agents_content = assemble_agents_instructions(workspace)
+    agents_content = assemble_universal_agent_instructions(workspace)
     source_path = workspace.settings / "codex.json"
     synchronized_settings = settings.codex.model_copy(
         update={"project_doc_max_bytes": len(agents_content.encode("utf-8"))}

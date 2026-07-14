@@ -13,7 +13,7 @@ from agent_sync.models.providers.providers import Provider
 from agent_sync.models.workspace import Workspace
 
 __all__ = [
-    "assemble_agents_instructions",
+    "assemble_universal_agent_instructions",
     "generate_rule_outputs",
     "is_managed_codex_rule",
 ]
@@ -81,8 +81,8 @@ def generate_rule_links(workspace: Workspace, source_path: Path, slug: str) -> l
     ]
 
 
-def assemble_agents_instructions(workspace: Workspace) -> str:
-    """Combine canonical rule bodies into universal project instructions."""
+def assemble_universal_agent_instructions(workspace: Workspace) -> str:
+    """Combine canonical rules into Universal Agent Instructions."""
 
     header = (
         "# AGENTS.md\n\n"
