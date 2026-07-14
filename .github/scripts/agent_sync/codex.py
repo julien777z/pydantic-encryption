@@ -25,12 +25,6 @@ def render_codex_settings_block(settings: CodexSettings) -> str:
     """Render canonical Codex settings as a marked TOML block."""
 
     lines = ["# >>> agent-sync managed Codex settings >>>"]
-    lines.extend(
-        (
-            f"approval_policy = {json.dumps(settings.approval_policy, ensure_ascii=False)}",
-            f"sandbox_mode = {json.dumps(settings.sandbox_mode, ensure_ascii=False)}",
-        )
-    )
 
     if settings.model is not None:
         lines.append(f"model = {json.dumps(settings.model, ensure_ascii=False)}")

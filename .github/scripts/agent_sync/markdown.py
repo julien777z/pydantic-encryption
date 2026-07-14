@@ -9,8 +9,6 @@ from pydantic import BaseModel, ValidationError
 from agent_sync.models.frontmatter import RuleFrontMatter
 
 __all__ = [
-    "assemble_codex_skill",
-    "derive_description",
     "ensure_trailing_newline",
     "has_front_matter",
     "normalize_rule_source",
@@ -82,14 +80,6 @@ def normalize_rule_source(front_matter: RuleFrontMatter, body: str) -> str:
     return render_front_matter(front_matter, body, exclude={"name"})
 
 
-def assemble_codex_skill(body: str, name: str, description: str) -> str:
-    """Build a Codex skill file with required front matter."""
-
-    front_matter = f"---\nname: {yaml_quote(name)}\ndescription: {yaml_quote(description)}\n---\n\n"
-
-    return front_matter + ensure_trailing_newline(body)
-
-
 def render_front_matter(
     front_matter: BaseModel,
     body: str,
@@ -145,29 +135,6 @@ def slug_to_codex_name(slug: str) -> str:
     return normalized or slug
 
 
-def derive_description(content: str) -> str:
-    """Extract a description from the first prose line or header."""
-
-    first_header = next(
-        (
-            " ".join(line.lstrip("#").strip().split())
-            for raw_line in content.splitlines()
-            if (line := raw_line.strip()).startswith("#")
-        ),
-        None,
-    )
-    first_prose = next(
-        (
-            " ".join(line.split())
-            for raw_line in content.splitlines()
-            if (line := raw_line.strip()) and not line.startswith("#")
-        ),
-        None,
-    )
-
-    return first_prose or first_header or "Project conventions."
-
-
 def ensure_trailing_newline(text: str) -> str:
     """Ensure generated text ends with one newline."""
 
@@ -181,11 +148,3 @@ def validate_slug(slug: str, source_path: Path) -> str:
         raise ValueError(f"Invalid slug '{slug}' from {source_path}")
 
     return slug
-
-
-def yaml_quote(value: str) -> str:
-    """Quote a string for a YAML scalar."""
-
-    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
-
-    return f'"{escaped}"'

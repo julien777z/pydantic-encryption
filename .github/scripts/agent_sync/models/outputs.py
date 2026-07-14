@@ -20,7 +20,6 @@ class OutputKind(StrEnum):
     CODEX_RULE = "codex_rule"
     CODEX_SETTINGS = "codex_settings"
     CODEX_SKILL = "codex_skill"
-    CODEX_SKILL_ASSET = "codex_skill_asset"
     CURSOR_AGENT = "cursor_agent"
     CURSOR_COMMAND = "cursor_command"
     CURSOR_HOOK = "cursor_hook"

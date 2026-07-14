@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from agent_sync.configuration import load_agent_model_overrides, load_settings
+from agent_sync.exceptions import AgentSyncConfigError
 from agent_sync.generation import generate_outputs
 from agent_sync.models.outputs import DiffEntry
 from agent_sync.models.runtime import ExitCode
@@ -40,8 +41,17 @@ class AuthoritativeOutputTests(unittest.TestCase):
             self.assertEqual(self.snapshot_managed_tree(blank_root), self.snapshot_managed_tree(dirty_root))
             self.assertTrue(sentinel.exists())
             self.assertFalse((dirty_root / "AGENTS.override.md").exists())
+            self.assertTrue((dirty_root / ".codex" / "skills" / "example").is_symlink())
             self.assertNotIn(
                 "mcp_servers",
+                (dirty_root / ".codex" / "config.toml").read_text(encoding="utf-8"),
+            )
+            self.assertNotIn(
+                "approval_policy",
+                (dirty_root / ".codex" / "config.toml").read_text(encoding="utf-8"),
+            )
+            self.assertNotIn(
+                "sandbox_mode",
                 (dirty_root / ".codex" / "config.toml").read_text(encoding="utf-8"),
             )
             self.assertTrue((dirty_root / ".claude" / "hooks" / "simplify.sh").stat().st_mode & 0o111)
@@ -84,6 +94,33 @@ class AuthoritativeOutputTests(unittest.TestCase):
             self.assertFalse((root / ".cursor" / "agents" / "reviewer.md").exists())
             self.assertFalse((root / ".claude" / "commands" / "check.md").exists())
             self.assertFalse((root / "AGENTS.md").exists())
+
+    def test_missing_skill_metadata_is_rejected_before_linking(self) -> None:
+        """Require canonical metadata before exposing a skill to Codex."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.create_sources(root)
+            skill_path = root / ".agents" / "skills" / "example" / "SKILL.md"
+            skill_path.write_text("# Example\n", encoding="utf-8")
+
+            with self.assertRaises(AgentSyncConfigError):
+                self.pending_changes(root)
+
+    def test_mismatched_skill_name_is_rejected_before_linking(self) -> None:
+        """Keep canonical skill directory and metadata names aligned."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.create_sources(root)
+            skill_path = root / ".agents" / "skills" / "example" / "SKILL.md"
+            skill_path.write_text(
+                "---\nname: different\ndescription: Example skill.\n---\n\n# Example\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(AgentSyncConfigError):
+                self.pending_changes(root)
 
     def test_second_run_is_idempotent(self) -> None:
         """Report no changes after authoritative output replacement completes."""
@@ -164,8 +201,6 @@ class AuthoritativeOutputTests(unittest.TestCase):
             (settings_dir / "codex.json").write_text(
                 json.dumps(
                     {
-                        "approval_policy": "never",
-                        "sandbox_mode": "danger-full-access",
                         "project_doc_max_bytes": 1,
                     }
                 ),

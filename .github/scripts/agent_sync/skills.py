@@ -3,18 +3,15 @@ from pathlib import Path
 
 from agent_sync.markdown import (
     SAFE_SLUG_PATTERN,
-    assemble_codex_skill,
-    derive_description,
-    ensure_trailing_newline,
     parse_markdown_file,
     slug_to_codex_name,
     validate_slug,
 )
+from agent_sync.exceptions import AgentSyncConfigError
 from agent_sync.models.frontmatter import SkillFrontMatter
 from agent_sync.models.outputs import OutputFile, OutputKind
 from agent_sync.models.providers.providers import Provider
 from agent_sync.models.workspace import Workspace
-from agent_sync.storage import read_text
 
 __all__ = ["generate_skill_outputs"]
 
@@ -38,8 +35,8 @@ def generate_skill_outputs(workspace: Workspace) -> list[OutputFile]:
             logger.warning("Missing SKILL.md in %s", skill_dir)
             continue
 
-        front_matter, content = parse_markdown_file(source_path, SkillFrontMatter)
-        codex_name = front_matter.name or slug_to_codex_name(slug)
+        front_matter, _ = parse_markdown_file(source_path, SkillFrontMatter)
+        codex_name = validate_codex_skill_metadata(front_matter, source_path)
 
         if not SAFE_SLUG_PATTERN.match(codex_name):
             logger.warning(
@@ -48,19 +45,17 @@ def generate_skill_outputs(workspace: Workspace) -> list[OutputFile]:
                 source_path,
             )
             codex_name = slug_to_codex_name(slug)
-        codex_description = front_matter.description or derive_description(content)
-
         outputs.extend(generate_skill_links(workspace, skill_dir, source_path, slug))
         outputs.append(
             OutputFile(
-                target_path=workspace.root / ".codex" / "skills" / codex_name / "SKILL.md",
-                content=assemble_codex_skill(content, codex_name, codex_description),
+                target_path=workspace.root / ".codex" / "skills" / codex_name,
+                content="",
                 kind=OutputKind.CODEX_SKILL,
                 slug=slug,
                 source_path=source_path,
+                link_target=skill_dir,
             )
         )
-        outputs.extend(generate_codex_skill_assets(workspace, skill_dir, codex_name, slug))
 
     return outputs
 
@@ -86,37 +81,21 @@ def generate_skill_links(
     ]
 
 
-def generate_codex_skill_assets(
-    workspace: Workspace,
-    skill_dir: Path,
-    codex_name: str,
-    slug: str,
-) -> list[OutputFile]:
-    """Generate non-Markdown Codex skill assets."""
+def validate_codex_skill_metadata(front_matter: SkillFrontMatter, source_path: Path) -> str:
+    """Require canonical metadata needed by every linked Codex skill."""
 
-    outputs: list[OutputFile] = []
-    for asset_path in sorted(skill_dir.rglob("*")):
-        if not asset_path.is_file() or asset_path.name == "SKILL.md":
-            continue
-
-        asset_content = read_text(asset_path)
-
-        if asset_content is None:
-            continue
-
-        outputs.append(
-            OutputFile(
-                target_path=(
-                    workspace.root / ".codex" / "skills" / codex_name / asset_path.relative_to(skill_dir)
-                ),
-                content=ensure_trailing_newline(asset_content),
-                kind=OutputKind.CODEX_SKILL_ASSET,
-                slug=slug,
-                source_path=asset_path,
-            )
+    if not front_matter.name or not front_matter.description:
+        raise AgentSyncConfigError(
+            f"Skill {source_path} must define non-empty name and description front matter"
         )
 
-    return outputs
+    if front_matter.name != source_path.parent.name:
+        raise AgentSyncConfigError(
+            f"Skill {source_path} must use directory name {source_path.parent.name!r} "
+            f"as its front matter name, not {front_matter.name!r}"
+        )
+
+    return front_matter.name
 
 
 def skill_link_kind(provider: Provider) -> OutputKind:
@@ -128,4 +107,4 @@ def skill_link_kind(provider: Provider) -> OutputKind:
         case Provider.CURSOR:
             return OutputKind.CURSOR_SKILL
         case Provider.CODEX:
-            raise ValueError("Codex skills are generated files, not directory links")
+            raise ValueError("Codex skills use their dedicated directory-link output")
