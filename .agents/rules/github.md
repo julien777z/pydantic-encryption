@@ -26,14 +26,3 @@ alwaysApply: true
 ## Guardrails
 
 - Never commit or push agent-authored changes directly to the default branch. If the checkout is on the default branch or detached, create a descriptive non-default branch; otherwise retain the current branch and deliver through its pull request.
-
-## Dependency Installation
-
-- Declare project dependencies used by workflows in the repository's dependency manifests and commit their lockfiles.
-- Run project-level installation commands such as `poetry install` or `npm install` in workflows.
-- Do not install individual project packages or embed their versions directly in workflow commands.
-
-## README Titles
-
-- Write the top-level heading in every `README.md` in title case.
-- Convert slug-style project names into readable words, such as `example-service` becoming `Example Service`.
