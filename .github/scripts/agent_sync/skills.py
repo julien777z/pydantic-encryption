@@ -82,6 +82,7 @@ def validate_canonical_skill_metadata(front_matter: SkillFrontMatter, source_pat
             f"as its front matter name, not {front_matter.name!r}"
         )
 
+
 def skill_link_kind(provider: Provider) -> OutputKind:
     """Return the directory-link output kind for one provider."""
 

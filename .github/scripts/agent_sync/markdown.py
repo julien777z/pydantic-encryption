@@ -1,7 +1,7 @@
 import logging
 import re
 from pathlib import Path
-from typing import Final, TypeVar
+from typing import Final
 
 import yaml
 from pydantic import BaseModel, ValidationError
@@ -20,7 +20,6 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 SAFE_SLUG_PATTERN: Final[re.Pattern[str]] = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
-FrontMatterModel = TypeVar("FrontMatterModel", bound=BaseModel)
 
 
 class FrontMatterDumper(yaml.SafeDumper):
@@ -38,7 +37,10 @@ def represent_multiline_str(dumper: yaml.SafeDumper, value: str) -> yaml.ScalarN
 FrontMatterDumper.add_representer(str, represent_multiline_str)
 
 
-def parse_markdown_file(path: Path, model: type[FrontMatterModel]) -> tuple[FrontMatterModel, str]:
+def parse_markdown_file[FrontMatterModel: BaseModel](
+    path: Path,
+    model: type[FrontMatterModel],
+) -> tuple[FrontMatterModel, str]:
     """Parse and validate a Markdown file's optional YAML front matter."""
 
     if not path.exists():

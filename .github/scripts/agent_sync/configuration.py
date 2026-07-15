@@ -1,6 +1,5 @@
 import logging
 from pathlib import Path
-from typing import TypeVar
 
 from pydantic import BaseModel, ValidationError
 
@@ -21,8 +20,6 @@ __all__ = [
 ]
 
 logger = logging.getLogger(__name__)
-
-SettingsModel = TypeVar("SettingsModel", bound=BaseModel)
 
 
 def load_settings(workspace: Workspace) -> AgentSyncSettings:
@@ -52,7 +49,7 @@ def load_agent_model_overrides(workspace: Workspace) -> dict[str, AgentModelOver
     return overrides
 
 
-def load_model(
+def load_model[SettingsModel: BaseModel](
     path: Path,
     model: type[SettingsModel],
     *,
