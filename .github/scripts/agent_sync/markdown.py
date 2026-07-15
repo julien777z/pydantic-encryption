@@ -6,7 +6,7 @@ from typing import Final
 import yaml
 from pydantic import BaseModel, ValidationError
 
-from agent_sync.models.frontmatter import RuleFrontMatter
+from agent_sync.models.documents import RuleFrontMatter
 
 __all__ = [
     "ensure_trailing_newline",

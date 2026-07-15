@@ -1,6 +1,6 @@
 from pydantic import BaseModel, ConfigDict, Field
 
-from agent_sync.models.providers.providers import Provider
+from agent_sync.models.configuration import Provider
 
 __all__ = ["AgentFrontMatter", "CommandFrontMatter", "RuleFrontMatter", "SkillFrontMatter"]
 

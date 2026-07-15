@@ -3,8 +3,8 @@ import logging
 from pathlib import Path
 from typing import Final
 
+from agent_sync.models.configuration import Workspace
 from agent_sync.models.outputs import DiffEntry, OutputFile
-from agent_sync.models.workspace import Workspace
 from agent_sync.storage import (
     delete_path,
     expected_link_text,

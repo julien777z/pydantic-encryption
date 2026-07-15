@@ -3,23 +3,27 @@ from pathlib import Path
 
 from pydantic import BaseModel, ValidationError
 
-from agent_sync.exceptions import AgentSyncConfigError
 from agent_sync.markdown import validate_slug
-from agent_sync.models.providers.claude import ClaudeSettings
-from agent_sync.models.providers.codex import CodexSettings
-from agent_sync.models.providers.cursor import CursorSettings
-from agent_sync.models.settings import (
+from agent_sync.models.configuration import (
     AgentModelOverride,
     AgentSyncSettings,
+    ClaudeSettings,
+    CodexSettings,
+    CursorSettings,
+    Workspace,
 )
-from agent_sync.models.workspace import Workspace
 
 __all__ = [
+    "AgentSyncConfigError",
     "load_agent_model_overrides",
     "load_settings",
 ]
 
 logger = logging.getLogger(__name__)
+
+
+class AgentSyncConfigError(ValueError):
+    """Report invalid canonical agent configuration."""
 
 
 def load_settings(workspace: Workspace) -> AgentSyncSettings:

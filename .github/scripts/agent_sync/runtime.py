@@ -1,23 +1,24 @@
 import argparse
 import logging
+from enum import IntEnum, StrEnum
 from pathlib import Path
 from typing import Final
 
+from pydantic import BaseModel, ConfigDict
+
 from agent_sync.configuration import (
+    AgentSyncConfigError,
     load_agent_model_overrides,
     load_settings,
 )
-from agent_sync.exceptions import AgentSyncConfigError
 from agent_sync.generation import generate_outputs
-from agent_sync.models.runtime import Command, ExitCode, RuntimeArguments
-from agent_sync.models.workspace import Workspace
+from agent_sync.models.configuration import Workspace
 from agent_sync.reconciliation import (
     apply_changes,
     compute_diffs,
     compute_stale_paths,
     report_diffs,
 )
-from agent_sync.validation import run_validations
 
 __all__ = ["main"]
 
@@ -25,6 +26,30 @@ __all__ = ["main"]
 logger = logging.getLogger(__name__)
 
 WORKSPACE: Final[Workspace] = Workspace(root=Path(__file__).resolve().parents[3])
+
+
+class ExitCode(IntEnum):
+    """Define agent-sync process exit codes."""
+
+    SUCCESS = 0
+    DIFFERENCES = 1
+    CONFIGURATION_ERROR = 2
+
+
+class Command(StrEnum):
+    """Define supported agent-sync commands."""
+
+    SYNC = "sync"
+    VALIDATE = "validate"
+
+
+class RuntimeArguments(BaseModel):
+    """Contain validated agent-sync command-line arguments."""
+
+    model_config = ConfigDict(frozen=True)
+
+    command: Command
+    dry_run: bool
 
 
 def main(arguments: list[str] | None = None) -> int:
@@ -42,8 +67,6 @@ def main(arguments: list[str] | None = None) -> int:
         settings = load_settings(WORKSPACE)
 
         if parsed_arguments.command is Command.VALIDATE:
-            run_validations(WORKSPACE, settings)
-
             return ExitCode.SUCCESS
 
         model_overrides = load_agent_model_overrides(WORKSPACE)
