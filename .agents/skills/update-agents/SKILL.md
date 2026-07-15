@@ -26,10 +26,13 @@ Upsert `.agents` source-of-truth files for agents, skills, or rules based on use
    - Do not manually create, update, or sync mirrored command/skill/rule files in those folders; repository automation propagates changes from `.agents` to Cursor, Claude, Codex, and similar targets.
 
 4. Upsert behavior.
-   - If target file exists, update it in place with the requested changes.
+   - If target file exists, read it completely before updating it in place with the requested changes.
    - If target file does not exist, create it with a concise structure matching existing style.
-   - Avoid duplicate guidance/content when updating.
-   - When adding a **new** restriction or rule, keep the wording **concise**—one clear statement or bullet per idea; do not pad with redundant sentences or multiple bullets that restate the same requirement.
+   - Place new guidance under the broadest existing subject section that fits. Use durable topic headings rather than creating a heading for one requirement.
+   - Express each independent requirement once, usually as one concise bullet. Merge overlapping or synonymous guidance without losing distinct criteria or exceptions.
+   - Normalize the touched file's nearby structure when needed: combine narrow sections, remove redundant wording, and order foundational guidance before specialized concerns.
+   - Retain examples only when they clarify a non-obvious distinction; remove examples that merely repeat the prose.
+   - Keep topic-specific restrictions with their topic. Put cross-cutting safety and preservation constraints in a final `## Guardrails` section, and omit that section when no guardrails exist.
    - **Stable guidance:** Do not embed concrete repository file paths or copy code examples from the current codebase into `.agents` files; those go stale when files move or refactors land. Prefer generic placeholders (for example `services/<name>/...`), short pattern descriptions, or minimal invented examples that are not tied to live paths or current line-level code.
 
 5. Multi-target behavior.
