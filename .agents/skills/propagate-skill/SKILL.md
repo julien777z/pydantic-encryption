@@ -5,7 +5,7 @@ description: Propagate explicitly requested skills, rules, and their changes acr
 
 # Propagate Skill Changes
 
-Replicate the requested semantic change, not the originating skill file wholesale.
+Replicate the requested semantic change and newer generic guidance, not the originating skill file wholesale.
 
 ## Dependencies
 
@@ -19,6 +19,7 @@ Replicate the requested semantic change, not the originating skill file wholesal
 4. Establish the in-scope target repositories from the bounded collection and the user's request. Exclude repositories whose primary purpose is developing, packaging, testing, or operating the agent-synchronization system itself: treat them as system repositories, not consumers, even when they contain `.agents` artifacts. Do not create, update, or include propagated skills or rules in those repositories unless the user specifically requests a change to that system repository. Assess every selected skill or rule, including recursively selected dependencies, independently for applicability to every remaining candidate target, using that repository's languages, frameworks, tooling, workflow, and existing agent configuration; do not use predefined skill-to-repository mappings. For every selected skill, update its existing `.agents/skills/<name>/SKILL.md` or create the missing skill directory and source file only in targets where the assessment is positive. For every selected rule, update its existing `.agents/rules/<name>.md` or create it only where the assessment is positive. Apply propagation only inside the selected `.agents/skills/<name>/` or `.agents/rules/<name>.md` paths; never create or edit provider mirrors such as `.codex`, `.claude`, or `.cursor`.
 5. Before comparing, read the complete originating file and the complete existing target file (when present), plus enough nearby target guidance to understand its repository-specific context. Never infer that files are identical from matching names, prior propagation, hashes, or a partial diff. Compare full text, line counts, and an exact diff before deciding whether a target is current. Then classify every difference before changing it:
    - **Requested semantic delta** — behavior the user explicitly requested in this propagation. Treat a direct change to the originating skill or rule as generic and propagate it to every applicable consumer unless the user, the source wording, or target evidence makes it repository-specific. Rewrite only that delta where it fits.
+   - **Stale generic guidance** — target wording known to be an older revision of the same repository-neutral guidance now present in the origin, based on repository history, a prior propagation, or another unambiguous superseding contract. Replace it with the newer originating wording. Never preserve or report stale generic wording as candidate conflicting or target-specific guidance merely because it differs from the current requested delta.
    - **Candidate conflicting guidance** — extra or different behavior found in a consumer that is not part of the current requested delta. First determine whether it is repository-specific. If it is generic conflicting guidance, preserve it where it is, report the exact difference and applicability evidence, and ask whether its wording should be merged into every applicable consumer and the originating repository. Do not make that choice merely because the files differ.
    - **Target-specific guidance** — behavior justified by the target's own tools, product, or workflow. Preserve it and report the variance.
 
@@ -37,5 +38,6 @@ Replicate the requested semantic change, not the originating skill file wholesal
 - Author and replicate canonical `.agents` artifacts; provider-specific outputs must be generated only by the repository synchronization system when it is in scope.
 - Treat locally generated provider outputs as disposable test artifacts and leave their publication to CI.
 - Keep replicated code examples and reusable instructions repository-neutral; retain domain-specific material only where it is relevant to that target.
+- Replace known older generic guidance with its newer canonical wording; preservation applies only to current repository-specific guidance or unresolved generic conflicts whose lineage is unknown.
 - Do not turn textual similarity or difference into authority: propagate every applicable generic requested delta, preserve repository-specific guidance, and ask the user to choose before elevating an unrequested consumer-only conflict into a cross-repository merge.
 - Never propagate secrets, absolute machine paths, generated mirrors, or repository-specific operational details to unrelated repositories.

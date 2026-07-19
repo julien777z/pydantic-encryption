@@ -1,15 +1,26 @@
 ---
 name: code-review-loop
-description: Run code-review repeatedly on its complete selected review target, investigate and fix every legitimate functional finding, validate and push the fixes, and stop only after two consecutive rounds with no functional findings (or a third when the second also makes simplifications). Any functional finding resets that stabilization sequence. Use when asked to review-and-fix, keep reviewing until clean, or run a code review loop.
+description: Run code-simplify once across the whole selected pull-request target, then run code-review repeatedly, investigate and fix every legitimate functional finding, validate and push the fixes, and stop only after two consecutive rounds with no functional findings (or a third when the second also makes simplifications). Any functional finding resets that stabilization sequence. Use when asked to review-and-fix, keep reviewing until clean, or run a code review loop.
 ---
 
 # Code Review Loop
 
 ## Dependencies
 
+- `code-simplify` — performs the whole-target simplification pass before review rounds begin.
 - `code-review` — performs each complete review pass in the loop.
 
 Drive the branch or session-derived review target to a clean functional result. Use `code-review` for every review pass so target selection, branch/PR creation when needed, review lenses, severity, and chat-only reporting stay consistent.
+
+## Pre-loop simplification
+
+Before initializing `noFunctionalFindingRounds`, running baseline validation, or starting the first review round:
+
+1. Establish the complete selected target with `code-review`'s target-selection and branch/draft-PR rules, but do not perform a review pass yet.
+2. Run `code-simplify` once across the whole selected target: the complete base-to-head pull-request or branch diff plus intended untracked files, never only the latest commit or most recent fixes. Apply every legitimate behavior-preserving simplification it finds.
+3. Stage only the intended simplification changes, discard generated or build outputs, commit, push, and refresh the complete target before the review loop starts. If the selected target was session commits on the default branch and simplification changes are needed, first create a new branch from that head and open a draft pull request for the changes.
+
+This simplification pass is mandatory, happens only once before the loop, does not count as a review pass, and does not change `noFunctionalFindingRounds`.
 
 ## No-functional-finding stabilization rounds
 
