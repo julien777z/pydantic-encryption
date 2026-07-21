@@ -6,7 +6,7 @@ on:
       - ".agents/**"
       - ".github/workflows/agent-sync.yml"
   schedule:
-    - cron: "0 6 * * 1"
+    - cron: "0 6 * * 5"
 
 concurrency:
   group: agent-sync-${{ github.ref }}
