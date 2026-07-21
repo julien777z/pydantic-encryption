@@ -2,6 +2,7 @@ name: Agent Sync
 
 on:
   push:
+    branches: [main, master]
     paths:
       - ".agents/**"
       - ".github/workflows/agent-sync.yml"
