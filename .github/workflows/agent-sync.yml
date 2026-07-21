@@ -2,12 +2,12 @@ name: Agent Sync
 
 on:
   push:
-    branches:
-      - main
+    branches: [main, master]
     paths:
       - ".agents/**"
-      - ".github/scripts/agent_sync/**"
       - ".github/workflows/agent-sync.yml"
+  schedule:
+    - cron: "0 6 * * 5"
 
 concurrency:
   group: agent-sync-${{ github.ref }}
@@ -18,54 +18,13 @@ permissions:
 
 jobs:
   sync:
-    name: Agent Sync
-    if: github.actor != 'github-actions[bot]'
+    name: Sync agent files
     runs-on: ubuntu-latest
-
+    if: github.event_name != 'push' || github.actor != 'github-actions[bot]'
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
         with:
-          python-version: "3.13"
-
-      - name: Install dependencies
-        run: python -m pip install "pydantic>=2.0.0,<3" "pyyaml>=6.0.0"
-
-      - name: Validate canonical agent configuration
-        working-directory: .github/scripts
-        run: python -m agent_sync.main validate
-
-      - name: Run agent sync
-        working-directory: .github/scripts
-        run: python -m agent_sync.main sync
-
-      - name: Commit and push generated changes
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          git add -u
-
-          if [ -d ".agents" ]; then git add .agents/; fi
-          if [ -d ".claude" ]; then git add .claude/; fi
-          if [ -d ".cursor" ]; then git add .cursor/; fi
-          if [ -d ".codex" ]; then git add .codex/; fi
-          if [ -f "AGENTS.md" ]; then git add AGENTS.md; fi
-          if [ -f "AGENTS.override.md" ]; then git add AGENTS.override.md; fi
-
-          if git diff --cached --quiet; then
-            echo "No changes to commit."
-            exit 0
-          fi
-
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git commit -m "chore: run agent sync"
-          git push origin "${{ github.ref_name }}"
-
-      - name: Verify sync idempotence
-        working-directory: .github/scripts
-        run: python -m agent_sync.main sync --dry-run
+          fetch-depth: 0
+      - uses: julien777z/agent-sync-action@v0
+        with:
+          refresh-external-skills: ${{ github.event_name == 'schedule' }}
