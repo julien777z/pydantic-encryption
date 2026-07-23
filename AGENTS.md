@@ -26,9 +26,193 @@ The canonical project rules live in `.agents/rules/`.
 - Use conventional commit messages when applicable and keep commits atomic and focused.
 - Do not commit generated files unless the repository explicitly requires them.
 
+## Dependency Installation
+
+- Declare project dependencies used by workflows in the repository's dependency manifests and commit their lockfiles.
+- Run project-level installation commands such as `poetry install` or `npm install` in workflows.
+- Do not install individual project packages or embed their versions directly in workflow commands.
+
+## README
+
+- Describe available capabilities without assuming how consumers will use the project or framing guidance as prohibitions such as "never do X."
+- Remove repeated explanations and prefer short sections, bullets, tables, and focused examples over long prose.
+
+### GitHub Actions And Libraries
+
+- Lead with the consumer-facing purpose; do not state that an action or library is reusable when that is already evident from the project.
+- Place a concise, list-based Features section immediately after the introduction.
+- Include little to no implementation or internal technical detail; describe public capabilities and outcomes instead.
+- Follow Features with an Example or Examples section.
+- Introduce each example with a one- or two-line description of its purpose, followed by a small code example.
+- In cron-based examples, use a conventional schedule such as every Monday and add an inline comment translating the cron expression into that plain-language schedule.
+- For reusable GitHub Actions, include an Inputs table with the input name, default value, and purpose.
+- Include a Local Development section with the commands needed to install, run, and validate the project locally.
+
+### Titles
+
+- Write the top-level heading in every `README.md` in title case.
+- Convert slug-style project names into readable words, such as `example-service` becoming `Example Service`.
+
 ## Guardrails
 
 - Never commit or push agent-authored changes directly to the default branch. If the checkout is on the default branch or detached, create a descriptive non-default branch; otherwise retain the current branch and deliver through its pull request.
+
+<!-- Source: .agents/rules/poetry.md -->
+
+# Poetry Project Rules
+
+## Project Configuration
+
+- Target Python 3.12 and use Poetry 2.x with PEP 621 `[project]` metadata; do not use legacy `[tool.poetry]` metadata or dependency tables.
+- Declare runtime dependencies in `[project.dependencies]`, development dependencies in `[project.optional-dependencies].dev`, and console entry points in `[project.scripts]`.
+- Configure strict Pyright, pytest with automatic asyncio support, and Black with a 100-character line length and Python 3.12 target inferred from `[project.requires-python]`.
+- Keep the Poetry build system at the end of `pyproject.toml`:
+
+```toml
+[build-system]
+requires = ["poetry-core>=2.0.0"]
+build-backend = "poetry.core.masonry.api"
+```
+
+- Use `poetry install`, `poetry run black .`, `poetry run pyright`, and `poetry run pytest` for the standard local workflow.
+
+## Application Structure
+
+- Prefer separate focused modules over monoliths, organizing code under `clients/`, `services/`, `models/`, and `core/` as applicable.
+- Prefer PEP 695 generic syntax when it improves a Python 3.12 interface.
+- Give every function and class a one-line imperative docstring followed by a blank line.
+- Services may be plain functions. Pass clients, sessions, and configuration explicitly rather than storing module-level runtime globals.
+- Use `aiohttp` for HTTP I/O, inject a `ClientSession` configured with a sensible timeout, create long-lived sessions at application startup, enable `raise_for_status` when appropriate, and parse responses asynchronously with `json()` or `text()`.
+- Keep HTTP-style error types in `core/errors.py`. Import the project's canonical `ErrorResponse` or `Error` as `HttpError`; create the missing canonical type rather than adding runtime import or compatibility fallbacks.
+- Configure logging centrally and use it instead of `print()`.
+
+## Testing
+
+- Use pytest and pytest-asyncio with small, readable tests, and mark async tests with `@pytest.mark.asyncio`.
+- Prefer dependency injection or fakes over deep patching.
+
+## Guardrails
+
+- Use Black rather than Ruff for formatting.
+- Keep comments minimal and do not generate additional Markdown beyond the existing rules and Project Layout documents unless the user requests it.
+
+<!-- Source: .agents/rules/project.md -->
+
+# Project Rules
+
+## Generated Outputs
+
+- Agents never stage generated provider output.
+- Only the repository's Agent Sync workflow may generate and commit provider output.
+
+## PR Monitoring And Background Timers
+
+- Never poll a PR with background `sleep` or timed self check-ins; act only on delivered PR activity webhooks.
+
+<!-- Source: .agents/rules/pydantic.md -->
+
+# Pydantic Rules
+
+## Model Design
+
+- Never use `@dataclass` decorator from `dataclasses` module.
+- Use Pydantic `BaseModel` for all class definitions that hold data.
+- Do not use `NamedTuple` for application or script data models; use an explicit `BaseModel` subclass instead.
+- Pydantic provides validation, serialization, and type coercion out of the box.
+
+- Expose zero-argument boolean accessors as `@property` instead of methods when they describe model state or capability.
+- Prefer property names such as `can_access_xyz` over `can_access_xyz()`.
+
+```python
+class AccessPolicy(BaseModel):
+    role: str
+
+    @property
+    def can_access_admin(self) -> bool:
+        return self.role == "admin"
+
+
+policy = AccessPolicy(role="member")
+
+if not policy.can_access_admin:
+    raise PermissionError("Admin access required")
+```
+
+- Never use `Protocol` for data models that hold data.
+- Use `Protocol` only for structural typing of interfaces (callbacks, duck typing).
+
+- Create response models with `from_orm_model` class method for ORM conversion.
+- Use `Self` return type for class methods.
+
+## Validation and Configuration
+
+- Use `model_config = ConfigDict(...)` for model configuration.
+- Use `model_dump()` instead of deprecated `dict()`.
+- Use `model_validator` decorator for custom validation.
+- Do not add `field_validator` or `model_validator` just to coerce enum strings that should be represented by the enum itself; update the enum values to match the real contract instead.
+- Do not define `__init__` on `BaseModel` subclasses; use fields, validators, `model_post_init`, or factory/class methods instead.
+- Never use `pydantic.create_model`; define an explicit `BaseModel` subclass instead.
+  If `create_model` feels necessary, the design is probably too dynamic or too clever; refactor toward a named model class.
+
+```python
+from enum import StrEnum
+
+from pydantic import BaseModel, field_validator
+
+
+class ShirtSize(StrEnum):
+    SMALL = "small"
+    LARGE = "large"
+
+# Bad: validator added only to paper over the wrong enum values
+class TShirtOrderBad(BaseModel):
+    size: ShirtSize
+
+    @field_validator("size", mode="before")
+    @classmethod
+    def validate_size(cls, value: str) -> str:
+        return value.upper()
+```
+
+## Fields and Serialization
+
+- Do not use `Field(...)` when only providing a description; field names should be self-explanatory.
+- Only use `Field(...)` when applying actual constraints (for example, `min_length`, `max_length`, `ge`, `le`, `pattern`).
+- Use `snake_case` for all Pydantic field names, even when an external API returns `camelCase`.
+- When an external payload uses a different key style, keep the Python attribute in `snake_case` and map the external key with `Field(alias=...)` instead of mirroring the external casing in the model.
+
+```python
+from datetime import date
+
+# Good: snake_case field with alias for external camelCase payload
+class ExternalCustomer(BaseModel):
+    last_name: str | None = Field(default=None, alias="lastName")
+    date_of_birth: date | None = Field(default=None, alias="dateOfBirth")
+
+# Bad: camelCase field names copied into the model
+class ExternalCustomer(BaseModel):
+    lastName: str | None = None
+    dateOfBirth: date | None = None
+```
+
+```python
+from pydantic import Field
+
+# Good: no Field when just documenting
+class WidgetPosition(BaseModel):
+    id: str
+    x: int
+    y: int
+
+# Good: Field with actual constraint
+class WidgetLayout(BaseModel):
+    layout_id: str = Field(..., min_length=1)
+
+# Bad: Field only for description
+class WidgetPosition(BaseModel):
+    id: str = Field(..., description="Unique widget identifier")
+    x: int = Field(..., description="X position")
+```
 
 <!-- Source: .agents/rules/python.md -->
 
@@ -42,7 +226,7 @@ The canonical project rules live in `.agents/rules/`.
 - Use `collections.abc` for abstract types: `Callable`, `Iterable`, etc.
 - Never use `Protocol` for model typing; use concrete model classes in type annotations.
 
-- Model structured payloads explicitly: use `TypedDict` for mapping-shaped data and `BaseModel` when validation or serialization is required, rather than arbitrary inline dictionaries or `dict[str, object]`.
+- Model structured payloads explicitly: use `TypedDict` for mapping-shaped data and Pydantic `BaseModel` for every data-holding class, rather than arbitrary inline dictionaries, `dict[str, object]`, `dataclass`, or `NamedTuple`.
 - Use exact types or precise unions for dynamic and nested shapes; never hide their contracts behind `Any` or placeholder `object` fields in application or test annotations.
 - Prefer real SDK and model types over `cast(...)`; reserve a narrowly scoped cast for information the type system genuinely cannot express.
 - Do not "fix" typing by expanding simple transformations into repetitive key-by-key copy blocks (for example, manually assigning each dict key only to satisfy pyright). Fix the source type hints (or add a precise cast/narrowing at the boundary) so the transformation can stay concise and readable.
@@ -108,7 +292,14 @@ class Report(BaseModel):
 - Use `__all__` exports in module `__init__.py` files.
 - Never define variables or call functions in between import statements; all imports must be contiguous at the top of the file.
 - Never create shim modules that only re-export symbols from another package for backwards compatibility; update all consumers to import from the canonical source instead.
+- Put generic reusable functions in the package's `utils.py`, even when they currently have one caller; keep domain-specific behavior in its owning module, and extract a focused module or package only when a cohesive domain or external boundary warrants it.
 - Narrow exception: `__main__.py` entrypoints may use same-package relative imports for bootstrap (for example `from .runtime import main`), and `__init__.py` may use explicit relative imports when assembling the package’s public surface.
+
+### Entrypoints
+
+- Keep `__main__.py` and script entrypoints thin.
+- Entrypoints only bootstrap and call a `main()` function from a dedicated runtime or service module.
+- Keep orchestration loops, transaction flow, and business logic in regular modules rather than entrypoint files.
 
 ```python
 # Bad: shim module that only re-exports symbols
@@ -132,56 +323,46 @@ config = third_party_package.Config(
 )
 ```
 
-## Configuration and Constants
+## Configuration
 
-- Define constants at the top of the file, after imports.
-- Place module-level constants and enums (including type aliases like `AllowedApiClient`) directly after imports.
-- Use `Final[T]` type annotation from `typing` for constants.
-- When a mutable object is annotated with `Final`, complete any setup-time mutation in the same expression as initialization instead of binding it first and mutating it on the next line.
-- Use UPPER_SNAKE_CASE naming convention for constants.
-- Only extract literals to constants when they are reused, configurable, or carry domain meaning; keep trivial single-use literals inline (for example, delimiters like `"-"` or `"."`).
-- Never hard-code constants like HTTP status codes; use `HTTPStatus` from the `http` module instead.
-- Prefer enums for error identifiers/messages instead of a constant per error string.
-
-- A group of related **configuration values** (API hosts, endpoint paths, protocol versions, header tokens, feature markers, default model names, timeouts) is not a set of constants — collect it into a **single typed config map**, not one `Final` per value.
-- Model the map with a `TypedDict` and build it by **calling** the constructor with keyword arguments (`CONFIG: Final[ReviewConfig] = ReviewConfig(...)`), then read values by key (`CONFIG["routine_host"]`). Do not annotate a plain dict literal.
-- Reserve standalone `Final` constants for genuinely single, unrelated constants — a compiled regex, a file path, a sentinel — that do not belong to a config group.
-- This is about grouping; it does not override the **Configuration** section below. Environment-backed values, or values that belong in the repository's central settings layer, still go there — not in a module-level map.
+- Define the repository's settings in one descriptively named `BaseSettings` class such as `ActionConfig`, instantiate one module-level constant such as `ACTION_CONFIG = ActionConfig()`, and import that validated object wherever settings are needed.
+- Put environment-backed, deployment-tunable, or intentionally overridable values in that settings class. This includes tool and CLI versions that are likely to change in future releases; do not freeze them as module constants.
+- Give configurable values typed defaults when the repository has a safe default, and let `pydantic-settings` provide namespaced environment overrides.
+- Use `TypedDict` only for static structured data that is not configuration.
 
 ```python
-from typing import Final, TypedDict
-
-# Bad: one config group spread across many individual constants
-SERVICE_BASE_URL: Final[str] = "https://api.example.com/v1"
-API_VERSION: Final[str] = "2026-01-01"
-FEATURE_TOKEN: Final[str] = "example-feature"
-REQUEST_MARKER: Final[str] = "<!-- request-marker -->"
-
-# Good: one typed config map, built by calling the TypedDict constructor
-class ServiceConfig(TypedDict):
-    base_url: str
-    api_version: str
-    feature_token: str
-    request_marker: str
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-CONFIG: Final[ServiceConfig] = ServiceConfig(
-    base_url="https://api.example.com/v1",
-    api_version="2026-01-01",
-    feature_token="example-feature",
-    request_marker="<!-- request-marker -->",
-)
+class ActionConfig(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="APPLICATION_", frozen=True)
+
+    tool_cli_version: str = "1.2.3"
+    request_timeout_seconds: int = 30
+
+
+ACTION_CONFIG = ActionConfig()
 ```
 
-- Only **environment-backed or deployment-tunable** values (allowed environments, feature flags, limits, timeouts an operator may change) belong in the repository's typed configuration layer.
-- Fixed third-party endpoint URLs and values fully derived from existing config (for example a from-address derived from `CONFIG.DOMAIN`) are **module-level `Final` constants** in the module that uses them, not config fields.
 - API keys and secrets must be **required** config fields with **no defaults** (no `= ""` or `| None = None` escape hatches); optionality is reserved for credentials with a documented ambient fallback (for example AWS IAM role credentials).
 - Avoid large piles of module-level constants. If a value is genuinely operator-tunable, add it to the project's central config model or settings layer.
 - Do not add useless config values like `DEFAULT_ENVIRONMENT`.
-- Do not add helper functions like `_get_environment` when the value already exists on `CONFIG`.
+- Do not add helper functions like `_get_environment` when the value already exists on the shared settings object.
 - Do not read environment variables directly with `os.getenv`, `os.environ`, or `os.environ.get` in application/service/library code.
-- Always read environment-backed values from the typed config object so defaults, validation, and normalization live in one place.
-- Exception: one-off scripts may read from `os` when introducing a `CONFIG` model would be unnecessary overhead.
+- Always read environment-backed values from the typed settings object so defaults, validation, and normalization live in one place.
+- Exception: one-off scripts may read from `os` when introducing a settings model would be unnecessary overhead.
+
+## Constants
+
+- Define constants at the top of the file, after imports.
+- Place module-level constants and enums (including type aliases like `AllowedApiClient`) directly after imports.
+- Use `Final[T]` from `typing` and UPPER_SNAKE_CASE names for constants.
+- Reserve constants for values that are genuinely invariant, such as compiled regexes, stable paths, or implementation sentinels. Values likely to change between releases or deployments belong in the typed settings class even when they have a default.
+- Compile regular expressions once at module scope and call methods on the compiled pattern instead of passing pattern strings repeatedly to `re.match`, `re.search`, `re.fullmatch`, or `re.sub`.
+- When a mutable object is annotated with `Final`, complete any setup-time mutation in the same expression as initialization instead of binding it first and mutating it on the next line.
+- Only extract literals when they are reused or carry domain meaning; keep trivial single-use literals inline (for example, delimiters like `"-"` or `"."`).
+- Never hard-code constants like HTTP status codes; use `HTTPStatus` from the `http` module instead.
+- Prefer enums for error identifiers/messages instead of a constant per error string.
 
 - **Never commit development or test secret values into application or library code** — not even to compare against them. Embedding a known dev key (or its hash) so the code can reject it just moves the secret *into* the codebase, which is the opposite of the goal. Real secrets live in the secrets manager; test secrets live in test configuration (`pyproject.toml` env), never in `.py` source.
 - **Do not branch on the environment in application code to relax or vary security posture** (`if ENVIRONMENT == "development": allow the weaker cipher / skip the check`). Which crypto backend, keys, and credentials are used is a deployment concern: production sets the real backend and secrets, tests set test values via test config. Application code states the single required contract (for example "encryption is AWS/KMS") and lets it hold everywhere.
@@ -191,8 +372,9 @@ CONFIG: Final[ServiceConfig] = ServiceConfig(
 
 Avoid trivial wrapper functions that add no value. A function that just returns its argument or applies a trivial fallback is noise:
 
+- Return `bool` for binary domain outcomes; never return integer `0` or `1` as a boolean substitute. Translate booleans into process exit codes only at the CLI boundary.
 - Do not rebind function arguments to a second local name when the value is unchanged (for example, `profile = obj`); name the parameter correctly at the signature instead.
-- Do not add passthrough function or method parameters when every call site provides the value from one shared source (for example, forwarding `timeout_seconds` from `CONFIG` in every call); read from that source directly where the value is used.
+- Do not add passthrough function or method parameters when every call site provides the value from one shared source (for example, forwarding `timeout_seconds` from `APPLICATION_CONFIG` in every call); read from that source directly where the value is used.
 
 - Prefer normal attribute assignment over `object.__setattr__(...)` when mutating Pydantic models in validators or helper methods.
 - Only use `object.__setattr__(...)` when normal assignment is genuinely unavailable (for example frozen models or descriptor bypass requirements), and keep that escape hatch explicit and justified.
@@ -200,7 +382,7 @@ Avoid trivial wrapper functions that add no value. A function that just returns 
 ```python
 # Bad: useless wrapper
 def resolve_config(config: Settings | None) -> Settings:
-    return config or CONFIG
+    return config or APPLICATION_CONFIG
 
 def get_auth_secret(config: Settings | None = None) -> str:
     resolved = resolve_config(config)  # Unnecessary indirection
@@ -208,17 +390,20 @@ def get_auth_secret(config: Settings | None = None) -> str:
 
 # Good: inline the fallback
 def get_auth_secret(config: Settings | None = None) -> str:
-    resolved = config or CONFIG
+    resolved = config or APPLICATION_CONFIG
     return resolved.SECRET
 ```
 
 ## Architecture and Boundaries
 
+- Files under a `models/` package contain only declarative models, enums, and behavior intrinsic to validating or representing those models. Do not put runtime registries, mappings, instantiated collaborators, filesystem layouts, I/O, or orchestration in model files.
+- Put runtime mappings and operational behavior in the module that owns their use. A typed `config.py` built with `pydantic-settings` is the explicit exception: it may define settings models and instantiate the shared settings object.
+
 - Application code (a function, method, property, class, constant, or field) with **zero non-test consumers** is dead code and must be deleted, along with the tests that only exist to exercise it.
 - **Tests do not justify keeping otherwise-unused application code.** A test that asserts a symbol no other application code reads is testing a fabricated contract; delete the symbol and that test together rather than preserving the symbol "because it's covered".
 - "Consumer" means live application/library code that reads the symbol — call sites, internal use by another live symbol, serialization, or a public package export in `__all__` that external packages import. Test modules are not consumers.
 - A symbol reached only indirectly through another symbol that is itself dead is also dead; remove the whole unused chain.
-- **Config fields that populate environment variables consumed by a third-party library are not dead code**, even when no application code reads the field directly. If a dependency we rely on reads an env var at runtime (for example a library whose `Settings` reads `ENCRYPTION_METHOD`/`ENCRYPTION_KEY`), the field must stay on `CONFIG` so the application sets that env var — the library is the consumer. Keep such fields and validate them where the environment requires it.
+- **Settings fields that populate environment variables consumed by a third-party library are not dead code**, even when no application code reads the field directly. If a dependency we rely on reads an env var at runtime (for example a library whose `Settings` reads `ENCRYPTION_METHOD`/`ENCRYPTION_KEY`), the field must stay on the shared settings object so the application sets that env var — the library is the consumer. Keep such fields and validate them where the environment requires it.
 
 - For values persisted in databases, queues, or cross-service contracts (for example handler names, event names, state keys), use explicit constants or enums.
 - Do not derive durable identifiers from implementation details like `function.__name__`.
@@ -236,18 +421,6 @@ register_task(task_type=TaskType.PROCESS_RESOURCE, handler_name=TaskHandlerKey.P
 
 # Bad: fragile runtime-derived key
 register_task(task_type=TaskType.PROCESS_RESOURCE, handler_name=handler.__name__)
-```
-
-- Keep `__main__.py` and script entrypoints thin.
-- Entrypoints should only bootstrap and call a `main()` function from a dedicated runtime/service module.
-- Place orchestration loops, transaction flow, and business logic in regular modules, not in the entrypoint file.
-
-```python
-# __main__.py
-from .runtime import main
-
-if __name__ == "__main__":
-    main()
 ```
 
 - Avoid monolithic service modules that mix orchestration, third-party API calls, policy decisions, and data mappers.
@@ -540,9 +713,205 @@ ALLOWED_STATES: Final[frozenset[str]] = frozenset({"ready", "complete"})
 
 - Use the `logging` module instead of `print()` for debugging, status, progress, or diagnostics in any code, including scripts and CLI tools.
 - Configure a logger at the top of each module: `logger = logging.getLogger(__name__)`.
+- Treat logger instances as runtime collaborators: name them `logger`, never `LOGGER`, and do not annotate them as `Final`.
 - Use appropriate log levels: `debug`, `info`, `warning`, `error`, `critical`.
 
 ## Guardrails
 
 - Do not remove intentional feature logic merely because it looks extra; verify the active request, nearby tests, and call sites before deleting newly added code.
 - If style-cleanup instructions conflict with clear feature intent, preserve behavior first and ask a clarifying question instead of removing the feature code.
+
+<!-- Source: .agents/rules/testing.md -->
+
+# Testing Rules
+
+## Test Organization
+
+- Test directories should mirror the source code structure.
+- If the source has `core/`, `models/`, `routes/`, or `services/`, keep the corresponding `unit/` and `integration/` folders aligned with those boundaries.
+- Place tests next to the source subdomain they verify, not in a loosely related folder.
+
+- Use pytest async tests (`async def test_...`).
+- Group tests in classes named `TestXxx`.
+- Use fixtures for setup (defined in `conftest.py` or fixture modules).
+- Register custom pytest markers in `pyproject.toml` under `[tool.pytest.ini_options].markers` instead of adding them dynamically in `pytest_configure(...)` inside `conftest.py`.
+- Add a single-line docstring to every test class and test function.
+- Test docstrings must start with `Test that ...` (example: `"""Test that when no credentials are provided an exception is raised"""`).
+- Do not include numeric HTTP status codes in test function names; use semantic status names instead (for example, `bad_request`, `not_found`, `forbidden`).
+
+- Keep ALL imports at the top of test files.
+- Never import inside test functions or methods.
+
+## Fixtures and Test Data
+
+- Define test helper functions at module level.
+- Keep helper docstrings to a single line.
+- **Builders belong in `conftest.py`, not in test files.** A "builder" is any helper whose job is to construct a domain object (Pydantic model, ORM row, request/response payload, mock with structured fields, file/path artifact, etc.) for use in tests. Common forms — `make_*`, `build_*`, `insert_*`, `create_*`, `fake_*` — must be promoted to `<noun>_*_factory` fixtures in the nearest shared `conftest.py`.
+- Module-level helpers are allowed only for trivial, non-construction utilities scoped to one file (predicates, small formatters, `to_comparable_string`-style assertion adapters). When in doubt, move it to `conftest.py`.
+
+- For HTTP endpoint tests, build request payloads from the same request models used by application routes/services, then serialize with `model_dump(...)`.
+- Prefer `model_dump(mode="json", exclude_unset=True, exclude_none=True)` unless the endpoint contract needs different dump options.
+- Do not pass ad-hoc inline dictionaries directly to `json=` when an application request model exists.
+- For mocked HTTP response bodies, prefer application response models (or shared contract response models) and serialize them with `model_dump(...)` instead of hand-rolled response dictionaries.
+- Use enum members in model payloads instead of hardcoded enum strings.
+- For invalid-request tests, derive from a valid model payload and then mutate/remove fields intentionally to assert validation behavior.
+
+- Do not create module-level helper factories inside test files for reusable objects. This includes the first invocation — even a one-off "I'll just put it here for now" builder belongs in `conftest.py` from day one.
+- Follow the canonical factory shape: a `@pytest.fixture` named `<noun>_*_factory` (for example `order_factory`, `customer_factory`, `payment_payload_factory`, `task_factory`) that returns an inner `_build(**overrides) -> Noun` closure. Use the `*_orm_factory` suffix specifically for SQLAlchemy ORM rows.
+- Put shared factories in `conftest.py` and prefer `@pytest.fixture` for setup.
+- Helper functions that appear in multiple test files must be extracted to the nearest shared `conftest.py` or a `utils.py` in the test service folder.
+- When multiple tests in a suite need the same config overrides, expose a reusable fixture helper (for example, `mock_config` returning `_mock_config(**overrides)`) in `conftest.py` instead of repeating `monkeypatch.setattr(...)` in each test.
+- Common payload creation functions (for example, `make_create_payload`) should be defined in the service-specific `conftest.py` and exposed as `@pytest.fixture` when a default payload is sufficient.
+- Keep `conftest.py` at shared test boundaries instead of scattering many topic-local `conftest.py` files.
+- If tests need additional properties that belong to shared fixture models, add the missing field in the shared fixture or factory instead of hardcoding literals in test payloads.
+- Prefer shared fixtures and `*_orm_factory` fixtures over ad-hoc object setup in test modules.
+- Keep reusable fixture helpers in shared `conftest.py` instead of duplicating setup in each test.
+- Use fixture-backed values instead of hardcoded IDs/names/emails/tax IDs when fixtures provide them.
+- Do not hardcode business-profile values when a shared fixture or factory can provide them; extend the shared fixture first when needed.
+
+```python
+# Bad: hardcoded property in a test payload
+payload = {
+    "website": "https://example.com",
+}
+
+# Good: add website to the shared fixture setup and use fixture data
+assert account_fixture.website is not None
+payload = {
+    "website": account_fixture.website,
+}
+```
+
+```python
+async def create_entity(
+    client: httpx.AsyncClient, tenant_id: str, payload: CreateEntityPayload
+):
+    """Create an entity."""
+
+    response_data = parse_response(
+        await client.post(...),
+        CreateEntityResponse,
+    )
+    return response_data
+```
+
+```python
+# Good: centralize repeated config overrides in conftest.py
+@pytest.fixture
+def mock_config(monkeypatch):
+    """Create a reusable config override helper for tests."""
+
+    def _mock_config(**overrides) -> None:
+        defaults = {
+            "FEATURE_FLAG_ENABLED": False,
+            "API_KEY": "test-api-key",
+        }
+        for key, value in {**defaults, **overrides}.items():
+            monkeypatch.setattr(f"app.config.CONFIG.{key}", value)
+
+    _mock_config()
+    return _mock_config
+```
+
+```python
+# Good: use fixture helper in tests instead of repeated monkeypatch lines
+async def test_extracts_tenant_from_token(mock_config):
+    mock_config(
+        ENVIRONMENT="development",
+        ALLOWED_TEST_ENVIRONMENTS=("development", "staging"),
+    )
+    # ...
+```
+
+- Combine similar test cases with `@pytest.mark.parametrize` instead of duplicating tests.
+- Tests that follow the same pattern with different inputs (for example, authorization error tests, not-found vs invalid-id, different name formats) must use `@pytest.mark.parametrize` instead of separate test methods.
+- Use `@pytest.mark.parametrize` for same-shape scenarios with different inputs.
+- Add readable `ids` for parametrized cases.
+
+```python
+@pytest.mark.parametrize(
+    ("postal_code", "expected_region"),
+    [
+        ("03301", "NH"),
+        ("90001", "CA"),
+    ],
+)
+def test_lookup_region(postal_code: str, expected_region: str) -> None:
+    result = lookup_postal_region(postal_code)
+
+    assert result is not None
+    assert result.region == expected_region
+```
+
+- Do not use `SimpleNamespace` for domain or API-shaped test objects; use real application models/factory fixtures or test-only `BaseModel` classes that mirror the contract.
+
+```python
+class TreeNode(BaseModel):
+    name: str
+    children: list["TreeNode"] = Field(default_factory=list)
+```
+
+- Use `*_orm_factory` fixtures to create real ORM instances (for example: `user_orm_factory`, `account_orm_factory`, `order_orm_factory`, `subscription_orm_factory`).
+- ORM factory fixtures must live in shared `conftest.py` files, not inside individual test modules.
+- Factory fixtures should return real model instances with fixture-backed defaults and allow overrides via keyword arguments.
+- For related entities, build real nested relationships in the factory (for example, attach a real `Customer` instance to `Order.customer`).
+
+```python
+# Good: reusable fixture-backed ORM factory in conftest.py
+@pytest.fixture
+def order_orm_factory(order_fixture, customer_fixture, customer_orm_factory):
+    """Build Order ORM instances with nested real Customer relation."""
+
+    def _build(**overrides):
+        customer = customer_orm_factory()
+        order = Orders(
+            id=order_fixture.id,
+            customer_id=customer_fixture.id,
+            status=OrderStatus.PENDING,
+        )
+        order.customer = customer
+        for key, value in overrides.items():
+            setattr(order, key, value)
+        return order
+
+    return _build
+```
+
+## Assertions and Mocking
+
+- Use descriptive assertions.
+- For database verification, query the database directly and compare fields.
+
+- Prefer third-party fakes first, then reusable test utilities, then patch-based mocks.
+- Use `AsyncMock` for async functions.
+- Avoid `MagicMock` for ORM/domain entities; use `*_orm_factory` fixtures that return real instances.
+- `MagicMock` is acceptable for external boundaries (SDK/client response containers, subprocess handles, and network wrappers).
+- For mocked third-party libraries, raise the real library exception types (for example `stripe.error.StripeError`) instead of mock-specific custom exceptions.
+- In reusable mock library/fake implementations, prefer real SDK/HTTP models and response objects over `MagicMock` whenever practical.
+
+- Test the documented and implemented SDK contract paths, not speculative runtime shapes.
+- Do not add defensive tests for unsupported SDK surfaces (for example, missing required methods) when the integration contract guarantees method availability.
+- If an SDK method is required by application code, tests should focus on valid responses and real failure modes from that method.
+- Keep test names and docstrings aligned with behavior and outcomes rather than SDK internals; avoid exact required-method names or wording such as "when `<method>` is available."
+
+## Configuration and Failures
+
+- Define test configuration values (hostnames, database URLs, API keys, etc.) in `pyproject.toml` under `[tool.pytest.ini_options]` in the `env` section.
+- Do NOT hardcode configuration values in `conftest.py` files.
+- Access these values via `os.environ` in test code.
+
+- If tests cannot be run locally (for example, missing dependencies, Docker not available, or environment issues), do NOT guess what the issue is. Ask the user for the error logs instead of speculating.
+- When CI tests fail and you cannot access the logs directly, ask the user to provide the failure output before attempting fixes.
+
+## Guardrails
+
+- **Hardcoded test values** - Don't use literal values when fixtures provide them:
+  - `UUID("00000000-...")` -> `entity_fixture.id`
+  - `name="John Doe"` -> `name=user_fixture.name`
+  - `email="test@example.com"` -> `email=user_fixture.email`
+- **SimpleNamespace as fake domain model** - Do not build test entities with `SimpleNamespace`; use fixture-backed models, ORM factory fixtures, or test-only `BaseModel` types.
+- **Local duplicate fixtures/builders** - Do not define ad-hoc helper constructors in test modules when a shared fixture or factory already covers the use case.
+- **Inline `make_*`/`build_*`/`insert_*`/`create_*` builders in test files** - Domain-object/payload/ORM/mock construction belongs in `conftest.py` as a `<noun>_*_factory` fixture, even for the first call site. Test files should compose fixtures, not define them.
+- **Duplicate domain-object setup** - If the same domain object construction appears in multiple tests, extract it to a shared `*_orm_factory` fixture in the nearest `conftest.py`.
+
+- Do not duplicate helper models or utility types across multiple test files. Put shared models in a shared test helper module instead.
