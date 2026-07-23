@@ -31,9 +31,10 @@ Upsert `.agents` source-of-truth files for agents, skills, or rules based on use
    - Place new guidance under the broadest existing subject section that fits. Use durable topic headings rather than creating a heading for one requirement.
    - Express each independent requirement once, usually as one concise bullet. Merge overlapping or synonymous guidance without losing distinct criteria or exceptions.
    - Normalize the touched file's nearby structure when needed: combine narrow sections, remove redundant wording, and order foundational guidance before specialized concerns.
-   - Retain examples only when they clarify a non-obvious distinction; remove examples that merely repeat the prose.
-   - Keep topic-specific restrictions with their topic. Put cross-cutting safety and preservation constraints in a final `## Guardrails` section, and omit that section when no guardrails exist.
+   - When adding a **new** restriction or rule, keep the wording **concise**—one clear statement or bullet per idea; do not pad with redundant sentences or multiple bullets that restate the same requirement.
    - **Stable guidance:** Do not embed concrete repository file paths or copy code examples from the current codebase into `.agents` files; those go stale when files move or refactors land. Prefer generic placeholders (for example `services/<name>/...`), short pattern descriptions, or minimal invented examples that are not tied to live paths or current line-level code.
+   - Retain examples only when they clarify a non-obvious distinction; remove examples that merely repeat the prose.
+   - Keep topic-specific restrictions with their topic. Keep an existing `## Guardrails` section at the bottom, and create one only for cross-cutting safety or preservation constraints.
 
 5. Multi-target behavior.
    - Apply multi-target updates for `agents`, `skills`, and `rules`.
