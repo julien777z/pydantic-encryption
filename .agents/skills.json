@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": [
+    {
+      "name": "no-ai-slop",
+      "repo": "petergyang/no-ai-slop",
+      "skill": "no-ai-slop",
+      "automatic_updates": true
+    }
+  ]
+}
