@@ -3,6 +3,8 @@ description: Use SQLAlchemy ORM/core query builders and shared table helpers ins
 globs:
 - '**/*.py'
 alwaysApply: false
+paths:
+- '**/*.py'
 ---
 
 # SQLAlchemy Rules
