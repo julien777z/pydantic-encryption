@@ -42,9 +42,7 @@ def resolve_backend() -> Any:
     return get_encryption_backend(method)
 
 
-def collect_row_assignments(
-    rows: Iterable[Any], column_keys: Iterable[str]
-) -> list[tuple[Any, str, bytes]]:
+def collect_row_assignments(rows: Iterable[Any], column_keys: Iterable[str]) -> list[tuple[Any, str, bytes]]:
     """Build ``(row, key, ciphertext)`` triples for every encrypted cell across rows."""
 
     column_keys = list(column_keys)
@@ -58,9 +56,7 @@ def collect_row_assignments(
     return assignments
 
 
-async def decrypt_assignments(
-    backend: Any, assignments: list[tuple[Any, str, bytes]]
-) -> None:
+async def decrypt_assignments(backend: Any, assignments: list[tuple[Any, str, bytes]]) -> None:
     """Decrypt every ``(row, key, ciphertext)`` triple under a TaskGroup and write results back.
 
     Concurrent KMS calls are bounded by the aiobotocore connection pool
@@ -73,10 +69,7 @@ async def decrypt_assignments(
         return
 
     async with asyncio.TaskGroup() as tg:
-        tasks = [
-            tg.create_task(backend.async_decrypt(ciphertext))
-            for _, _, ciphertext in assignments
-        ]
+        tasks = [tg.create_task(backend.async_decrypt(ciphertext)) for _, _, ciphertext in assignments]
 
     for (row, key, _), task in zip(assignments, tasks):
         set_decrypted(row, key, decode_value(task.result()))

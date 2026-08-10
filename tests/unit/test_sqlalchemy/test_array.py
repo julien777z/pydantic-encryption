@@ -2,7 +2,10 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue, SQLAlchemyPGEncryptedArray
+from pydantic_encryption.integrations.sqlalchemy.encryption import (
+    SQLAlchemyEncryptedValue,
+    SQLAlchemyPGEncryptedArray,
+)
 from pydantic_encryption.integrations.sqlalchemy.serialization import decode_value, encode_value
 
 
@@ -58,7 +61,10 @@ class TestSQLAlchemyPGEncryptedArray:
         assert result == original
 
     def test_serialize_deserialize_roundtrip_uuid_array(self):
-        original = [UUID("12345678-1234-5678-1234-567812345678"), UUID("87654321-4321-8765-4321-876543218765")]
+        original = [
+            UUID("12345678-1234-5678-1234-567812345678"),
+            UUID("87654321-4321-8765-4321-876543218765"),
+        ]
         serialized = [encode_value(v) for v in original]
         result = [decode_value(v) for v in serialized]
         assert result == original

@@ -28,12 +28,8 @@ class OnAccessRow(OnAccessBase, DeferredDecryptMixin):
     __tablename__ = "_on_access_row"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    first_name: Mapped[str | None] = mapped_column(
-        SQLAlchemyEncryptedValue(), nullable=True, default=None
-    )
-    last_name: Mapped[str | None] = mapped_column(
-        SQLAlchemyEncryptedValue(), nullable=True, default=None
-    )
+    first_name: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
+    last_name: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
 
 
 class OnAccessBytesRow(OnAccessBase, DeferredDecryptMixin):
@@ -42,9 +38,7 @@ class OnAccessBytesRow(OnAccessBase, DeferredDecryptMixin):
     __tablename__ = "_on_access_bytes_row"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    payload: Mapped[bytes | None] = mapped_column(
-        SQLAlchemyEncryptedValue(), nullable=True, default=None
-    )
+    payload: Mapped[bytes | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
 
 
 def encrypt_value(value: Any) -> bytes:
@@ -176,7 +170,9 @@ class TestBatchAcrossSiblings:
             assert isinstance(sa_inspect(row).dict["last_name"], EncryptedValue)
 
     def test_skips_rows_whose_column_is_already_decrypted(
-        self, user_fixture: User, other_user_fixture: User,
+        self,
+        user_fixture: User,
+        other_user_fixture: User,
     ):
         """Test that already-decrypted bytes-typed columns are not re-decrypted."""
 
@@ -193,7 +189,9 @@ class TestBatchAcrossSiblings:
         assert sa_inspect(row_b).dict["payload"] == other_user_fixture.payload
 
     def test_decrypt_call_count_equals_row_count(
-        self, user_fixture: User, other_user_fixture: User,
+        self,
+        user_fixture: User,
+        other_user_fixture: User,
     ):
         """Test that one decrypt call is issued per row in the batch."""
 
@@ -225,7 +223,9 @@ class TestPendingSiblings:
         assert pending_siblings(session, OnAccessRow) == []
 
     def test_returns_instances_when_class_present_in_bucket(
-        self, user_fixture: User, other_user_fixture: User,
+        self,
+        user_fixture: User,
+        other_user_fixture: User,
     ):
         """Test that pending_siblings returns registered instances for a class."""
 
@@ -299,9 +299,7 @@ class TestDescriptorOnDetachedRead:
                 warnings.simplefilter("always")
                 assert row.first_name == user_fixture.first_name
 
-            assert not any(
-                "never awaited" in str(w.message).lower() for w in caught
-            )
+            assert not any("never awaited" in str(w.message).lower() for w in caught)
 
     def test_decrypt_method_unblocks_subsequent_reads(self, user_fixture: User):
         """Test that awaiting instance.decrypt() leaves the attribute as plaintext."""

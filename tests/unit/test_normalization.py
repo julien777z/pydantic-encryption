@@ -82,5 +82,7 @@ class TestConflictingOptions:
             normalize_value("test", {"strip_non_characters": True, "strip_non_digits": True})
 
     def test_normalize_to_lowercase_and_normalize_to_uppercase_raises(self):
-        with pytest.raises(ValueError, match="normalize_to_lowercase and normalize_to_uppercase cannot both be True"):
+        with pytest.raises(
+            ValueError, match="normalize_to_lowercase and normalize_to_uppercase cannot both be True"
+        ):
             normalize_value("test", {"normalize_to_lowercase": True, "normalize_to_uppercase": True})

@@ -52,9 +52,7 @@ def on_orm_load(instance: Any, context: Any) -> None:
     if session is None:
         return
 
-    bucket: dict[type, WeakSet] = session.info.setdefault(
-        PENDING_DECRYPT_KEY, defaultdict(WeakSet)
-    )
+    bucket: dict[type, WeakSet] = session.info.setdefault(PENDING_DECRYPT_KEY, defaultdict(WeakSet))
     bucket[type(instance)].add(instance)
 
 

@@ -32,9 +32,7 @@ class DeferMixed(DeferBase, DeferredDecryptMixin):
     __tablename__ = "_defer_mixed"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    secret: Mapped[str | None] = mapped_column(
-        SQLAlchemyEncryptedValue(), nullable=True, default=None
-    )
+    secret: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
 
 
 class DeferPlain(DeferBase):
@@ -43,9 +41,7 @@ class DeferPlain(DeferBase):
     __tablename__ = "_defer_plain"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    secret: Mapped[str | None] = mapped_column(
-        SQLAlchemyEncryptedValue(), nullable=True, default=None
-    )
+    secret: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
 
 
 class TestDeferDecrypt:
@@ -140,12 +136,8 @@ class BulkContractor(BulkBase, DeferredDecryptMixin):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     org_id: Mapped[int | None] = mapped_column(ForeignKey("_bulk_test_org.id"), nullable=True, default=None)
-    first_name: Mapped[str | None] = mapped_column(
-        SQLAlchemyEncryptedValue(), nullable=True, default=None
-    )
-    last_name: Mapped[str | None] = mapped_column(
-        SQLAlchemyEncryptedValue(), nullable=True, default=None
-    )
+    first_name: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
+    last_name: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
     org: Mapped["BulkOrg | None"] = relationship(back_populates="contractors")
 
 
@@ -267,4 +259,3 @@ class TestDecryptValues:
         result = asyncio.run(decrypt_values(values))
 
         assert result == ["a", 42, "plain", None]
-

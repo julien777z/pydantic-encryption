@@ -103,11 +103,17 @@ class TestSQLAlchemyBlindIndexValueConfig:
 
     def test_conflicting_strip_options_raises(self):
         with pytest.raises(ValueError, match="strip_non_characters and strip_non_digits cannot both be True"):
-            SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256, strip_non_characters=True, strip_non_digits=True)
+            SQLAlchemyBlindIndexValue(
+                BlindIndexMethod.HMAC_SHA256, strip_non_characters=True, strip_non_digits=True
+            )
 
     def test_conflicting_case_options_raises(self):
-        with pytest.raises(ValueError, match="normalize_to_lowercase and normalize_to_uppercase cannot both be True"):
-            SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256, normalize_to_lowercase=True, normalize_to_uppercase=True)
+        with pytest.raises(
+            ValueError, match="normalize_to_lowercase and normalize_to_uppercase cannot both be True"
+        ):
+            SQLAlchemyBlindIndexValue(
+                BlindIndexMethod.HMAC_SHA256, normalize_to_lowercase=True, normalize_to_uppercase=True
+            )
 
     def test_hmac_method_stores_method(self):
         type_adapter = SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256)
@@ -143,7 +149,9 @@ class TestSQLAlchemyBlindIndexValueConfig:
     def test_different_methods_produce_different_outputs(self):
         hmac_adapter = SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256)
         argon2_adapter = SQLAlchemyBlindIndexValue(BlindIndexMethod.ARGON2)
-        assert hmac_adapter.process_bind_param("test@example.com", None) != argon2_adapter.process_bind_param("test@example.com", None)
+        assert hmac_adapter.process_bind_param("test@example.com", None) != argon2_adapter.process_bind_param(
+            "test@example.com", None
+        )
 
     def test_python_type(self):
         type_adapter = SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256)

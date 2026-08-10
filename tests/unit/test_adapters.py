@@ -58,7 +58,7 @@ class TestFernetAdapter:
 
     def test_encrypt_special_characters(self):
         """Test encrypting special characters."""
-        plaintext = "!@#$%^&*()_+-={}[]|\\:\";<>?,./~`"
+        plaintext = '!@#$%^&*()_+-={}[]|\\:";<>?,./~`'
         encrypted = FernetAdapter.encrypt(plaintext)
         decrypted = FernetAdapter.decrypt(encrypted)
 
@@ -121,7 +121,7 @@ class TestArgon2Adapter:
 
     def test_hash_special_characters(self):
         """Test hashing special characters."""
-        value = "!@#$%^&*()_+-={}[]|\\:\";<>?,./~`"
+        value = '!@#$%^&*()_+-={}[]|\\:";<>?,./~`'
         hashed = Argon2Adapter.hash(value)
 
         assert isinstance(hashed, HashedValue)

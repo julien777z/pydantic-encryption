@@ -16,7 +16,6 @@ from pydantic_encryption.adapters.base import EncryptionAdapter, encode_text
 from pydantic_encryption.config import settings
 from pydantic_encryption.types import EncryptedValue
 
-
 CIPHERTEXT_MAGIC: Final[int] = 0xC0
 CIPHERTEXT_VERSION: Final[int] = 0x01
 HEADER_PACK_FORMAT: Final[str] = ">BBH"
@@ -37,11 +36,7 @@ def to_bytes(ciphertext: bytes | str | EncryptedValue) -> bytes:
 def kms_kwargs() -> dict[str, str]:
     """Return boto3/aioboto3 kwargs for the configured KMS region + credentials."""
 
-    has_key = (
-        settings.AWS_KMS_KEY_ARN
-        or settings.AWS_KMS_ENCRYPT_KEY_ARN
-        or settings.AWS_KMS_DECRYPT_KEY_ARN
-    )
+    has_key = settings.AWS_KMS_KEY_ARN or settings.AWS_KMS_ENCRYPT_KEY_ARN or settings.AWS_KMS_DECRYPT_KEY_ARN
     if not (
         has_key
         and settings.AWS_KMS_REGION
@@ -205,9 +200,7 @@ class AWSAdapter(EncryptionAdapter):
         return AESGCM(plaintext_data_key).decrypt(nonce, sealed, None).decode("utf-8")
 
     @classmethod
-    async def async_decrypt(
-        cls, ciphertext: bytes | str | EncryptedValue, *, key: str | None = None
-    ) -> str:
+    async def async_decrypt(cls, ciphertext: bytes | str | EncryptedValue, *, key: str | None = None) -> str:
         wrapped, nonce, sealed = open(to_bytes(ciphertext))
 
         kms = await cls.async_kms()
