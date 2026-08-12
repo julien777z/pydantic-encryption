@@ -8,6 +8,12 @@
       "update_on_sync": true
     },
     {
+      "name": "i-have-adhd",
+      "repo": "ayghri/i-have-adhd",
+      "skill": "i-have-adhd",
+      "update_on_sync": false
+    },
+    {
       "name": "async-python-patterns",
       "repo": "wshobson/agents",
       "skill": "async-python-patterns",
