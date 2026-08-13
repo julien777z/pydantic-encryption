@@ -371,7 +371,10 @@ class TestAsyncInitNestedModels:
 
         user = await _User.async_init(
             name="John",
-            address_groups=[[{"street": "123 Main St"}], [{"street": "456 Oak Ave"}, {"street": "789 Elm St"}]],
+            address_groups=[
+                [{"street": "123 Main St"}],
+                [{"street": "456 Oak Ave"}, {"street": "789 Elm St"}],
+            ],
         )
 
         assert user.name == "John"

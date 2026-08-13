@@ -39,9 +39,7 @@ class EncryptionAdapter(ABC):
         return await asyncio.to_thread(cls.encrypt, plaintext, key=key)
 
     @classmethod
-    async def async_decrypt(
-        cls, ciphertext: bytes | str | EncryptedValue, *, key: str | None = None
-    ) -> str:
+    async def async_decrypt(cls, ciphertext: bytes | str | EncryptedValue, *, key: str | None = None) -> str:
         return await asyncio.to_thread(cls.decrypt, ciphertext, key=key)
 
 

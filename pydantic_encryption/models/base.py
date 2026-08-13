@@ -226,9 +226,7 @@ class SecureModel:
             return
 
         backend, key, fields = collected
-        await self.async_apply(
-            [(name, backend.async_encrypt(val, key=key)) for name, val in fields.items()]
-        )
+        await self.async_apply([(name, backend.async_encrypt(val, key=key)) for name, val in fields.items()])
 
     async def async_hash_data(self) -> None:
         """Asynchronously hash fields annotated with ``Hashed``."""
@@ -237,9 +235,7 @@ class SecureModel:
         if fields is None:
             return
 
-        await self.async_apply(
-            [(name, Argon2Adapter.async_hash(val)) for name, val in fields.items()]
-        )
+        await self.async_apply([(name, Argon2Adapter.async_hash(val)) for name, val in fields.items()])
 
     async def async_blind_index_data(self) -> None:
         """Asynchronously compute blind indexes for fields annotated with ``BlindIndex``."""
@@ -263,9 +259,7 @@ class SecureModel:
             return self
 
         backend, key, fields = collected
-        await self.async_apply(
-            [(name, backend.async_decrypt(val, key=key)) for name, val in fields.items()]
-        )
+        await self.async_apply([(name, backend.async_decrypt(val, key=key)) for name, val in fields.items()])
 
         return self
 

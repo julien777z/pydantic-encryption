@@ -77,9 +77,7 @@ class SQLAlchemyBlindIndexValue(TypeDecorator):
         value = self.normalize(value)
         backend = get_blind_index_backend(self.method)
 
-        return run_async_or_sync(
-            backend.async_compute_blind_index, backend.compute_blind_index, value, key
-        )
+        return run_async_or_sync(backend.async_compute_blind_index, backend.compute_blind_index, value, key)
 
     def make_blind_index_value(self, value: str | bytes, *, salt: bytes | None = None) -> BlindIndexValue:
         """Return a salted blind index using this column's own method and normalization flags."""

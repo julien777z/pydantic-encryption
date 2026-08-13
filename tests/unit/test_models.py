@@ -84,7 +84,6 @@ class TestModelEncryption:
         assert isinstance(model.secret, EncryptedValue)
 
 
-
 class TestModelDecryption:
     """Test model decryption behavior using decrypt_data()."""
 

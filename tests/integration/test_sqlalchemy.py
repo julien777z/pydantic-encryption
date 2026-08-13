@@ -149,9 +149,7 @@ class TestIntegrationSQLAlchemy:
     def test_encrypt_decrypt_bool_true(self, db_session: Session):
         """Test that boolean True is encrypted and decrypted correctly."""
 
-        user = self.create_user(
-            db_session, username="user9", password=TEST_PASSWORD, is_active=True
-        )
+        user = self.create_user(db_session, username="user9", password=TEST_PASSWORD, is_active=True)
 
         assert user.is_active is True
         assert isinstance(user.is_active, bool)
@@ -159,9 +157,7 @@ class TestIntegrationSQLAlchemy:
     def test_encrypt_decrypt_bool_false(self, db_session: Session):
         """Test that boolean False is encrypted and decrypted correctly."""
 
-        user = self.create_user(
-            db_session, username="user10", password=TEST_PASSWORD, is_active=False
-        )
+        user = self.create_user(db_session, username="user10", password=TEST_PASSWORD, is_active=False)
 
         assert user.is_active is False
         assert isinstance(user.is_active, bool)
@@ -169,18 +165,14 @@ class TestIntegrationSQLAlchemy:
     def test_encrypt_decrypt_bool_none(self, db_session: Session):
         """Test that boolean None is handled correctly."""
 
-        user = self.create_user(
-            db_session, username="user11", password=TEST_PASSWORD, is_active=None
-        )
+        user = self.create_user(db_session, username="user11", password=TEST_PASSWORD, is_active=None)
 
         assert user.is_active is None
 
     def test_encrypt_decrypt_float(self, db_session: Session):
         """Test that float fields are encrypted and decrypted correctly."""
 
-        user = self.create_user(
-            db_session, username="user12", password=TEST_PASSWORD, balance=TEST_BALANCE
-        )
+        user = self.create_user(db_session, username="user12", password=TEST_PASSWORD, balance=TEST_BALANCE)
 
         assert user.balance == TEST_BALANCE
         assert isinstance(user.balance, float)
@@ -188,18 +180,14 @@ class TestIntegrationSQLAlchemy:
     def test_encrypt_decrypt_float_negative(self, db_session: Session):
         """Test that negative float values are handled correctly."""
 
-        user = self.create_user(
-            db_session, username="user13", password=TEST_PASSWORD, balance=-123.45
-        )
+        user = self.create_user(db_session, username="user13", password=TEST_PASSWORD, balance=-123.45)
 
         assert user.balance == -123.45
 
     def test_encrypt_decrypt_decimal(self, db_session: Session):
         """Test that Decimal fields are encrypted and decrypted correctly."""
 
-        user = self.create_user(
-            db_session, username="user14", password=TEST_PASSWORD, salary=TEST_SALARY
-        )
+        user = self.create_user(db_session, username="user14", password=TEST_PASSWORD, salary=TEST_SALARY)
 
         assert user.salary == TEST_SALARY
         assert isinstance(user.salary, Decimal)
@@ -209,9 +197,7 @@ class TestIntegrationSQLAlchemy:
 
         high_precision = Decimal("123.456789012345678901234567890")
 
-        user = self.create_user(
-            db_session, username="user15", password=TEST_PASSWORD, salary=high_precision
-        )
+        user = self.create_user(db_session, username="user15", password=TEST_PASSWORD, salary=high_precision)
 
         assert user.salary == high_precision
 
@@ -240,9 +226,7 @@ class TestIntegrationSQLAlchemy:
 
         tz_time = time(14, 30, 45, tzinfo=timezone.utc)
 
-        user = self.create_user(
-            db_session, username="user18", password=TEST_PASSWORD, login_time=tz_time
-        )
+        user = self.create_user(db_session, username="user18", password=TEST_PASSWORD, login_time=tz_time)
 
         assert user.login_time == tz_time
         assert user.login_time.tzinfo is not None
@@ -273,9 +257,7 @@ class TestIntegrationSQLAlchemy:
 
         test_tags = ["tag1", "tag2", "tag3"]
 
-        user = self.create_user(
-            db_session, username="user21", password=TEST_PASSWORD, tags=test_tags
-        )
+        user = self.create_user(db_session, username="user21", password=TEST_PASSWORD, tags=test_tags)
 
         assert user.tags == test_tags
         assert isinstance(user.tags, list)
@@ -283,27 +265,21 @@ class TestIntegrationSQLAlchemy:
     def test_encrypt_decrypt_array_none(self, db_session: Session):
         """Test that None array values are handled correctly."""
 
-        user = self.create_user(
-            db_session, username="user22", password=TEST_PASSWORD, tags=None
-        )
+        user = self.create_user(db_session, username="user22", password=TEST_PASSWORD, tags=None)
 
         assert user.tags is None
 
     def test_encrypt_decrypt_array_empty(self, db_session: Session):
         """Test that empty arrays are handled correctly."""
 
-        user = self.create_user(
-            db_session, username="user23", password=TEST_PASSWORD, tags=[]
-        )
+        user = self.create_user(db_session, username="user23", password=TEST_PASSWORD, tags=[])
 
         assert user.tags == []
 
     def test_encrypt_decrypt_array_single_element(self, db_session: Session):
         """Test that single-element arrays are handled correctly."""
 
-        user = self.create_user(
-            db_session, username="user24", password=TEST_PASSWORD, tags=["only"]
-        )
+        user = self.create_user(db_session, username="user24", password=TEST_PASSWORD, tags=["only"])
 
         assert user.tags == ["only"]
 
@@ -332,9 +308,7 @@ class TestIntegrationSQLAlchemy:
     def test_blind_index_none_handling(self, db_session: Session):
         """Test that None blind index values are handled correctly."""
 
-        user = self.create_user(
-            db_session, username="user27", password=TEST_PASSWORD
-        )
+        user = self.create_user(db_session, username="user27", password=TEST_PASSWORD)
 
         assert user.blind_index_email is None
         assert user.blind_index_email_argon2 is None
@@ -350,9 +324,7 @@ class TestIntegrationSQLAlchemy:
 
         # Query using the same plaintext value — SQLAlchemy's TypeDecorator
         # will hash it via process_bind_param, producing the same blind index
-        found_user = db_session.query(User).filter(
-            User.blind_index_email == unique_email
-        ).first()
+        found_user = db_session.query(User).filter(User.blind_index_email == unique_email).first()
 
         assert found_user is not None
         assert found_user.username == "user28"

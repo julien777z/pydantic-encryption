@@ -58,7 +58,7 @@ class TestAsyncFernetAdapter:
 
     @pytest.mark.asyncio
     async def test_async_encrypt_special_characters(self):
-        plaintext = "!@#$%^&*()_+-={}[]|\\:\";<>?,./~`"
+        plaintext = '!@#$%^&*()_+-={}[]|\\:";<>?,./~`'
         encrypted = await FernetAdapter.async_encrypt(plaintext)
         decrypted = await FernetAdapter.async_decrypt(encrypted)
 

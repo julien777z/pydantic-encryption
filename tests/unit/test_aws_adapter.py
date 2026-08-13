@@ -145,9 +145,7 @@ class TestAWSAdapterEncrypt:
         assert blob[0] == CIPHERTEXT_MAGIC
         assert blob[1] == CIPHERTEXT_VERSION
 
-    def test_encrypt_calls_generate_data_key_once_per_call(
-        self, fake_sync_kms: FakeSyncKMSClient
-    ) -> None:
+    def test_encrypt_calls_generate_data_key_once_per_call(self, fake_sync_kms: FakeSyncKMSClient) -> None:
         """Test that every sync encrypt() call requests a fresh KMS data key."""
 
         AWSAdapter.encrypt(b"payload-1")
@@ -164,9 +162,7 @@ class TestAWSAdapterEncrypt:
 
         assert len(fake_sync_kms.generate_calls) == 1
 
-    def test_encrypt_passthrough_for_already_encrypted_value(
-        self, fake_sync_kms: FakeSyncKMSClient
-    ) -> None:
+    def test_encrypt_passthrough_for_already_encrypted_value(self, fake_sync_kms: FakeSyncKMSClient) -> None:
         """Test that encrypt() returns an existing EncryptedValue unchanged without invoking KMS."""
 
         already_encrypted = EncryptedValue(b"already-sealed")
@@ -287,9 +283,7 @@ class TestAWSAdapterAsync:
 class TestAWSAdapterValidation:
     """Test the ciphertext-format guards on the decrypt path."""
 
-    def test_kms_client_build_raises_when_settings_unset(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_kms_client_build_raises_when_settings_unset(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that the lazy KMS client builder rejects unset AWS_KMS settings at use time."""
 
         reset_adapter_state()
@@ -309,9 +303,7 @@ class TestAWSAdapterValidation:
         with pytest.raises(ValueError, match="AWS_KMS_REGION"):
             AWSAdapter.encrypt(b"payload")
 
-    def test_decrypt_accepts_str_ciphertext_via_latin1(
-        self, fake_sync_kms: FakeSyncKMSClient
-    ) -> None:
+    def test_decrypt_accepts_str_ciphertext_via_latin1(self, fake_sync_kms: FakeSyncKMSClient) -> None:
         """Test that decrypt() coerces a str ciphertext to bytes 1:1 (latin-1) for the EncryptionAdapter contract."""
 
         sealed = AWSAdapter.encrypt("hello world")
@@ -349,9 +341,7 @@ class TestAWSAdapterValidation:
 class TestAWSAdapterLazyInit:
     """Test the lazy boto3 / aioboto3 client construction paths."""
 
-    def test_sync_kms_builds_boto3_client_on_first_use(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_sync_kms_builds_boto3_client_on_first_use(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that the first call to ``encrypt()`` builds a boto3 KMS client and caches it."""
 
         reset_adapter_state()
@@ -425,9 +415,7 @@ class TestAWSAdapterLazyInit:
                 assert service == "kms"
                 return _FakeClientCtx(FakeAsyncKMSClient(plaintext_data_key=b"\x00" * 32))
 
-        monkeypatch.setattr(
-            "pydantic_encryption.adapters.encryption.aws.aioboto3.Session", _FakeAioSession
-        )
+        monkeypatch.setattr("pydantic_encryption.adapters.encryption.aws.aioboto3.Session", _FakeAioSession)
 
         await AWSAdapter.async_encrypt(b"payload")
 
@@ -480,9 +468,7 @@ class TestAWSAdapterLazyInit:
             def client(self, service: str, **client_kwargs: Any) -> _FakeClientCtx:
                 return _FakeClientCtx(FakeAsyncKMSClient(plaintext_data_key=b"\x00" * 32))
 
-        monkeypatch.setattr(
-            "pydantic_encryption.adapters.encryption.aws.aioboto3.Session", _FakeAioSession
-        )
+        monkeypatch.setattr("pydantic_encryption.adapters.encryption.aws.aioboto3.Session", _FakeAioSession)
 
         await asyncio.gather(
             AWSAdapter.async_encrypt(b"a"),
@@ -495,9 +481,7 @@ class TestAWSAdapterLazyInit:
         reset_adapter_state()
 
     @pytest.mark.asyncio
-    async def test_aclose_async_kms_exits_the_context_manager(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_aclose_async_kms_exits_the_context_manager(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that aclose_async_kms() drives __aexit__ on the cached aioboto3 client context."""
 
         reset_adapter_state()
@@ -530,9 +514,7 @@ class TestAWSAdapterLazyInit:
             def client(self, service: str, **client_kwargs: Any) -> _FakeClientCtx:
                 return _FakeClientCtx(FakeAsyncKMSClient(plaintext_data_key=b"\x00" * 32))
 
-        monkeypatch.setattr(
-            "pydantic_encryption.adapters.encryption.aws.aioboto3.Session", _FakeAioSession
-        )
+        monkeypatch.setattr("pydantic_encryption.adapters.encryption.aws.aioboto3.Session", _FakeAioSession)
 
         await AWSAdapter.async_encrypt(b"warm")
 

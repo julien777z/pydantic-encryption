@@ -40,7 +40,10 @@ LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "SQLAlchemyBlindIndexValue": ("pydantic_encryption.integrations.sqlalchemy", "SQLAlchemyBlindIndexValue"),
     "SQLAlchemyEncryptedValue": ("pydantic_encryption.integrations.sqlalchemy", "SQLAlchemyEncryptedValue"),
     "SQLAlchemyHashedValue": ("pydantic_encryption.integrations.sqlalchemy", "SQLAlchemyHashedValue"),
-    "SQLAlchemyPGEncryptedArray": ("pydantic_encryption.integrations.sqlalchemy", "SQLAlchemyPGEncryptedArray"),
+    "SQLAlchemyPGEncryptedArray": (
+        "pydantic_encryption.integrations.sqlalchemy",
+        "SQLAlchemyPGEncryptedArray",
+    ),
     "decrypt_pending_fields": ("pydantic_encryption.integrations.sqlalchemy", "decrypt_pending_fields"),
     "decrypt_rows": ("pydantic_encryption.integrations.sqlalchemy", "decrypt_rows"),
     "decrypt_values": ("pydantic_encryption.integrations.sqlalchemy", "decrypt_values"),

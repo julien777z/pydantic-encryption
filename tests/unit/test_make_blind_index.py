@@ -44,9 +44,7 @@ class TestMakeBlindIndexHMAC:
         """Test that providing a salt changes the output."""
 
         unsalted = make_blind_index("5550100", method=BlindIndexMethod.HMAC_SHA256, key=TEST_KEY)
-        salted = make_blind_index(
-            "5550100", method=BlindIndexMethod.HMAC_SHA256, salt=ORG_SALT, key=TEST_KEY
-        )
+        salted = make_blind_index("5550100", method=BlindIndexMethod.HMAC_SHA256, salt=ORG_SALT, key=TEST_KEY)
 
         assert salted != unsalted
 

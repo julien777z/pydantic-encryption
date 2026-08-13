@@ -32,6 +32,7 @@ all = [
     "sqlalchemy>=2.0.51",
 ]
 dev = [
+    "black>=26.5.1,<27",
     "sqlalchemy>=2.0.51",
     "pytest>=9.1.1",
     "coverage>=7.15.0",
@@ -48,7 +49,7 @@ dev = [
 
 [tool.black]
 line-length = 110
-target-version = ["py312", "py313", "py314"]
+target-version = ["py311", "py312", "py313", "py314"]
 
 [tool.isort]
 profile = "black"

@@ -32,9 +32,7 @@ class TestIntegrationAsyncFinalizeSession:
         )
         db_session.commit()
 
-        result = await async_session.execute(
-            select(User).where(User.username == "async_finalize_commit")
-        )
+        result = await async_session.execute(select(User).where(User.username == "async_finalize_commit"))
         user = result.scalar_one()
 
         # Before the drain, the raw cell is still wrapped ciphertext and the
@@ -76,14 +74,10 @@ class TestIntegrationAsyncFinalizeSession:
         set by the drain and not re-enter the session's greenlet bridge.
         """
 
-        db_session.add(
-            User(username="async_finalize_cache", email="cache@example.com", password="pass123")
-        )
+        db_session.add(User(username="async_finalize_cache", email="cache@example.com", password="pass123"))
         db_session.commit()
 
-        result = await async_session.execute(
-            select(User).where(User.username == "async_finalize_cache")
-        )
+        result = await async_session.execute(select(User).where(User.username == "async_finalize_cache"))
         user = result.scalar_one()
 
         await finalize_sqlalchemy_session(async_session)
