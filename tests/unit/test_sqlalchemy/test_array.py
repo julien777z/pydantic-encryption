@@ -32,7 +32,7 @@ class TestSQLAlchemyPGEncryptedArray:
         assert self.type_adapter.process_result_value([None, None], dialect=TEST_DIALECT) == [None, None]
 
     def test_element_type_is_sqlalchemy_encrypted(self):
-        assert isinstance(self.type_adapter._element_type, SQLAlchemyEncryptedValue)
+        assert isinstance(self.type_adapter.element_type, SQLAlchemyEncryptedValue)
 
     def test_python_type_is_list(self):
         assert self.type_adapter.python_type is list

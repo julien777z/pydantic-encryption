@@ -8,13 +8,18 @@ pytest.importorskip("aws_encryption_sdk")
 from aws_encryption_sdk.caches.local import LocalCryptoMaterialsCache
 from aws_encryption_sdk.materials_managers.caching import CachingCryptoMaterialsManager
 
+from pydantic_encryption.adapters.encryption import aws
 from pydantic_encryption.adapters.encryption.aws import (
     DATA_KEY_MAX_AGE_SECONDS,
     DATA_KEY_MAX_BYTES,
     DATA_KEY_MAX_USES,
     MATERIALS_CACHE_SIZE,
     AWSAdapter,
-    to_bytes,
+    botocore_session,
+    ciphertext_bytes,
+    crypto_client,
+    crypto_materials,
+    kms_key_ids,
 )
 from pydantic_encryption.config import settings
 from pydantic_encryption.types import EncryptedValue
@@ -52,29 +57,29 @@ def kms_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "AWS_KMS_REGION", TEST_REGION)
     monkeypatch.setattr(settings, "AWS_KMS_ACCESS_KEY_ID", "testing")
     monkeypatch.setattr(settings, "AWS_KMS_SECRET_ACCESS_KEY", "testing")
-    monkeypatch.setattr(AWSAdapter, "materials_manager", None)
-    monkeypatch.setattr(AWSAdapter, "client", None)
+
+    AWSAdapter.reset_cache()
 
 
 @pytest.fixture
 def offline_materials(monkeypatch: pytest.MonkeyPatch) -> CountingCache:
     """Point the adapter at an offline materials manager so no KMS call is made."""
 
-    provider = offline_key_provider()
     cache = CountingCache(capacity=MATERIALS_CACHE_SIZE)
-
-    monkeypatch.setattr(
-        AWSAdapter,
-        "materials_manager",
-        CachingCryptoMaterialsManager(
-            cache=cache,  # pyright: ignore[reportCallIssue]
-            max_age=DATA_KEY_MAX_AGE_SECONDS,  # pyright: ignore[reportCallIssue]
-            max_messages_encrypted=DATA_KEY_MAX_USES,  # pyright: ignore[reportCallIssue]
-            max_bytes_encrypted=DATA_KEY_MAX_BYTES,  # pyright: ignore[reportCallIssue]
-            master_key_provider=provider,  # pyright: ignore[reportCallIssue]
-        ),
+    manager = CachingCryptoMaterialsManager(
+        cache=cache,  # pyright: ignore[reportCallIssue]
+        max_age=DATA_KEY_MAX_AGE_SECONDS,  # pyright: ignore[reportCallIssue]
+        max_messages_encrypted=DATA_KEY_MAX_USES,  # pyright: ignore[reportCallIssue]
+        max_bytes_encrypted=DATA_KEY_MAX_BYTES,  # pyright: ignore[reportCallIssue]
+        master_key_provider=offline_key_provider(),  # pyright: ignore[reportCallIssue]
     )
-    monkeypatch.setattr(AWSAdapter, "client", None)
+
+    def _offline_materials() -> CachingCryptoMaterialsManager:
+        """Stand in for the KMS-backed materials manager."""
+
+        return manager
+
+    monkeypatch.setattr(aws, "crypto_materials", _offline_materials)
 
     return cache
 
@@ -116,7 +121,7 @@ class TestAWSAdapter:
     def test_session_carries_the_configured_region(self, kms_settings: None) -> None:
         """Test that the botocore session is built with the configured region and credentials."""
 
-        session = AWSAdapter.botocore_session()
+        session = botocore_session()
 
         assert session.get_config_variable("region") == TEST_REGION
         assert session.get_credentials().access_key == "testing"
@@ -124,26 +129,26 @@ class TestAWSAdapter:
     def test_materials_manager_is_built_once(self, kms_settings: None) -> None:
         """Test that the materials manager is built from settings and reused by later calls."""
 
-        materials = AWSAdapter.crypto_materials()
+        materials = crypto_materials()
 
         assert isinstance(materials, CachingCryptoMaterialsManager)
-        assert AWSAdapter.crypto_materials() is materials
+        assert crypto_materials() is materials
 
     def test_client_is_reused(self, kms_settings: None) -> None:
         """Test that one Encryption SDK client serves every call in the process."""
 
-        assert AWSAdapter.crypto_client() is AWSAdapter.crypto_client()
+        assert crypto_client() is crypto_client()
 
     def test_reset_drops_the_cached_manager(self, kms_settings: None) -> None:
         """Test that resetting forces the next call to rebuild from current settings."""
 
-        materials = AWSAdapter.crypto_materials()
+        materials = crypto_materials()
+        client = crypto_client()
 
         AWSAdapter.reset_cache()
 
-        assert AWSAdapter.materials_manager is None
-        assert AWSAdapter.client is None
-        assert AWSAdapter.crypto_materials() is not materials
+        assert crypto_materials() is not materials
+        assert crypto_client() is not client
 
     @pytest.mark.parametrize(
         ("arns", "expected"),
@@ -168,7 +173,7 @@ class TestAWSAdapter:
         for name in ("AWS_KMS_KEY_ARN", "AWS_KMS_ENCRYPT_KEY_ARN", "AWS_KMS_DECRYPT_KEY_ARN"):
             monkeypatch.setattr(settings, name, arns.get(name))
 
-        assert AWSAdapter.kms_key_ids() == expected
+        assert kms_key_ids() == expected
 
     def test_missing_key_arn_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that building the provider without any key ARN reports the missing configuration."""
@@ -177,7 +182,7 @@ class TestAWSAdapter:
             monkeypatch.setattr(settings, name, None)
 
         with pytest.raises(ValueError, match="at least one key ARN"):
-            AWSAdapter.kms_key_ids()
+            kms_key_ids()
 
     def test_missing_credentials_are_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that building a session without region or credentials reports what is missing."""
@@ -185,11 +190,11 @@ class TestAWSAdapter:
         monkeypatch.setattr(settings, "AWS_KMS_REGION", None)
 
         with pytest.raises(ValueError, match="AWS_KMS_REGION"):
-            AWSAdapter.botocore_session()
+            botocore_session()
 
     def test_bytes_coercion_preserves_every_byte(self) -> None:
         """Test that string ciphertext round-trips to bytes without altering any byte value."""
 
         raw = bytes(range(256))
 
-        assert to_bytes(raw.decode("latin-1")) == raw
+        assert ciphertext_bytes(raw.decode("latin-1")) == raw

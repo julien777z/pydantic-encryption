@@ -9,25 +9,22 @@ require_optional_dependency("sqlalchemy", "sqlalchemy")
 
 from sqlalchemy import event
 
-from pydantic_encryption.integrations.sqlalchemy.state import PENDING_DECRYPT_KEY
 from pydantic_encryption.integrations.sqlalchemy.bulk import bulk_decrypt_entities
-from pydantic_encryption.integrations.sqlalchemy.encryption import (
-    SQLAlchemyEncryptedValue,
-    SQLAlchemyPGEncryptedArray,
-)
+from pydantic_encryption.integrations.sqlalchemy.encryption import DeferrableEncryptedType
+from pydantic_encryption.integrations.sqlalchemy.state import PENDING_DECRYPT_KEY
 
 
 def defer_encrypted_columns(mapper: Any, class_: type) -> None:
     """Mark every encrypted column deferred so its value decrypts in the batched drain."""
 
     for column in mapper.columns:
-        if not isinstance(column.type, (SQLAlchemyEncryptedValue, SQLAlchemyPGEncryptedArray)):
+        if not isinstance(column.type, DeferrableEncryptedType):
             continue
 
-        if not column.type._deferred:
+        if not column.type.deferred:
             # Copy so we don't mutate a TypeDecorator instance shared across mappers.
             column.type = column.type.copy()
-            column.type._deferred = True
+            column.type.deferred = True
 
 
 def on_orm_load(instance: Any, context: Any) -> None:

@@ -55,7 +55,7 @@ class TestDeferDecrypt:
         column_type = DeferMixed.__table__.c.secret.type
 
         assert isinstance(column_type, SQLAlchemyEncryptedValue)
-        assert column_type._deferred is True
+        assert column_type.deferred is True
 
         ciphertext = column_type.process_bind_param("hello", TEST_DIALECT)
         assert ciphertext is not None
@@ -74,7 +74,7 @@ class TestDeferDecrypt:
         column_type = DeferPlain.__table__.c.secret.type
 
         assert isinstance(column_type, SQLAlchemyEncryptedValue)
-        assert column_type._deferred is False
+        assert column_type.deferred is False
 
         ciphertext = column_type.process_bind_param("hello", TEST_DIALECT)
         result = column_type.process_result_value(ciphertext, TEST_DIALECT)

@@ -1,7 +1,7 @@
 import asyncio
-import threading
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
+from functools import cache
 from typing import Any, Final, TypedDict
 
 from pydantic_encryption.lazy import require_optional_dependency
@@ -14,10 +14,7 @@ from sqlalchemy.orm.attributes import InstrumentedAttribute
 
 from pydantic_encryption.adapters.registry import get_encryption_backend
 from pydantic_encryption.config import settings
-from pydantic_encryption.integrations.sqlalchemy.encryption import (
-    SQLAlchemyEncryptedValue,
-    SQLAlchemyPGEncryptedArray,
-)
+from pydantic_encryption.integrations.sqlalchemy.encryption import DeferrableEncryptedType
 from pydantic_encryption.integrations.sqlalchemy.serialization import (
     decode_value,
 )
@@ -38,38 +35,36 @@ class DecryptAssignment(TypedDict):
     ciphertext: bytes
 
 
-def is_pending_cell(value: Any) -> bool:
-    """Return whether a loaded cell still holds ciphertext this batch should decrypt."""
+def cell_assignments(row: Any, column_key: str, value: Any) -> list[DecryptAssignment]:
+    """Return one assignment per ciphertext a loaded cell still holds, array elements included."""
 
     if isinstance(value, EncryptedValue):
-        return True
+        return [
+            DecryptAssignment(row=row, column_key=column_key, element_index=None, ciphertext=bytes(value))
+        ]
 
-    return isinstance(value, list) and any(isinstance(element, EncryptedValue) for element in value)
+    if not isinstance(value, list):
+        return []
+
+    return [
+        DecryptAssignment(row=row, column_key=column_key, element_index=index, ciphertext=bytes(element))
+        for index, element in enumerate(value)
+        if isinstance(element, EncryptedValue)
+    ]
 
 
 #: Sized for KMS round trips rather than for cores, since a thread waiting on one releases the GIL.
 CRYPTO_MAX_WORKERS: Final[int] = 64
 
-crypto_executor_lock = threading.Lock()
-crypto_executor: ThreadPoolExecutor | None = None
 
-
+@cache
 def decryption_executor() -> ThreadPoolExecutor:
     """Return the process-wide pool that keeps decryption off the event loop."""
 
-    global crypto_executor
-
-    if crypto_executor is not None:
-        return crypto_executor
-
-    with crypto_executor_lock:
-        if crypto_executor is None:
-            crypto_executor = ThreadPoolExecutor(
-                max_workers=CRYPTO_MAX_WORKERS,
-                thread_name_prefix="pydantic-encryption-decrypt",
-            )
-
-        return crypto_executor
+    return ThreadPoolExecutor(
+        max_workers=CRYPTO_MAX_WORKERS,
+        thread_name_prefix="pydantic-encryption-decrypt",
+    )
 
 
 def decrypt_batch(backend: Any, ciphertexts: list[bytes]) -> list[str]:
@@ -105,31 +100,14 @@ def resolve_backend() -> Any:
 def collect_row_assignments(rows: Iterable[Any], column_keys: Iterable[str]) -> list[DecryptAssignment]:
     """Build one assignment per encrypted cell, and one per element of an encrypted array cell."""
 
-    column_keys = list(column_keys)
-    assignments: list[DecryptAssignment] = []
-    for row in rows:
-        for key in column_keys:
-            value = read_raw_cell(row, key)
+    keys = list(column_keys)
 
-            if isinstance(value, EncryptedValue):
-                assignments.append(
-                    DecryptAssignment(row=row, column_key=key, element_index=None, ciphertext=bytes(value))
-                )
-
-                continue
-
-            if not isinstance(value, list):
-                continue
-
-            for index, element in enumerate(value):
-                if isinstance(element, EncryptedValue):
-                    assignments.append(
-                        DecryptAssignment(
-                            row=row, column_key=key, element_index=index, ciphertext=bytes(element)
-                        )
-                    )
-
-    return assignments
+    return [
+        assignment
+        for row in rows
+        for key in keys
+        for assignment in cell_assignments(row, key, read_raw_cell(row, key))
+    ]
 
 
 def apply_plaintexts(assignments: list[DecryptAssignment], plaintexts: list[str]) -> None:
@@ -217,10 +195,10 @@ async def decrypt_values(values: Iterable[Any]) -> list[Any]:
 
 def collect_encrypted_cells(
     entities: Any | Iterable[Any] | None,
-    collected: dict[tuple[type, str], list[Any]],
+    assignments: list[DecryptAssignment],
     visited: set[int],
 ) -> None:
-    """Group deferred-encrypted cells by ``(class, column)``, walking loaded relationships."""
+    """Append an assignment per deferred-encrypted cell, walking loaded relationships."""
 
     if entities is None:
         return
@@ -244,12 +222,10 @@ def collect_encrypted_cells(
             continue
 
         for column in state.mapper.columns:
-            if not isinstance(column.type, (SQLAlchemyEncryptedValue, SQLAlchemyPGEncryptedArray)):
+            if not isinstance(column.type, DeferrableEncryptedType) or not column.type.deferred:
                 continue
-            if not column.type._deferred:
-                continue
-            if is_pending_cell(state.dict.get(column.key)):
-                collected.setdefault((type(entity), column.key), []).append(entity)
+
+            assignments.extend(cell_assignments(entity, column.key, state.dict.get(column.key)))
 
         unloaded = state.unloaded
         for relationship in state.mapper.relationships:
@@ -259,20 +235,16 @@ def collect_encrypted_cells(
             if related is None:
                 continue
             if relationship.uselist:
-                collect_encrypted_cells(list(related), collected, visited)
+                collect_encrypted_cells(list(related), assignments, visited)
             else:
-                collect_encrypted_cells(related, collected, visited)
+                collect_encrypted_cells(related, assignments, visited)
 
 
 def collect_entity_assignments(entities: Any | Iterable[Any] | None) -> list[DecryptAssignment]:
     """Build the assignments for every deferred cell on these entities and loaded relationships."""
 
-    collected: dict[tuple[type, str], list[Any]] = {}
-    collect_encrypted_cells(entities, collected, set())
-
     assignments: list[DecryptAssignment] = []
-    for (_, column_key), rows in collected.items():
-        assignments.extend(collect_row_assignments(rows, (column_key,)))
+    collect_encrypted_cells(entities, assignments, set())
 
     return assignments
 

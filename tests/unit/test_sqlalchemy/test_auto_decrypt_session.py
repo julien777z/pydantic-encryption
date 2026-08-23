@@ -13,7 +13,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, configure_mappers, mapped_co
 from pydantic_encryption.integrations.sqlalchemy import DeferredDecryptMixin, decrypt_pending_fields
 from pydantic_encryption.integrations.sqlalchemy.state import PENDING_DECRYPT_KEY
 from pydantic_encryption.integrations.sqlalchemy import bulk
-from pydantic_encryption.integrations.sqlalchemy.bulk import collect_encrypted_cells
+from pydantic_encryption.integrations.sqlalchemy.bulk import DecryptAssignment, collect_encrypted_cells
 from pydantic_encryption.integrations.sqlalchemy.deferred import on_orm_load
 from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue
 from pydantic_encryption.types import EncryptedValue
@@ -153,11 +153,10 @@ class TestBytesColumnIdempotency:
         assert sa_inspect(blob).dict["payload"] == b"shh"
         assert not isinstance(sa_inspect(blob).dict["payload"], EncryptedValue)
 
-        collected: dict[tuple[type, str], list[Any]] = {}
-        visited: set[int] = set()
-        collect_encrypted_cells(blob, collected, visited)
+        assignments: list[DecryptAssignment] = []
+        collect_encrypted_cells(blob, assignments, set())
 
-        assert collected == {}
+        assert assignments == []
 
 
 class TestDrainBatching:
