@@ -24,7 +24,11 @@ Mix `DeferredDecryptMixin` into any model with encrypted columns. The first time
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from pydantic_encryption import DeferredDecryptMixin, SQLAlchemyEncryptedValue
+from pydantic_encryption import (
+    DeferredDecryptMixin,
+    SQLAlchemyEncryptedValue,
+    decrypt_pending_fields,
+)
 
 
 class Base(DeclarativeBase):
@@ -119,12 +123,9 @@ Each element is individually encrypted. Requires PostgreSQL.
 
 ### Async Decryption
 
-`TypeDecorator` is sync by contract, so slow backends (AWS KMS) can block the event loop. Two paths:
+`TypeDecorator` is sync by contract, so a slow backend would block the event loop if every cell decrypted during result processing. `DeferredDecryptMixin` defers every encrypted column instead: a loaded row holds ciphertext until the session's pending batch is drained, and the drain decrypts the whole batch in one dispatch to a worker thread rather than one per cell.
 
-- **Default.** Under `AsyncSession`, decryption uses SQLAlchemy's greenlet bridge so each call yields the event loop. Argon2 hashing and blind-indexing use the same bridge.
-- **On-access batch decrypt.** `DeferredDecryptMixin` defers each encrypted column until the first read, then batch-decrypts that column across every sibling instance loaded into the same session via a single `asyncio.gather`. Columns the caller never reads stay encrypted and cost nothing.
-
-Mix the helper into any model with encrypted columns and read as usual:
+Mix the helper into any model with encrypted columns:
 
 ```python
 from pydantic_encryption import DeferredDecryptMixin, SQLAlchemyEncryptedValue
@@ -142,12 +143,14 @@ async with Session() as session:
     result = await session.execute(select(User))
     users = result.scalars().all()
 
-    # First read of `email` batch-decrypts it across every user in the session.
+    # Decrypt every encrypted column on every row loaded so far.
+    await decrypt_pending_fields(session)
+
     for user in users:
         print(user.email)
 ```
 
-`decrypt_pending_fields(session)` is an optional escape hatch when you need to pre-warm every encrypted column on every loaded row before leaving the session context (e.g. serializing outside a greenlet spawn):
+`decrypt_pending_fields(session)` drains every encrypted column on every row loaded so far. `decrypt_pending_fields_sync(session)` is its counterpart for a synchronous `Session`:
 
 ```python
 from pydantic_encryption import decrypt_pending_fields
@@ -161,7 +164,7 @@ async with Session() as session:
     payload = [{"id": u.id, "email": u.email} for u in users]
 ```
 
-`finalize_sqlalchemy_session(session)` combines the above with a `commit()`, returning the pooled connection before response construction. Handy on read endpoints that would otherwise hold a DB connection through descriptor-driven KMS decryption:
+`finalize_sqlalchemy_session(session)` combines the above with a `commit()`, returning the pooled connection before response construction. Handy on read endpoints that would otherwise hold a DB connection through the decrypt batch:
 
 ```python
 from pydantic_encryption import finalize_sqlalchemy_session
@@ -190,9 +193,9 @@ async with AsyncSession(engine) as session:
 
 ### Safety: Catching Accidental Ciphertext Access
 
-Reads go through the on-access descriptor. When the underlying cell is still an `EncryptedValue`, the descriptor prefers an async batch decrypt over the session's pending siblings (via SQLAlchemy's greenlet bridge), and transparently falls back to a synchronous decrypt either when the read happens outside a greenlet or when the instance is detached from any session.
+Loaded rows hold an `EncryptedValue` until the session's pending batch is drained, so a read path that never drains is caught rather than silently paying a per-cell decrypt. Drain with `await decrypt_pending_fields(session)`, or `decrypt_pending_fields_sync(session)` on a synchronous session.
 
-An `EncryptedValue` only reaches user code if something bypasses the descriptor entirely (raw `state.dict[col]`, a logged row). Coercing it via `str(value)` / `f"{value}"` / `"%s" % value` raises `EncryptedValueAccessError`. `repr(value)` is a safe `<EncryptedValue: N bytes>` marker, and `bytes(value)` returns the raw ciphertext. Use `is_encrypted(value)` to guard at a boundary.
+Coercing an undrained value via `str(value)` / `f"{value}"` / `"%s" % value` raises `EncryptedValueAccessError`. `repr(value)` is a safe `<EncryptedValue: N bytes>` marker, and `bytes(value)` returns the raw ciphertext. Use `is_encrypted(value)` to guard at a boundary.
 
 ## Manual Encryption or Hashing
 

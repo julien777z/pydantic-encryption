@@ -28,6 +28,7 @@ if TYPE_CHECKING:
         SQLAlchemyHashedValue,
         SQLAlchemyPGEncryptedArray,
         decrypt_pending_fields,
+        decrypt_pending_fields_sync,
         decrypt_rows,
         decrypt_values,
         finalize_sqlalchemy_session,
@@ -45,6 +46,10 @@ LAZY_EXPORTS: dict[str, tuple[str, str]] = {
         "SQLAlchemyPGEncryptedArray",
     ),
     "decrypt_pending_fields": ("pydantic_encryption.integrations.sqlalchemy", "decrypt_pending_fields"),
+    "decrypt_pending_fields_sync": (
+        "pydantic_encryption.integrations.sqlalchemy",
+        "decrypt_pending_fields_sync",
+    ),
     "decrypt_rows": ("pydantic_encryption.integrations.sqlalchemy", "decrypt_rows"),
     "decrypt_values": ("pydantic_encryption.integrations.sqlalchemy", "decrypt_values"),
     "finalize_sqlalchemy_session": (
@@ -94,6 +99,7 @@ __all__ = [
     "SQLAlchemyHashedValue",
     "DeferredDecryptMixin",
     "decrypt_pending_fields",
+    "decrypt_pending_fields_sync",
     "decrypt_rows",
     "decrypt_values",
     "finalize_sqlalchemy_session",

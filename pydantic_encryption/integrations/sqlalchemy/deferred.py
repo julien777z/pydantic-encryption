@@ -11,35 +11,23 @@ from sqlalchemy import event
 
 from pydantic_encryption.integrations.sqlalchemy.state import PENDING_DECRYPT_KEY
 from pydantic_encryption.integrations.sqlalchemy.bulk import bulk_decrypt_entities
-from pydantic_encryption.integrations.sqlalchemy.descriptor import DecryptOnAccessDescriptor
-from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue
+from pydantic_encryption.integrations.sqlalchemy.encryption import (
+    SQLAlchemyEncryptedValue,
+    SQLAlchemyPGEncryptedArray,
+)
 
 
-def install_descriptors(mapper: Any, class_: type) -> None:
-    """Mark encrypted columns deferred and wrap their class attrs with the on-access descriptor."""
+def defer_encrypted_columns(mapper: Any, class_: type) -> None:
+    """Mark every encrypted column deferred so its value decrypts in the batched drain."""
 
     for column in mapper.columns:
-        if not isinstance(column.type, SQLAlchemyEncryptedValue):
+        if not isinstance(column.type, (SQLAlchemyEncryptedValue, SQLAlchemyPGEncryptedArray)):
             continue
 
         if not column.type._deferred:
             # Copy so we don't mutate a TypeDecorator instance shared across mappers.
             column.type = column.type.copy()
             column.type._deferred = True
-
-        column_key = column.key
-        existing = class_.__dict__.get(column_key)
-        if isinstance(existing, DecryptOnAccessDescriptor):
-            continue
-
-        wrapped = getattr(class_, column_key, None)
-        if wrapped is None:
-            continue
-
-        try:
-            setattr(class_, column_key, DecryptOnAccessDescriptor(wrapped, class_, column_key))
-        except (AttributeError, TypeError):
-            continue
 
 
 def on_orm_load(instance: Any, context: Any) -> None:
@@ -63,11 +51,11 @@ def on_orm_refresh(instance: Any, context: Any, attrs: Any) -> None:
 
 
 class DeferredDecryptMixin:
-    """Defer encrypted-column decryption until first attribute access, batched per column."""
+    """Defer encrypted-column decryption until the session's pending batch is drained."""
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
-        event.listen(cls, "mapper_configured", install_descriptors)
+        event.listen(cls, "mapper_configured", defer_encrypted_columns)
         event.listen(cls, "load", on_orm_load)
         event.listen(cls, "refresh", on_orm_refresh)
 
@@ -85,4 +73,4 @@ class DeferredDecryptMixin:
         await bulk_decrypt_entities(entities)
 
 
-__all__ = ["DeferredDecryptMixin", "install_descriptors", "on_orm_load", "on_orm_refresh"]
+__all__ = ["DeferredDecryptMixin", "defer_encrypted_columns", "on_orm_load", "on_orm_refresh"]

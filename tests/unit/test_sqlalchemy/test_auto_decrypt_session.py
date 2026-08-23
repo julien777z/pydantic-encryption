@@ -1,4 +1,5 @@
 import asyncio
+import threading
 from collections import defaultdict
 from types import SimpleNamespace
 from typing import Any
@@ -11,6 +12,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, configure_mappers, mapped_co
 from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
 from pydantic_encryption.integrations.sqlalchemy import DeferredDecryptMixin, decrypt_pending_fields
 from pydantic_encryption.integrations.sqlalchemy.state import PENDING_DECRYPT_KEY
+from pydantic_encryption.integrations.sqlalchemy import bulk
 from pydantic_encryption.integrations.sqlalchemy.bulk import collect_encrypted_cells
 from pydantic_encryption.integrations.sqlalchemy.deferred import on_orm_load
 from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue
@@ -153,14 +155,16 @@ class TestBytesColumnIdempotency:
         assert collected == {}
 
 
-class TestDrainParallelism:
-    """Test that decrypt_pending_fields fans out every class's cells under one TaskGroup."""
+class TestDrainBatching:
+    """Test that decrypt_pending_fields drains every class's cells in one off-loop batch."""
 
     @classmethod
     def setup_class(cls):
         configure_mappers()
 
-    def test_drain_dispatches_cells_across_classes_in_parallel(self):
+    def test_drain_batches_every_class_off_the_loop(self):
+        """Test that one drain decrypts both classes' cells in a single worker-thread batch."""
+
         session = SimpleNamespace(info={})
         user = AutoDecryptUser(id=1, email=wrap_encrypted("a@x.com"))
         blob = AutoDecryptBlob(id=1, payload=wrap_encrypted(b"shh"))
@@ -170,29 +174,25 @@ class TestDrainParallelism:
         bucket[AutoDecryptBlob].add(blob)
         session.info[PENDING_DECRYPT_KEY] = bucket
 
-        live_overlap = 0
-        peak_overlap = 0
-        original_decrypt = FernetAdapter.decrypt
+        batch_sizes: list[int] = []
+        worker_threads: set[str] = set()
+        decrypt_batch = bulk.decrypt_batch
 
-        async def overlapping_async_decrypt(ciphertext, *, key=None):
-            nonlocal live_overlap, peak_overlap
-            live_overlap += 1
-            peak_overlap = max(peak_overlap, live_overlap)
-            try:
-                await asyncio.sleep(0)
-                return original_decrypt(ciphertext, key=key)
-            finally:
-                live_overlap -= 1
+        def recording_decrypt_batch(backend: Any, ciphertexts: list[bytes]) -> list[str]:
+            """Record how the drain dispatched this batch before decrypting it."""
 
-        with patch.object(FernetAdapter, "async_decrypt", side_effect=overlapping_async_decrypt):
+            batch_sizes.append(len(ciphertexts))
+            worker_threads.add(threading.current_thread().name)
+
+            return decrypt_batch(backend, ciphertexts)
+
+        with patch.object(bulk, "decrypt_batch", recording_decrypt_batch):
             asyncio.run(decrypt_pending_fields(session))
 
         assert sa_inspect(user).dict["email"] == "a@x.com"
         assert sa_inspect(blob).dict["payload"] == b"shh"
-        assert peak_overlap >= 2, (
-            "expected at least two decrypts to be in flight together across classes; "
-            f"observed peak overlap {peak_overlap}"
-        )
+        assert batch_sizes == [2]
+        assert all(name.startswith("pydantic-encryption-decrypt") for name in worker_threads)
 
 
 class TestNoDirtyAfterDecrypt:

@@ -30,15 +30,4 @@ def set_decrypted(row: Any, column_key: str, plaintext: Any) -> None:
     set_committed_value(row, column_key, plaintext)
 
 
-def pending_siblings(session: Any, cls: type) -> list[Any]:
-    """Return pending-decrypt instances of ``cls`` bucketed in ``session`` (empty if none)."""
-
-    if session is None:
-        return []
-
-    bucket = getattr(session, "info", {}).get(PENDING_DECRYPT_KEY) or {}
-
-    return list(bucket.get(cls) or [])
-
-
-__all__ = ["PENDING_DECRYPT_KEY", "read_raw_cell", "set_decrypted", "pending_siblings"]
+__all__ = ["PENDING_DECRYPT_KEY", "read_raw_cell", "set_decrypted"]

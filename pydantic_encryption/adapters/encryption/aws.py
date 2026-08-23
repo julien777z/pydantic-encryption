@@ -1,27 +1,21 @@
-import asyncio
-import secrets
-import struct
-from typing import Any, ClassVar, Final
+import threading
+from typing import ClassVar
 
 from pydantic_encryption.lazy import require_optional_dependency
 
 require_optional_dependency("boto3", "aws")
-require_optional_dependency("aioboto3", "aws")
+require_optional_dependency("aws_encryption_sdk", "aws")
 
-import aioboto3
-import boto3
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+import aws_encryption_sdk
+import botocore.session
+from aws_encryption_sdk import CommitmentPolicy
+from aws_encryption_sdk.caches.local import LocalCryptoMaterialsCache
+from aws_encryption_sdk.key_providers.kms import StrictAwsKmsMasterKeyProvider
+from aws_encryption_sdk.materials_managers.caching import CachingCryptoMaterialsManager
 
 from pydantic_encryption.adapters.base import EncryptionAdapter, encode_text
 from pydantic_encryption.config import settings
 from pydantic_encryption.types import EncryptedValue
-
-CIPHERTEXT_MAGIC: Final[int] = 0xC0
-CIPHERTEXT_VERSION: Final[int] = 0x01
-HEADER_PACK_FORMAT: Final[str] = ">BBH"
-HEADER_LENGTH: Final[int] = struct.calcsize(HEADER_PACK_FORMAT)
-NONCE_LENGTH: Final[int] = 12
-DATA_KEY_SPEC: Final[str] = "AES_256"
 
 
 def to_bytes(ciphertext: bytes | str | EncryptedValue) -> bytes:
@@ -33,177 +27,118 @@ def to_bytes(ciphertext: bytes | str | EncryptedValue) -> bytes:
     return bytes(ciphertext)
 
 
-def kms_kwargs() -> dict[str, str]:
-    """Return boto3/aioboto3 kwargs for the configured KMS region + credentials."""
-
-    has_key = settings.AWS_KMS_KEY_ARN or settings.AWS_KMS_ENCRYPT_KEY_ARN or settings.AWS_KMS_DECRYPT_KEY_ARN
-    if not (
-        has_key
-        and settings.AWS_KMS_REGION
-        and settings.AWS_KMS_ACCESS_KEY_ID
-        and settings.AWS_KMS_SECRET_ACCESS_KEY
-    ):
-        raise ValueError(
-            "AWS KMS requires AWS_KMS_REGION, AWS_KMS_ACCESS_KEY_ID, "
-            "AWS_KMS_SECRET_ACCESS_KEY, and at least one key ARN "
-            "(AWS_KMS_KEY_ARN, AWS_KMS_ENCRYPT_KEY_ARN, or AWS_KMS_DECRYPT_KEY_ARN) to be set."
-        )
-
-    return {
-        "region_name": settings.AWS_KMS_REGION,
-        "aws_access_key_id": settings.AWS_KMS_ACCESS_KEY_ID,
-        "aws_secret_access_key": settings.AWS_KMS_SECRET_ACCESS_KEY,
-    }
-
-
-def seal(plaintext_data_key: bytes, wrapped_data_key: bytes, plaintext: bytes) -> EncryptedValue:
-    """Wrap plaintext under a fresh AES-GCM nonce and pack ``[magic][ver][wrapped][nonce][sealed]``."""
-
-    nonce = secrets.token_bytes(NONCE_LENGTH)
-    sealed = AESGCM(plaintext_data_key).encrypt(nonce, plaintext, None)
-
-    return EncryptedValue(
-        struct.pack(HEADER_PACK_FORMAT, CIPHERTEXT_MAGIC, CIPHERTEXT_VERSION, len(wrapped_data_key))
-        + wrapped_data_key
-        + nonce
-        + sealed
-    )
-
-
-def open(blob: bytes) -> tuple[bytes, bytes, bytes]:
-    """Validate the envelope header and split into ``(wrapped_data_key, nonce, sealed)``."""
-
-    if len(blob) < HEADER_LENGTH:
-        raise ValueError("Ciphertext is too short to be a valid AWS KMS envelope.")
-
-    magic, version, wrapped_len = struct.unpack(HEADER_PACK_FORMAT, blob[:HEADER_LENGTH])
-    if magic != CIPHERTEXT_MAGIC:
-        raise ValueError(
-            "Unrecognized ciphertext format for AWS KMS adapter "
-            f"(expected magic {CIPHERTEXT_MAGIC:#x}, got {magic:#x})."
-        )
-    if version != CIPHERTEXT_VERSION:
-        raise ValueError(f"Unsupported AWS KMS ciphertext version: {version}")
-
-    end_wrapped = HEADER_LENGTH + wrapped_len
-    end_nonce = end_wrapped + NONCE_LENGTH
-    if len(blob) < end_nonce:
-        raise ValueError("Ciphertext is truncated: missing wrapped data key or nonce.")
-
-    return blob[HEADER_LENGTH:end_wrapped], blob[end_wrapped:end_nonce], blob[end_nonce:]
-
-
 class AWSAdapter(EncryptionAdapter):
-    """AWS KMS adapter using GenerateDataKey + AES-256-GCM envelope encryption."""
+    """Envelope encryption through the AWS Encryption SDK over a KMS-backed data key cache."""
 
-    _sync_client: ClassVar[Any | None] = None
-    _async_client: ClassVar[Any | None] = None
-    _async_client_ctx: ClassVar[Any | None] = None
-    _async_loop: ClassVar[asyncio.AbstractEventLoop | None] = None
-    _async_init_lock: ClassVar[asyncio.Lock | None] = None
+    materials_manager: ClassVar[CachingCryptoMaterialsManager | None] = None
+    client: ClassVar[aws_encryption_sdk.EncryptionSDKClient | None] = None
+    build_lock: ClassVar[threading.Lock] = threading.Lock()
 
     @classmethod
-    def encrypt_arn(cls) -> str:
-        """Return the encryption ARN, rejecting decrypt-only (read-only) configurations."""
+    def kms_key_ids(cls) -> list[str]:
+        """Return the KMS key ARNs this process encrypts with and decrypts against."""
 
-        arn = settings.AWS_KMS_ENCRYPT_KEY_ARN or settings.AWS_KMS_KEY_ARN
-        if not arn:
+        if settings.AWS_KMS_KEY_ARN:
+            return [settings.AWS_KMS_KEY_ARN]
+
+        key_ids = [settings.AWS_KMS_ENCRYPT_KEY_ARN, settings.AWS_KMS_DECRYPT_KEY_ARN]
+        resolved = [key_id for key_id in key_ids if key_id]
+
+        if not resolved:
             raise ValueError(
-                "encrypt() requires AWS_KMS_KEY_ARN or AWS_KMS_ENCRYPT_KEY_ARN; "
-                "AWS_KMS_DECRYPT_KEY_ARN alone is decrypt-only."
+                "AWS KMS requires at least one key ARN "
+                "(AWS_KMS_KEY_ARN, AWS_KMS_ENCRYPT_KEY_ARN, or AWS_KMS_DECRYPT_KEY_ARN)."
             )
 
-        return arn
+        return resolved
 
     @classmethod
-    def decrypt_kwargs(cls, wrapped_data_key: bytes) -> dict[str, Any]:
-        """Build ``KMS.Decrypt`` kwargs, scoping by KeyId when one is configured."""
+    def botocore_session(cls) -> botocore.session.Session:
+        """Return a botocore session carrying the configured KMS region and credentials."""
 
-        kwargs: dict[str, Any] = {"CiphertextBlob": wrapped_data_key}
-        decrypt_arn = settings.AWS_KMS_DECRYPT_KEY_ARN or settings.AWS_KMS_KEY_ARN
-        if decrypt_arn:
-            kwargs["KeyId"] = decrypt_arn
+        if not (
+            settings.AWS_KMS_REGION and settings.AWS_KMS_ACCESS_KEY_ID and settings.AWS_KMS_SECRET_ACCESS_KEY
+        ):
+            raise ValueError(
+                "AWS KMS requires AWS_KMS_REGION, AWS_KMS_ACCESS_KEY_ID, "
+                "and AWS_KMS_SECRET_ACCESS_KEY to be set."
+            )
 
-        return kwargs
+        session = botocore.session.Session()
+        session.set_credentials(settings.AWS_KMS_ACCESS_KEY_ID, settings.AWS_KMS_SECRET_ACCESS_KEY)
+        session.set_config_variable("region", settings.AWS_KMS_REGION)
 
-    @classmethod
-    def sync_kms(cls) -> Any:
-        """Return the lazily-built sync boto3 KMS client used by sync code paths."""
-
-        if cls._sync_client is None:
-            cls._sync_client = boto3.client("kms", **kms_kwargs())
-
-        return cls._sync_client
+        return session
 
     @classmethod
-    async def async_kms(cls) -> Any:
-        """Return the lazily-built aioboto3 KMS client, opened once per event loop."""
+    def crypto_materials(cls) -> CachingCryptoMaterialsManager:
+        """Return the process-wide materials manager that reuses one data key within its bounds."""
 
-        loop = asyncio.get_running_loop()
-        if cls._async_client is not None and cls._async_loop is loop:
-            return cls._async_client
+        if cls.materials_manager is not None:
+            return cls.materials_manager
 
-        if cls._async_init_lock is None:
-            cls._async_init_lock = asyncio.Lock()
+        with cls.build_lock:
+            if cls.materials_manager is None:
+                # The Encryption SDK builds these constructors with attrs, so pyright cannot see
+                # their generated signatures.
+                cache = LocalCryptoMaterialsCache(
+                    capacity=settings.KMS_MATERIALS_CACHE_SIZE  # pyright: ignore[reportCallIssue]
+                )
+                provider = StrictAwsKmsMasterKeyProvider(  # pyright: ignore[reportCallIssue]
+                    key_ids=cls.kms_key_ids(),
+                    botocore_session=cls.botocore_session(),
+                )
 
-        async with cls._async_init_lock:
-            if cls._async_client is not None and cls._async_loop is loop:
-                return cls._async_client
+                cls.materials_manager = CachingCryptoMaterialsManager(
+                    cache=cache,  # pyright: ignore[reportCallIssue]
+                    max_age=float(settings.KMS_DATA_KEY_MAX_AGE_SECONDS),  # pyright: ignore[reportCallIssue]
+                    max_messages_encrypted=settings.KMS_DATA_KEY_MAX_USES,  # pyright: ignore[reportCallIssue]
+                    max_bytes_encrypted=settings.KMS_DATA_KEY_MAX_BYTES,  # pyright: ignore[reportCallIssue]
+                    master_key_provider=provider,  # pyright: ignore[reportCallIssue]
+                )
 
-            ctx = aioboto3.Session(**kms_kwargs()).client("kms")
-            cls._async_client = await ctx.__aenter__()
-            cls._async_client_ctx = ctx
-            cls._async_loop = loop
-
-            return cls._async_client
+            return cls.materials_manager
 
     @classmethod
-    async def aclose_async_kms(cls) -> None:
-        """Close the active aioboto3 KMS client (must be called from the loop that opened it)."""
+    def crypto_client(cls) -> aws_encryption_sdk.EncryptionSDKClient:
+        """Return the process-wide Encryption SDK client."""
 
-        ctx = cls._async_client_ctx
-        if ctx is None:
-            return
+        if cls.client is None:
+            cls.client = aws_encryption_sdk.EncryptionSDKClient(
+                commitment_policy=CommitmentPolicy.REQUIRE_ENCRYPT_REQUIRE_DECRYPT
+            )
 
-        cls._async_client = None
-        cls._async_client_ctx = None
-        cls._async_loop = None
-        await ctx.__aexit__(None, None, None)
+        return cls.client
+
+    @classmethod
+    def reset_cache(cls) -> None:
+        """Drop the cached materials manager so the next call rebuilds it from current settings."""
+
+        with cls.build_lock:
+            cls.materials_manager = None
+            cls.client = None
 
     @classmethod
     def encrypt(cls, plaintext: bytes | str | EncryptedValue, *, key: str | None = None) -> EncryptedValue:
+        """Encrypt one value, reaching KMS only when the cached data key is spent."""
+
         if isinstance(plaintext, EncryptedValue):
             return plaintext
 
-        response = cls.sync_kms().generate_data_key(KeyId=cls.encrypt_arn(), KeySpec=DATA_KEY_SPEC)
+        ciphertext, _header = cls.crypto_client().encrypt(
+            source=encode_text(plaintext),
+            materials_manager=cls.crypto_materials(),
+        )
 
-        return seal(response["Plaintext"], response["CiphertextBlob"], encode_text(plaintext))
-
-    @classmethod
-    async def async_encrypt(
-        cls, plaintext: bytes | str | EncryptedValue, *, key: str | None = None
-    ) -> EncryptedValue:
-        if isinstance(plaintext, EncryptedValue):
-            return plaintext
-
-        kms = await cls.async_kms()
-        response = await kms.generate_data_key(KeyId=cls.encrypt_arn(), KeySpec=DATA_KEY_SPEC)
-
-        return seal(response["Plaintext"], response["CiphertextBlob"], encode_text(plaintext))
+        return EncryptedValue(ciphertext)
 
     @classmethod
     def decrypt(cls, ciphertext: bytes | str | EncryptedValue, *, key: str | None = None) -> str:
-        wrapped, nonce, sealed = open(to_bytes(ciphertext))
+        """Decrypt one value, reaching KMS only for a data key this process has not cached."""
 
-        plaintext_data_key = cls.sync_kms().decrypt(**cls.decrypt_kwargs(wrapped))["Plaintext"]
+        plaintext, _header = cls.crypto_client().decrypt(
+            source=to_bytes(ciphertext),
+            materials_manager=cls.crypto_materials(),
+        )
 
-        return AESGCM(plaintext_data_key).decrypt(nonce, sealed, None).decode("utf-8")
-
-    @classmethod
-    async def async_decrypt(cls, ciphertext: bytes | str | EncryptedValue, *, key: str | None = None) -> str:
-        wrapped, nonce, sealed = open(to_bytes(ciphertext))
-
-        kms = await cls.async_kms()
-        response = await kms.decrypt(**cls.decrypt_kwargs(wrapped))
-
-        return AESGCM(response["Plaintext"]).decrypt(nonce, sealed, None).decode("utf-8")
+        return plaintext.decode("utf-8")

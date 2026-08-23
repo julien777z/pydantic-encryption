@@ -8,7 +8,6 @@ from sqlalchemy.types import ARRAY, LargeBinary, TypeDecorator
 
 from pydantic_encryption.adapters.registry import get_encryption_backend
 from pydantic_encryption.config import settings
-from pydantic_encryption.integrations.sqlalchemy.async_bridge import run_async_or_sync
 from pydantic_encryption.integrations.sqlalchemy.serialization import (
     EncryptableValue,
     decode_value,
@@ -44,9 +43,7 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
         if isinstance(value, EncryptedValue):
             return value
 
-        backend = self.backend()
-
-        return run_async_or_sync(backend.async_encrypt, backend.encrypt, encode_value(value))
+        return self.backend().encrypt(encode_value(value))
 
     def decrypt_cell(self, value: str | bytes | None) -> str | bytes | None:
         """Decrypt a single ciphertext; callers are responsible for decoding."""
@@ -54,9 +51,7 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
         if value is None:
             return None
 
-        backend = self.backend()
-
-        return run_async_or_sync(backend.async_decrypt, backend.decrypt, value)
+        return self.backend().decrypt(value)
 
     def process_bind_param(self, value: EncryptableValue | None, dialect) -> bytes | None:
         """Encrypt a value before binding it to the database."""
@@ -95,6 +90,7 @@ class SQLAlchemyPGEncryptedArray(TypeDecorator):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._element_type = SQLAlchemyEncryptedValue()
+        self._deferred = False
 
     def process_bind_param(self, value: list[EncryptableValue] | None, dialect) -> list[bytes] | None:
         """Encrypt each element before binding to the database."""
@@ -112,11 +108,16 @@ class SQLAlchemyPGEncryptedArray(TypeDecorator):
 
         return [self._element_type.encrypt_cell(element) for element in value]
 
-    def process_result_value(self, value: list[bytes] | None, dialect) -> list[EncryptableValue] | None:
+    def process_result_value(
+        self, value: list[bytes] | None, dialect
+    ) -> list[EncryptableValue | None] | None:
         """Decrypt each element after retrieving the array from the database."""
 
         if value is None:
             return None
+
+        if self._deferred:
+            return [None if element is None else EncryptedValue(element) for element in value]
 
         return [
             None if element is None else decode_value(self._element_type.decrypt_cell(element))

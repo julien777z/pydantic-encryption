@@ -5,6 +5,7 @@ from typing import Final
 
 from sqlalchemy.orm import Session
 
+from pydantic_encryption import decrypt_pending_fields_sync
 from pydantic_encryption.types import BlindIndexValue, HashedValue
 
 from tests.integration.database import User
@@ -67,7 +68,11 @@ class TestIntegrationSQLAlchemy:
         db_session.add(user)
         db_session.commit()
 
-        return db_session.query(User).filter_by(username=username).first()
+        loaded = db_session.query(User).filter_by(username=username).first()
+
+        decrypt_pending_fields_sync(db_session)
+
+        return loaded
 
     def test_secure_fields(self, db_session: Session):
         """Test encrypting and hashing fields with the SQLAlchemyEncryptedValue and SQLAlchemyHashedValue types."""

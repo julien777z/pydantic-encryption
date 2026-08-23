@@ -46,9 +46,9 @@ class EncryptedValue(TaggedBytes):
 
     def __str__(self) -> str:
         raise EncryptedValueAccessError(
-            "Encrypted value coerced to str before decryption. Read the attribute via the ORM "
-            "instance to trigger on-access decrypt, or call "
-            "`await decrypt_pending_fields(session)` to materialize loaded rows. "
+            "Encrypted value coerced to str before decryption. Call "
+            "`await decrypt_pending_fields(session)`, or `decrypt_pending_fields_sync(session)` on a "
+            "synchronous session, to materialize loaded rows. "
             "Use `bytes(value)` if you explicitly need the raw ciphertext."
         )
 
