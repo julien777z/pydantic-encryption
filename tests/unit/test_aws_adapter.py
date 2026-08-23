@@ -1,4 +1,3 @@
-import os
 from typing import Any, Final
 
 import pytest
@@ -7,35 +6,15 @@ pytest.importorskip("boto3")
 pytest.importorskip("aws_encryption_sdk")
 
 from aws_encryption_sdk.caches.local import LocalCryptoMaterialsCache
-from aws_encryption_sdk.identifiers import EncryptionKeyType, WrappingAlgorithm
-from aws_encryption_sdk.internal.crypto.wrapping_keys import WrappingKey
-from aws_encryption_sdk.key_providers.raw import RawMasterKeyProvider
 from aws_encryption_sdk.materials_managers.caching import CachingCryptoMaterialsManager
 
 from pydantic_encryption.adapters.encryption.aws import AWSAdapter, to_bytes
 from pydantic_encryption.config import settings
 from pydantic_encryption.types import EncryptedValue
+from tests.unit.aws_offline import offline_key_provider
 
-PROVIDER_ID: Final[str] = "pydantic-encryption-tests"
-KEY_ID: Final[bytes] = b"static-test-key"
-WRAPPING_KEY: Final[bytes] = os.urandom(32)
 TEST_REGION: Final[str] = "us-east-1"
 TEST_KEY_ARN: Final[str] = "arn:aws:kms:us-east-1:111122223333:key/00000000-0000-0000-0000-000000000000"
-
-
-class StaticRawMasterKeyProvider(RawMasterKeyProvider):
-    """Offline key provider standing in for KMS, counting how often a data key is wrapped."""
-
-    provider_id = PROVIDER_ID  # pyright: ignore[reportAssignmentType]
-
-    def _get_raw_key(self, key_id: bytes) -> WrappingKey:  # pyright: ignore[reportIncompatibleMethodOverride]
-        """Return the single symmetric wrapping key backing every key id."""
-
-        return WrappingKey(
-            wrapping_algorithm=WrappingAlgorithm.AES_256_GCM_IV12_TAG16_NO_PADDING,
-            wrapping_key=WRAPPING_KEY,
-            wrapping_key_type=EncryptionKeyType.SYMMETRIC,
-        )
 
 
 class CountingCache(LocalCryptoMaterialsCache):
@@ -74,8 +53,7 @@ def kms_settings(monkeypatch: pytest.MonkeyPatch) -> None:
 def offline_materials(monkeypatch: pytest.MonkeyPatch) -> CountingCache:
     """Point the adapter at an offline materials manager so no KMS call is made."""
 
-    provider = StaticRawMasterKeyProvider()
-    provider.add_master_key(KEY_ID)
+    provider = offline_key_provider()
     cache = CountingCache(capacity=settings.KMS_MATERIALS_CACHE_SIZE)
 
     monkeypatch.setattr(

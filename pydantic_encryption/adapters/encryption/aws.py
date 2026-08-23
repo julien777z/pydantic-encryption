@@ -9,11 +9,11 @@ require_optional_dependency("aws_encryption_sdk", "aws")
 import aws_encryption_sdk
 import botocore.session
 from aws_encryption_sdk import CommitmentPolicy
-from aws_encryption_sdk.caches.local import LocalCryptoMaterialsCache
 from aws_encryption_sdk.key_providers.kms import StrictAwsKmsMasterKeyProvider
 from aws_encryption_sdk.materials_managers.caching import CachingCryptoMaterialsManager
 
 from pydantic_encryption.adapters.base import EncryptionAdapter, encode_text
+from pydantic_encryption.adapters.encryption.kms_metrics import MeteredMaterialsCache
 from pydantic_encryption.config import settings
 from pydantic_encryption.types import EncryptedValue
 
@@ -81,9 +81,7 @@ class AWSAdapter(EncryptionAdapter):
             if cls.materials_manager is None:
                 # The Encryption SDK builds these constructors with attrs, so pyright cannot see
                 # their generated signatures.
-                cache = LocalCryptoMaterialsCache(
-                    capacity=settings.KMS_MATERIALS_CACHE_SIZE  # pyright: ignore[reportCallIssue]
-                )
+                cache = MeteredMaterialsCache(capacity=settings.KMS_MATERIALS_CACHE_SIZE)
                 provider = StrictAwsKmsMasterKeyProvider(  # pyright: ignore[reportCallIssue]
                     key_ids=cls.kms_key_ids(),
                     botocore_session=cls.botocore_session(),
