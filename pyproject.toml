@@ -21,16 +21,14 @@ Repository = "https://github.com/julien777z/pydantic-encryption"
 [project.optional-dependencies]
 aws = [
     "boto3>=1.40.46",
-    "aws-encryption-sdk[mpl]>=4.0.6",
-    "aws-cryptographic-material-providers>=1.11.2",
+    "aws-encryption-sdk>=4.0.6",
 ]
 sqlalchemy = [
     "sqlalchemy>=2.0.51",
 ]
 all = [
     "boto3>=1.40.46",
-    "aws-encryption-sdk[mpl]>=4.0.6",
-    "aws-cryptographic-material-providers>=1.11.2",
+    "aws-encryption-sdk>=4.0.6",
     "sqlalchemy>=2.0.51",
 ]
 dev = [
