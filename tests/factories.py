@@ -16,7 +16,7 @@ class User(BaseModel):
     last_name: str
     payload: bytes
     address: Annotated[bytes, Encrypted]
-    password: Annotated[str, Hashed] = None
+    password: Annotated[bytes, Hashed]
 
 
 class UserFactory(ModelFactory[User]):

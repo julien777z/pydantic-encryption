@@ -1,6 +1,7 @@
 import pytest
 
 from pydantic_encryption.adapters import registry
+from pydantic_encryption.adapters.blind_index.hmac_sha256 import HMACSHA256Adapter
 from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
 from pydantic_encryption.types import BlindIndexMethod, EncryptionMethod
 
@@ -103,17 +104,15 @@ class TestGetEncryptionBackend:
 class TestGetBlindIndexBackend:
     """Test ``get_blind_index_backend`` resolution."""
 
-    def test_returns_registered_backend(self, unregistered_method: EncryptionMethod):
+    def test_returns_registered_backend(self):
         """Test that a registered blind index backend is returned."""
-
-        from pydantic_encryption.adapters.blind_index.hmac_sha256 import HMACSHA256Adapter
 
         assert registry.get_blind_index_backend(BlindIndexMethod.HMAC_SHA256) is HMACSHA256Adapter
 
-    def test_unknown_method_raises_value_error(self, unregistered_method: EncryptionMethod):
+    def test_unknown_method_raises_value_error(self, unregistered_blind_index_method: BlindIndexMethod):
         """Test that an unregistered blind index method raises a ValueError."""
 
-        method = unregistered_method
+        method = unregistered_blind_index_method
 
         with pytest.raises(ValueError, match="No blind index backend registered"):
             registry.get_blind_index_backend(method)

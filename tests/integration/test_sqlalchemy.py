@@ -70,6 +70,8 @@ class TestIntegrationSQLAlchemy:
 
         loaded = db_session.query(User).filter_by(username=username).first()
 
+        assert loaded is not None
+
         decrypt_pending_fields_sync(db_session)
 
         return loaded
@@ -112,6 +114,7 @@ class TestIntegrationSQLAlchemy:
             db_session, username="user4", password=TEST_PASSWORD, last_login=test_datetime
         )
 
+        assert isinstance(user.last_login, datetime)
         assert user.last_login == test_datetime
         assert user.last_login.tzinfo is not None
 
@@ -233,6 +236,7 @@ class TestIntegrationSQLAlchemy:
 
         user = self.create_user(db_session, username="user18", password=TEST_PASSWORD, login_time=tz_time)
 
+        assert isinstance(user.login_time, time)
         assert user.login_time == tz_time
         assert user.login_time.tzinfo is not None
 

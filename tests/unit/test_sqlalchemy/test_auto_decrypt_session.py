@@ -7,6 +7,7 @@ from unittest.mock import patch
 from weakref import WeakSet
 
 from sqlalchemy import inspect as sa_inspect
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import DeclarativeBase, Mapped, configure_mappers, mapped_column
 
 from pydantic_encryption.integrations.sqlalchemy import DeferredDecryptMixin, decrypt_pending_fields
@@ -44,7 +45,11 @@ class AutoDecryptBlob(AutoDecryptBase, DeferredDecryptMixin):
 def encrypt_value(value: Any) -> bytes:
     """Encrypt a value via the SQLAlchemyEncryptedValue write path."""
 
-    return SQLAlchemyEncryptedValue().process_bind_param(value, TEST_DIALECT)
+    ciphertext = SQLAlchemyEncryptedValue().process_bind_param(value, TEST_DIALECT)
+
+    assert ciphertext is not None
+
+    return ciphertext
 
 
 def wrap_encrypted(value: Any) -> EncryptedValue:
@@ -61,7 +66,7 @@ class TestOnOrmLoadListener:
         configure_mappers()
 
     def test_collects_into_session_bucket(self):
-        session = SimpleNamespace(info={})
+        session = AsyncSession()
         context = SimpleNamespace(session=session)
         instance = AutoDecryptUser(id=1)
 
@@ -79,7 +84,7 @@ class TestOnOrmLoadListener:
         on_orm_load(AutoDecryptUser(id=1), None)
 
     def test_groups_by_class(self):
-        session = SimpleNamespace(info={})
+        session = AsyncSession()
         context = SimpleNamespace(session=session)
         user_a = AutoDecryptUser(id=1)
         user_b = AutoDecryptUser(id=2)
@@ -94,7 +99,7 @@ class TestOnOrmLoadListener:
         assert set(bucket[AutoDecryptBlob]) == {blob}
 
     def test_refresh_dedups_same_instance(self):
-        session = SimpleNamespace(info={})
+        session = AsyncSession()
         context = SimpleNamespace(session=session)
         instance = AutoDecryptUser(id=1)
 
@@ -110,7 +115,7 @@ class TestDecryptPendingFields:
     """Test that decrypt_pending_fields drains the session bucket across every pending class."""
 
     def test_drain_decrypts_every_pending_class(self):
-        session = SimpleNamespace(info={})
+        session = AsyncSession()
         user = AutoDecryptUser(id=1, email=wrap_encrypted("a@x.com"))
         blob = AutoDecryptBlob(id=1, payload=wrap_encrypted(b"shh"))
 
@@ -126,7 +131,7 @@ class TestDecryptPendingFields:
         assert PENDING_DECRYPT_KEY not in session.info
 
     def test_drain_noop_when_bucket_empty(self):
-        session = SimpleNamespace(info={})
+        session = AsyncSession()
 
         asyncio.run(decrypt_pending_fields(session))
 
@@ -165,7 +170,7 @@ class TestDrainBatching:
     def test_drain_batches_every_class_off_the_loop(self):
         """Test that one drain decrypts both classes' cells in a single worker-thread batch."""
 
-        session = SimpleNamespace(info={})
+        session = AsyncSession()
         user = AutoDecryptUser(id=1, email=wrap_encrypted("a@x.com"))
         blob = AutoDecryptBlob(id=1, payload=wrap_encrypted(b"shh"))
 

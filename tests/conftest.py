@@ -1,27 +1,23 @@
 from collections.abc import Iterator
 
 import pytest
+from cryptography.fernet import Fernet
 
 from pydantic_encryption.adapters import registry
+from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
 from pydantic_encryption.config import settings
-from pydantic_encryption.types import EncryptionMethod
+from pydantic_encryption.types import BlindIndexMethod, EncryptionMethod
 from tests.factories import User, UserFactory
 
 
 @pytest.fixture(autouse=True)
 def set_default_encryption_method(monkeypatch):
-    """Seed encryption + blind-index config for every test so individual tests can opt out."""
+    """Set encryption + blind-index config for every test so individual tests can opt out."""
 
     monkeypatch.setattr(settings, "ENCRYPTION_METHOD", EncryptionMethod.FERNET)
 
-    # Also ensure ENCRYPTION_KEY is set for Fernet tests if not already provided
     if settings.ENCRYPTION_KEY is None:
-        from cryptography.fernet import Fernet
-
         monkeypatch.setattr(settings, "ENCRYPTION_KEY", Fernet.generate_key().decode())
-        # Reset cached Fernet client so it picks up new key
-        from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
-
         FernetAdapter._clients.clear()
 
     if settings.BLIND_INDEX_SECRET_KEY is None:
@@ -59,3 +55,19 @@ def unregistered_method() -> Iterator[EncryptionMethod]:
 
         if factory is not None:
             registry.encryption_factories[method] = factory
+
+
+@pytest.fixture
+def unregistered_blind_index_method() -> Iterator[BlindIndexMethod]:
+    """Lend a real blind index method with its registry entry cleared, restoring it afterwards."""
+
+    method = BlindIndexMethod.ARGON2
+    backend = registry.blind_index_backends.pop(method, None)
+
+    try:
+        yield method
+    finally:
+        registry.blind_index_backends.pop(method, None)
+
+        if backend is not None:
+            registry.blind_index_backends[method] = backend

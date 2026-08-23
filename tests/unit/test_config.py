@@ -3,6 +3,7 @@ from pydantic import ValidationError
 from pydantic_settings import SettingsConfigDict
 
 from pydantic_encryption.config import Settings
+from pydantic_encryption.types import EncryptionMethod
 
 
 class IsolatedSettings(Settings):
@@ -118,7 +119,7 @@ class TestEncryptionMethodValidation:
 
         with pytest.raises(ValidationError) as exc_info:
             IsolatedSettings(
-                ENCRYPTION_METHOD="aws",
+                ENCRYPTION_METHOD=EncryptionMethod.AWS,
                 AWS_KMS_KEY_ARN="arn:aws:kms:us-east-1:123456789:key/test",
             )
 
@@ -128,14 +129,14 @@ class TestEncryptionMethodValidation:
         """Test that ENCRYPTION_METHOD=aws with all required env values constructs cleanly."""
 
         settings = IsolatedSettings(
-            ENCRYPTION_METHOD="aws",
+            ENCRYPTION_METHOD=EncryptionMethod.AWS,
             AWS_KMS_KEY_ARN="arn:aws:kms:us-east-1:123456789:key/test",
             AWS_KMS_REGION="us-east-1",
             AWS_KMS_ACCESS_KEY_ID="test-access",
             AWS_KMS_SECRET_ACCESS_KEY="test-secret",
         )
 
-        assert settings.ENCRYPTION_METHOD.value == "aws"
+        assert settings.ENCRYPTION_METHOD is EncryptionMethod.AWS
 
     def test_fernet_method_requires_encryption_key(self, monkeypatch):
         """Test that selecting ENCRYPTION_METHOD=fernet without ENCRYPTION_KEY raises a validation error."""
@@ -143,7 +144,7 @@ class TestEncryptionMethodValidation:
         monkeypatch.delenv("ENCRYPTION_KEY", raising=False)
 
         with pytest.raises(ValidationError) as exc_info:
-            IsolatedSettings(ENCRYPTION_METHOD="fernet")
+            IsolatedSettings(ENCRYPTION_METHOD=EncryptionMethod.FERNET)
 
         assert "ENCRYPTION_KEY" in str(exc_info.value)
 
@@ -151,8 +152,8 @@ class TestEncryptionMethodValidation:
         """Test that ENCRYPTION_METHOD=fernet with ENCRYPTION_KEY constructs cleanly."""
 
         settings = IsolatedSettings(
-            ENCRYPTION_METHOD="fernet",
+            ENCRYPTION_METHOD=EncryptionMethod.FERNET,
             ENCRYPTION_KEY="test-key",
         )
 
-        assert settings.ENCRYPTION_METHOD.value == "fernet"
+        assert settings.ENCRYPTION_METHOD is EncryptionMethod.FERNET

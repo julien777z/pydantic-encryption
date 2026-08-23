@@ -29,7 +29,11 @@ class SQLAlchemyHashedValue(TypeDecorator):
 
         return self.hash(value)
 
-    def process_literal_param(self, value: str | bytes | None, dialect: Dialect) -> HashedValue | None:
+    # SQLAlchemy annotates process_literal_param as returning str, but TypeDecorator.literal_processor
+    # feeds the result to the impl's literal processor, which for LargeBinary takes bytes.
+    def process_literal_param(  # pyright: ignore[reportIncompatibleMethodOverride]
+        self, value: str | bytes | None, dialect: Dialect
+    ) -> HashedValue | None:
         """Hash a value for literal SQL expressions."""
 
         if value is None:

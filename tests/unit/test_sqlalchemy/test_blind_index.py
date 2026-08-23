@@ -46,12 +46,18 @@ class TestSQLAlchemyBlindIndexValueHMAC:
 
     def test_process_bind_param_already_indexed_returns_same(self):
         result = self.type_adapter.process_bind_param("test@example.com", TEST_DIALECT)
+
+        assert result is not None
+
         blind_index_value = BlindIndexValue(result)
         double_indexed = self.type_adapter.process_bind_param(blind_index_value, TEST_DIALECT)
         assert result == double_indexed
 
     def test_process_literal_param_already_indexed_returns_same(self):
         result = self.type_adapter.process_literal_param("test@example.com", TEST_DIALECT)
+
+        assert result is not None
+
         blind_index_value = BlindIndexValue(result)
         double_indexed = self.type_adapter.process_literal_param(blind_index_value, TEST_DIALECT)
         assert result == double_indexed
@@ -152,7 +158,7 @@ class TestSQLAlchemyBlindIndexValueConfig:
         argon2_adapter = SQLAlchemyBlindIndexValue(BlindIndexMethod.ARGON2)
         assert hmac_adapter.process_bind_param(
             "test@example.com", TEST_DIALECT
-        ) != argon2_adapter.process_bind_param("test@example.com", None)
+        ) != argon2_adapter.process_bind_param("test@example.com", TEST_DIALECT)
 
     def test_python_type(self):
         type_adapter = SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256)
@@ -174,6 +180,8 @@ class TestSQLAlchemyBlindIndexValueMakeBlindIndexValue:
     def test_unsalted_matches_process_bind_param(self):
         made = self.type_adapter.make_blind_index_value("test@example.com")
         bound = self.type_adapter.process_bind_param("test@example.com", TEST_DIALECT)
+
+        assert bound is not None
         assert bytes(made) == bytes(bound)
 
     def test_salted_differs_from_unsalted(self):
@@ -197,6 +205,8 @@ class TestSQLAlchemyBlindIndexValueMakeBlindIndexValue:
 
         salted = self.type_adapter.make_blind_index_value("test@example.com", salt=b"\x01" * 16)
         bound = self.type_adapter.process_bind_param(salted, TEST_DIALECT)
+
+        assert bound is not None
         assert bytes(bound) == bytes(salted)
 
 

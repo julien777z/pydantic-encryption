@@ -53,6 +53,8 @@ class TestDeferDecrypt:
 
     def test_mixin_column_returns_encrypted_value(self):
         column_type = DeferMixed.__table__.c.secret.type
+
+        assert isinstance(column_type, SQLAlchemyEncryptedValue)
         assert column_type._deferred is True
 
         ciphertext = column_type.process_bind_param("hello", TEST_DIALECT)
@@ -64,10 +66,14 @@ class TestDeferDecrypt:
 
     def test_mixin_column_none_passthrough(self):
         column_type = DeferMixed.__table__.c.secret.type
+
+        assert isinstance(column_type, SQLAlchemyEncryptedValue)
         assert column_type.process_result_value(None, TEST_DIALECT) is None
 
     def test_plain_column_returns_plaintext(self):
         column_type = DeferPlain.__table__.c.secret.type
+
+        assert isinstance(column_type, SQLAlchemyEncryptedValue)
         assert column_type._deferred is False
 
         ciphertext = column_type.process_bind_param("hello", TEST_DIALECT)
@@ -78,8 +84,12 @@ class TestDeferDecrypt:
 class TestDecryptRows:
     """Test the decrypt_rows bulk helper."""
 
-    def make_ciphertext(self, value):
-        return SQLAlchemyEncryptedValue().process_bind_param(value, TEST_DIALECT)
+    def make_ciphertext(self, value: str) -> bytes:
+        ciphertext = SQLAlchemyEncryptedValue().process_bind_param(value, TEST_DIALECT)
+
+        assert ciphertext is not None
+
+        return ciphertext
 
     def test_decrypt_rows_fernet(self):
         # Build 3 fake rows with 2 encrypted columns each.
@@ -144,7 +154,11 @@ class BulkContractor(BulkBase, DeferredDecryptMixin):
 def encrypt_deferred(value: str) -> bytes:
     """Encrypt a value using SQLAlchemyEncryptedValue on the write path."""
 
-    return SQLAlchemyEncryptedValue().process_bind_param(value, TEST_DIALECT)
+    ciphertext = SQLAlchemyEncryptedValue().process_bind_param(value, TEST_DIALECT)
+
+    assert ciphertext is not None
+
+    return ciphertext
 
 
 class TestDeferredDecryptMixin:
@@ -229,7 +243,11 @@ class TestDecryptValues:
     """Test the decrypt_values bulk helper for flat ciphertext iterables."""
 
     def make_ciphertext(self, value: str) -> bytes:
-        return SQLAlchemyEncryptedValue().process_bind_param(value, TEST_DIALECT)
+        ciphertext = SQLAlchemyEncryptedValue().process_bind_param(value, TEST_DIALECT)
+
+        assert ciphertext is not None
+
+        return ciphertext
 
     def test_decrypts_list_of_ciphertexts(self):
         values = [self.make_ciphertext(f"user-{i}") for i in range(3)]

@@ -37,7 +37,7 @@ class TestAsyncInit:
     @pytest.mark.asyncio
     async def test_async_init_hashes_fields(self):
         class _Model(BaseModel):
-            password: Annotated[str, Hashed]
+            password: Annotated[bytes, Hashed]
 
         model = await _Model.async_init(password="secret123")
 
@@ -48,7 +48,7 @@ class TestAsyncInit:
         class _Model(BaseModel):
             username: str
             email: Annotated[bytes, Encrypted]
-            password: Annotated[str, Hashed]
+            password: Annotated[bytes, Hashed]
 
         model = await _Model.async_init(username="john", email="john@example.com", password="secret123")
 
@@ -121,7 +121,7 @@ class TestAsyncInit:
             secret: Annotated[bytes, Encrypted]
 
         async_model = await _Model.async_init(secret="async_secret")
-        sync_model = _Model(secret="sync_secret")
+        sync_model = _Model(secret=b"sync_secret")
 
         assert isinstance(async_model.secret, EncryptedValue)
         assert isinstance(sync_model.secret, EncryptedValue)
@@ -162,7 +162,7 @@ class TestAsyncDecryptData:
         class _Model(BaseModel):
             data: Annotated[bytes, Encrypted]
 
-        model = _Model(data="secret data")
+        model = _Model(data=b"secret data")
         await model.async_decrypt_data()
         assert model.data == "secret data"
 
@@ -172,7 +172,7 @@ class TestAsyncDecryptData:
             data1: Annotated[bytes, Encrypted]
             data2: Annotated[bytes, Encrypted]
 
-        model = _Model(data1="secret1", data2="secret2")
+        model = _Model(data1=b"secret1", data2=b"secret2")
         await model.async_decrypt_data()
 
         assert model.data1 == "secret1"
@@ -183,7 +183,7 @@ class TestAsyncDecryptData:
         class _Model(BaseModel):
             data: Annotated[bytes, Encrypted]
 
-        model = _Model(data="secret")
+        model = _Model(data=b"secret")
         result = await model.async_decrypt_data()
         assert result is model
 
@@ -194,7 +194,7 @@ class TestAsyncHashData:
     @pytest.mark.asyncio
     async def test_async_hash_data(self):
         class _Model(BaseModel):
-            password: Annotated[str, Hashed]
+            password: Annotated[bytes, Hashed]
 
         model = construct_without_crypto(_Model, password="secret123")
         assert not isinstance(model.password, HashedValue)
@@ -205,8 +205,8 @@ class TestAsyncHashData:
     @pytest.mark.asyncio
     async def test_async_hash_data_multiple_fields(self):
         class _Model(BaseModel):
-            password1: Annotated[str, Hashed]
-            password2: Annotated[str, Hashed]
+            password1: Annotated[bytes, Hashed]
+            password2: Annotated[bytes, Hashed]
 
         model = construct_without_crypto(_Model, password1="secret1", password2="secret2")
         await model.async_hash_data()
@@ -222,7 +222,7 @@ class TestAsyncPostInit:
     async def test_async_post_init_encrypt_and_hash(self):
         class _Model(BaseModel):
             email: Annotated[bytes, Encrypted]
-            password: Annotated[str, Hashed]
+            password: Annotated[bytes, Hashed]
 
         model = construct_without_crypto(_Model, email="user@example.com", password="secret123")
         assert not isinstance(model.email, EncryptedValue)
@@ -272,7 +272,7 @@ class TestAsyncInitNestedModels:
         """Nested SecureModel fields with Hashed annotations are processed."""
 
         class _Credentials(BaseModel):
-            password: Annotated[str, Hashed]
+            password: Annotated[bytes, Hashed]
 
         class _User(BaseModel):
             name: str
@@ -310,7 +310,7 @@ class TestAsyncInitNestedModels:
             name: str
             address: _Address
 
-        address = _Address(street="123 Main St")  # sync crypto already ran
+        address = _Address(street=b"123 Main St")  # sync crypto already ran
         assert isinstance(address.street, EncryptedValue)
 
         user = await _User.async_init(name="John", address=address)
@@ -453,7 +453,7 @@ class TestAsyncBlindIndexData:
         class _AsyncModel(BaseModel):
             email: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
 
-        sync_model = _SyncModel(email="test@example.com")
+        sync_model = _SyncModel(email=b"test@example.com")
         async_model = await _AsyncModel.async_init(email="test@example.com")
 
         assert sync_model.email == async_model.email
@@ -509,7 +509,7 @@ class TestAsyncEncryptDataErrors:
         class _Model(BaseModel):
             data: Annotated[bytes, Encrypted]
 
-        model = _Model(data="secret")
+        model = _Model(data=b"secret")
         monkeypatch.setattr(settings, "ENCRYPTION_METHOD", None)
 
         with pytest.raises(ValueError, match="ENCRYPTION_METHOD must be set"):

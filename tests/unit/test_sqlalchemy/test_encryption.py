@@ -16,6 +16,7 @@ from pydantic_encryption.integrations.sqlalchemy.serialization import (
     decode_value,
     encode_value,
 )
+from pydantic_encryption.types import EncryptedValue
 from tests.dialects import TEST_DIALECT
 
 
@@ -180,6 +181,8 @@ class TestDecodeValue:
 
     def test_deserialize_datetime_with_timezone(self):
         result = decode_value(f"v1:{TypePrefix.DATETIME}:2025-01-21T14:30:45+00:00")
+
+        assert isinstance(result, datetime)
         assert result == datetime(2025, 1, 21, 14, 30, 45, tzinfo=timezone.utc)
         assert result.tzinfo is not None
 
@@ -194,6 +197,8 @@ class TestDecodeValue:
 
     def test_deserialize_time_with_timezone(self):
         result = decode_value(f"v1:{TypePrefix.TIME}:14:30:45+00:00")
+
+        assert isinstance(result, time)
         assert result == time(14, 30, 45, tzinfo=timezone.utc)
         assert result.tzinfo is not None
 
@@ -328,16 +333,18 @@ class TestEncryptionIdempotency:
         assert encrypted == double_encrypted
 
     def test_process_bind_param_already_encrypted_returns_same(self):
-        from pydantic_encryption.types import EncryptedValue
-
         encrypted = self.type_adapter.process_bind_param("hello", TEST_DIALECT)
+
+        assert encrypted is not None
+
         double_encrypted = self.type_adapter.process_bind_param(EncryptedValue(encrypted), TEST_DIALECT)
         assert encrypted == double_encrypted
 
     def test_process_literal_param_already_encrypted_returns_same(self):
-        from pydantic_encryption.types import EncryptedValue
-
         encrypted = self.type_adapter.process_literal_param("hello", TEST_DIALECT)
+
+        assert encrypted is not None
+
         double_encrypted = self.type_adapter.process_literal_param(EncryptedValue(encrypted), TEST_DIALECT)
         assert encrypted == double_encrypted
 

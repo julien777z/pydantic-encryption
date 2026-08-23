@@ -208,7 +208,7 @@ from pydantic_encryption import BaseModel, Encrypted, Hashed
 class User(BaseModel):
     name: str
     address: Annotated[bytes, Encrypted]
-    password: Annotated[str, Hashed]
+    password: Annotated[bytes, Hashed]
 
 user = User(name="John Doe", address="123 Main St", password="secret123")
 

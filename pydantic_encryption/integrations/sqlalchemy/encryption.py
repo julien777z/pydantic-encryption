@@ -56,7 +56,11 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
 
         return self.encrypt_cell(value)
 
-    def process_literal_param(self, value: EncryptableValue | None, dialect: Dialect) -> bytes | None:
+    # SQLAlchemy annotates process_literal_param as returning str, but TypeDecorator.literal_processor
+    # feeds the result to the impl's literal processor, which for LargeBinary takes bytes.
+    def process_literal_param(  # pyright: ignore[reportIncompatibleMethodOverride]
+        self, value: EncryptableValue | None, dialect: Dialect
+    ) -> bytes | None:
         """Encrypt a value for literal SQL expressions."""
 
         return self.encrypt_cell(value)
@@ -91,7 +95,7 @@ class SQLAlchemyPGEncryptedArray(TypeDecorator):
         self._deferred = False
 
     def process_bind_param(
-        self, value: list[EncryptableValue] | None, dialect: Dialect
+        self, value: list[EncryptableValue | None] | None, dialect: Dialect
     ) -> list[EncryptedValue | None] | None:
         """Encrypt each element before binding to the database."""
 
@@ -100,8 +104,10 @@ class SQLAlchemyPGEncryptedArray(TypeDecorator):
 
         return [self._element_type.encrypt_cell(element) for element in value]
 
-    def process_literal_param(
-        self, value: list[EncryptableValue] | None, dialect: Dialect
+    # SQLAlchemy annotates process_literal_param as returning str, but TypeDecorator.literal_processor
+    # feeds the result to the impl's literal processor, which for an array of LargeBinary takes a list.
+    def process_literal_param(  # pyright: ignore[reportIncompatibleMethodOverride]
+        self, value: list[EncryptableValue | None] | None, dialect: Dialect
     ) -> list[EncryptedValue | None] | None:
         """Encrypt each element for literal SQL expressions."""
 
@@ -111,7 +117,7 @@ class SQLAlchemyPGEncryptedArray(TypeDecorator):
         return [self._element_type.encrypt_cell(element) for element in value]
 
     def process_result_value(
-        self, value: list[bytes] | None, dialect: Dialect
+        self, value: list[bytes | None] | None, dialect: Dialect
     ) -> list[EncryptableValue | None] | None:
         """Decrypt each element after retrieving the array from the database."""
 

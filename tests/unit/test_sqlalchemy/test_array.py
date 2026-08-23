@@ -7,6 +7,7 @@ from pydantic_encryption.integrations.sqlalchemy.encryption import (
     SQLAlchemyPGEncryptedArray,
 )
 from pydantic_encryption.integrations.sqlalchemy.serialization import decode_value, encode_value
+from tests.dialects import TEST_DIALECT
 
 
 class TestSQLAlchemyPGEncryptedArray:
@@ -16,19 +17,19 @@ class TestSQLAlchemyPGEncryptedArray:
         self.type_adapter = SQLAlchemyPGEncryptedArray()
 
     def test_process_bind_param_none(self):
-        assert self.type_adapter.process_bind_param(None, dialect=None) is None
+        assert self.type_adapter.process_bind_param(None, dialect=TEST_DIALECT) is None
 
     def test_process_result_value_none(self):
-        assert self.type_adapter.process_result_value(None, dialect=None) is None
+        assert self.type_adapter.process_result_value(None, dialect=TEST_DIALECT) is None
 
     def test_process_bind_param_empty_list(self):
-        assert self.type_adapter.process_bind_param([], dialect=None) == []
+        assert self.type_adapter.process_bind_param([], dialect=TEST_DIALECT) == []
 
     def test_process_result_value_empty_list(self):
-        assert self.type_adapter.process_result_value([], dialect=None) == []
+        assert self.type_adapter.process_result_value([], dialect=TEST_DIALECT) == []
 
     def test_process_result_value_none_elements(self):
-        assert self.type_adapter.process_result_value([None, None], dialect=None) == [None, None]
+        assert self.type_adapter.process_result_value([None, None], dialect=TEST_DIALECT) == [None, None]
 
     def test_element_type_is_sqlalchemy_encrypted(self):
         assert isinstance(self.type_adapter._element_type, SQLAlchemyEncryptedValue)

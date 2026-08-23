@@ -1,12 +1,12 @@
 import asyncio
 import importlib
 from collections import defaultdict
-from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 from weakref import WeakSet
 
 from sqlalchemy import inspect as sa_inspect
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import DeclarativeBase, Mapped, configure_mappers, mapped_column
 
 import pydantic_encryption
@@ -39,21 +39,30 @@ class FinalizeUser(FinalizeBase, DeferredDecryptMixin):
 def wrap_encrypted(value: Any) -> EncryptedValue:
     """Wrap ciphertext in EncryptedValue the way process_result_value does on read."""
 
-    return EncryptedValue(SQLAlchemyEncryptedValue().process_bind_param(value, TEST_DIALECT))
+    ciphertext = SQLAlchemyEncryptedValue().process_bind_param(value, TEST_DIALECT)
+
+    assert ciphertext is not None
+
+    return EncryptedValue(ciphertext)
 
 
-class FakeAsyncSession(SimpleNamespace):
-    """Minimal AsyncSession stand-in exposing the surface finalize_sqlalchemy_session uses."""
+class FakeAsyncSession(AsyncSession):
+    """AsyncSession that records commits and reports a fixed transaction state, without a bind."""
+
+    commit_calls: int
+    open_transaction: bool
 
     def __init__(self, in_transaction: bool) -> None:
-        super().__init__(info={}, commit_calls=0, _in_tx=in_transaction)
+        super().__init__()
+        self.commit_calls = 0
+        self.open_transaction = in_transaction
 
     def in_transaction(self) -> bool:
-        return self._in_tx
+        return self.open_transaction
 
     async def commit(self) -> None:
         self.commit_calls += 1
-        self._in_tx = False
+        self.open_transaction = False
 
 
 class TestFinalizeSession:
@@ -104,7 +113,9 @@ class TestFinalizeSession:
         events: list[str] = []
 
         class _RecordingSession(FakeAsyncSession):
-            async def commit(self_inner) -> None:
+            """FakeAsyncSession that records the commit against the decrypt ordering."""
+
+            async def commit(self) -> None:
                 events.append("commit")
                 await super().commit()
 
