@@ -19,6 +19,8 @@ from pydantic_encryption.types import EncryptedValue
 PROVIDER_ID: Final[str] = "pydantic-encryption-tests"
 KEY_ID: Final[bytes] = b"static-test-key"
 WRAPPING_KEY: Final[bytes] = os.urandom(32)
+TEST_REGION: Final[str] = "us-east-1"
+TEST_KEY_ARN: Final[str] = "arn:aws:kms:us-east-1:111122223333:key/00000000-0000-0000-0000-000000000000"
 
 
 class StaticRawMasterKeyProvider(RawMasterKeyProvider):
@@ -52,6 +54,20 @@ class CountingCache(LocalCryptoMaterialsCache):
         self.data_keys_generated += 1
 
         return super().put_encryption_materials(*args, **kwargs)
+
+
+@pytest.fixture
+def kms_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Point the adapter at a configured KMS key without letting it reach the service."""
+
+    monkeypatch.setattr(settings, "AWS_KMS_KEY_ARN", TEST_KEY_ARN)
+    monkeypatch.setattr(settings, "AWS_KMS_ENCRYPT_KEY_ARN", None)
+    monkeypatch.setattr(settings, "AWS_KMS_DECRYPT_KEY_ARN", None)
+    monkeypatch.setattr(settings, "AWS_KMS_REGION", TEST_REGION)
+    monkeypatch.setattr(settings, "AWS_KMS_ACCESS_KEY_ID", "testing")
+    monkeypatch.setattr(settings, "AWS_KMS_SECRET_ACCESS_KEY", "testing")
+    monkeypatch.setattr(AWSAdapter, "materials_manager", None)
+    monkeypatch.setattr(AWSAdapter, "client", None)
 
 
 @pytest.fixture
@@ -111,6 +127,38 @@ class TestAWSAdapter:
         ciphertexts = [AWSAdapter.encrypt(value) for value in values]
 
         assert [AWSAdapter.decrypt(ciphertext) for ciphertext in ciphertexts] == values
+
+    def test_session_carries_the_configured_region(self, kms_settings: None) -> None:
+        """Test that the botocore session is built with the configured region and credentials."""
+
+        session = AWSAdapter.botocore_session()
+
+        assert session.get_config_variable("region") == TEST_REGION
+        assert session.get_credentials().access_key == "testing"
+
+    def test_materials_manager_is_built_once(self, kms_settings: None) -> None:
+        """Test that the materials manager is built from settings and reused by later calls."""
+
+        materials = AWSAdapter.crypto_materials()
+
+        assert isinstance(materials, CachingCryptoMaterialsManager)
+        assert AWSAdapter.crypto_materials() is materials
+
+    def test_client_is_reused(self, kms_settings: None) -> None:
+        """Test that one Encryption SDK client serves every call in the process."""
+
+        assert AWSAdapter.crypto_client() is AWSAdapter.crypto_client()
+
+    def test_reset_drops_the_cached_manager(self, kms_settings: None) -> None:
+        """Test that resetting forces the next call to rebuild from current settings."""
+
+        materials = AWSAdapter.crypto_materials()
+
+        AWSAdapter.reset_cache()
+
+        assert AWSAdapter.materials_manager is None
+        assert AWSAdapter.client is None
+        assert AWSAdapter.crypto_materials() is not materials
 
     @pytest.mark.parametrize(
         ("arns", "expected"),
