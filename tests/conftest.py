@@ -1,5 +1,8 @@
+from collections.abc import Iterator
+
 import pytest
 
+from pydantic_encryption.adapters import registry
 from pydantic_encryption.config import settings
 from pydantic_encryption.types import EncryptionMethod
 from tests.factories import User, UserFactory
@@ -35,3 +38,24 @@ def user() -> User:
 def users_batch() -> list[User]:
     """Generate a batch of User instances."""
     return UserFactory.batch(5)
+
+
+@pytest.fixture
+def unregistered_method() -> Iterator[EncryptionMethod]:
+    """Lend a real encryption method with its registry entries cleared, restoring them afterwards."""
+
+    method = EncryptionMethod.AWS
+    backend = registry.encryption_backends.pop(method, None)
+    factory = registry.encryption_factories.pop(method, None)
+
+    try:
+        yield method
+    finally:
+        registry.encryption_backends.pop(method, None)
+        registry.encryption_factories.pop(method, None)
+
+        if backend is not None:
+            registry.encryption_backends[method] = backend
+
+        if factory is not None:
+            registry.encryption_factories[method] = factory
