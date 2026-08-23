@@ -63,6 +63,7 @@ packages = [
     {include = "pydantic_encryption"},
     {include = "scripts"},
 ]
+include = [{path = "pydantic_encryption/py.typed", format = ["sdist", "wheel"]}]
 
 [build-system]
 requires = ["poetry-core", "setuptools"]
