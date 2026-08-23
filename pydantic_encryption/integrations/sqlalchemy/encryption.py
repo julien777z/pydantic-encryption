@@ -4,6 +4,7 @@ from pydantic_encryption.lazy import require_optional_dependency
 
 require_optional_dependency("sqlalchemy", "sqlalchemy")
 
+from sqlalchemy.engine import Dialect
 from sqlalchemy.types import ARRAY, LargeBinary, TypeDecorator
 
 from pydantic_encryption.adapters.registry import get_encryption_backend
@@ -53,17 +54,17 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
 
         return self.backend().decrypt(value)
 
-    def process_bind_param(self, value: EncryptableValue | None, dialect) -> bytes | None:
+    def process_bind_param(self, value: EncryptableValue | None, dialect: Dialect) -> bytes | None:
         """Encrypt a value before binding it to the database."""
 
         return self.encrypt_cell(value)
 
-    def process_literal_param(self, value: EncryptableValue | None, dialect) -> bytes | None:
+    def process_literal_param(self, value: EncryptableValue | None, dialect: Dialect) -> bytes | None:
         """Encrypt a value for literal SQL expressions."""
 
         return self.encrypt_cell(value)
 
-    def process_result_value(self, value: str | bytes | None, dialect) -> EncryptableValue | None:
+    def process_result_value(self, value: str | bytes | None, dialect: Dialect) -> EncryptableValue | None:
         """Decrypt a value after retrieving it from the database."""
 
         if value is None:
@@ -92,7 +93,9 @@ class SQLAlchemyPGEncryptedArray(TypeDecorator):
         self._element_type = SQLAlchemyEncryptedValue()
         self._deferred = False
 
-    def process_bind_param(self, value: list[EncryptableValue] | None, dialect) -> list[bytes] | None:
+    def process_bind_param(
+        self, value: list[EncryptableValue] | None, dialect: Dialect
+    ) -> list[bytes] | None:
         """Encrypt each element before binding to the database."""
 
         if value is None:
@@ -100,7 +103,9 @@ class SQLAlchemyPGEncryptedArray(TypeDecorator):
 
         return [self._element_type.encrypt_cell(element) for element in value]
 
-    def process_literal_param(self, value: list[EncryptableValue] | None, dialect) -> list[bytes] | None:
+    def process_literal_param(
+        self, value: list[EncryptableValue] | None, dialect: Dialect
+    ) -> list[bytes] | None:
         """Encrypt each element for literal SQL expressions."""
 
         if value is None:
@@ -109,7 +114,7 @@ class SQLAlchemyPGEncryptedArray(TypeDecorator):
         return [self._element_type.encrypt_cell(element) for element in value]
 
     def process_result_value(
-        self, value: list[bytes] | None, dialect
+        self, value: list[bytes] | None, dialect: Dialect
     ) -> list[EncryptableValue | None] | None:
         """Decrypt each element after retrieving the array from the database."""
 

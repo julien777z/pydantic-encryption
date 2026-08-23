@@ -1,7 +1,6 @@
 import asyncio
 from types import SimpleNamespace
 
-import pytest
 from sqlalchemy import ForeignKey
 from sqlalchemy.orm import (
     DeclarativeBase,
@@ -20,6 +19,7 @@ from pydantic_encryption.integrations.sqlalchemy.encryption import (
     SQLAlchemyEncryptedValue,
 )
 from pydantic_encryption.types import EncryptedValue
+from tests.dialects import TEST_DIALECT
 
 
 class DeferBase(DeclarativeBase):
@@ -55,23 +55,23 @@ class TestDeferDecrypt:
         column_type = DeferMixed.__table__.c.secret.type
         assert column_type._deferred is True
 
-        ciphertext = column_type.process_bind_param("hello", None)
+        ciphertext = column_type.process_bind_param("hello", TEST_DIALECT)
         assert ciphertext is not None
 
-        result = column_type.process_result_value(ciphertext, None)
+        result = column_type.process_result_value(ciphertext, TEST_DIALECT)
         assert isinstance(result, EncryptedValue)
         assert result != "hello"
 
     def test_mixin_column_none_passthrough(self):
         column_type = DeferMixed.__table__.c.secret.type
-        assert column_type.process_result_value(None, None) is None
+        assert column_type.process_result_value(None, TEST_DIALECT) is None
 
     def test_plain_column_returns_plaintext(self):
         column_type = DeferPlain.__table__.c.secret.type
         assert column_type._deferred is False
 
-        ciphertext = column_type.process_bind_param("hello", None)
-        result = column_type.process_result_value(ciphertext, None)
+        ciphertext = column_type.process_bind_param("hello", TEST_DIALECT)
+        result = column_type.process_result_value(ciphertext, TEST_DIALECT)
         assert result == "hello"
 
 
@@ -79,7 +79,7 @@ class TestDecryptRows:
     """Test the decrypt_rows bulk helper."""
 
     def make_ciphertext(self, value):
-        return SQLAlchemyEncryptedValue().process_bind_param(value, None)
+        return SQLAlchemyEncryptedValue().process_bind_param(value, TEST_DIALECT)
 
     def test_decrypt_rows_fernet(self):
         # Build 3 fake rows with 2 encrypted columns each.
@@ -144,7 +144,7 @@ class BulkContractor(BulkBase, DeferredDecryptMixin):
 def encrypt_deferred(value: str) -> bytes:
     """Encrypt a value using SQLAlchemyEncryptedValue on the write path."""
 
-    return SQLAlchemyEncryptedValue().process_bind_param(value, None)
+    return SQLAlchemyEncryptedValue().process_bind_param(value, TEST_DIALECT)
 
 
 class TestDeferredDecryptMixin:
@@ -229,7 +229,7 @@ class TestDecryptValues:
     """Test the decrypt_values bulk helper for flat ciphertext iterables."""
 
     def make_ciphertext(self, value: str) -> bytes:
-        return SQLAlchemyEncryptedValue().process_bind_param(value, None)
+        return SQLAlchemyEncryptedValue().process_bind_param(value, TEST_DIALECT)
 
     def test_decrypts_list_of_ciphertexts(self):
         values = [self.make_ciphertext(f"user-{i}") for i in range(3)]

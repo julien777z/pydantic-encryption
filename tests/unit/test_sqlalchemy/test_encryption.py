@@ -16,6 +16,7 @@ from pydantic_encryption.integrations.sqlalchemy.serialization import (
     decode_value,
     encode_value,
 )
+from tests.dialects import TEST_DIALECT
 
 
 class TestEncodeValue:
@@ -329,15 +330,15 @@ class TestEncryptionIdempotency:
     def test_process_bind_param_already_encrypted_returns_same(self):
         from pydantic_encryption.types import EncryptedValue
 
-        encrypted = self.type_adapter.process_bind_param("hello", None)
-        double_encrypted = self.type_adapter.process_bind_param(EncryptedValue(encrypted), None)
+        encrypted = self.type_adapter.process_bind_param("hello", TEST_DIALECT)
+        double_encrypted = self.type_adapter.process_bind_param(EncryptedValue(encrypted), TEST_DIALECT)
         assert encrypted == double_encrypted
 
     def test_process_literal_param_already_encrypted_returns_same(self):
         from pydantic_encryption.types import EncryptedValue
 
-        encrypted = self.type_adapter.process_literal_param("hello", None)
-        double_encrypted = self.type_adapter.process_literal_param(EncryptedValue(encrypted), None)
+        encrypted = self.type_adapter.process_literal_param("hello", TEST_DIALECT)
+        double_encrypted = self.type_adapter.process_literal_param(EncryptedValue(encrypted), TEST_DIALECT)
         assert encrypted == double_encrypted
 
 
@@ -389,12 +390,12 @@ class TestPGEncryptedArrayLiteralParam:
     def test_literal_param_none_returns_none(self):
         """Test that a None array literal returns None."""
 
-        assert self.type_adapter.process_literal_param(None, None) is None
+        assert self.type_adapter.process_literal_param(None, TEST_DIALECT) is None
 
     def test_literal_param_encrypts_each_element(self):
         """Test that each array element is encrypted for literal SQL expressions."""
 
-        result = self.type_adapter.process_literal_param(["hello", "world"], None)
+        result = self.type_adapter.process_literal_param(["hello", "world"], TEST_DIALECT)
 
         assert result is not None
         assert len(result) == 2

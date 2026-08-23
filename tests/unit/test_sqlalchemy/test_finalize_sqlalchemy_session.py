@@ -14,6 +14,7 @@ from pydantic_encryption.integrations.sqlalchemy import DeferredDecryptMixin, fi
 from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue
 from pydantic_encryption.integrations.sqlalchemy.state import PENDING_DECRYPT_KEY
 from pydantic_encryption.types import EncryptedValue
+from tests.dialects import TEST_DIALECT
 
 
 class FinalizeBase(DeclarativeBase):
@@ -38,7 +39,7 @@ class FinalizeUser(FinalizeBase, DeferredDecryptMixin):
 def wrap_encrypted(value: Any) -> EncryptedValue:
     """Wrap ciphertext in EncryptedValue the way process_result_value does on read."""
 
-    return EncryptedValue(SQLAlchemyEncryptedValue().process_bind_param(value, None))
+    return EncryptedValue(SQLAlchemyEncryptedValue().process_bind_param(value, TEST_DIALECT))
 
 
 class FakeAsyncSession(SimpleNamespace):

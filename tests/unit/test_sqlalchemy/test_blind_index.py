@@ -2,6 +2,7 @@ import pytest
 
 from pydantic_encryption.integrations.sqlalchemy.blind_index import SQLAlchemyBlindIndexValue
 from pydantic_encryption.types import BlindIndexMethod, BlindIndexValue
+from tests.dialects import TEST_DIALECT
 
 
 class TestSQLAlchemyBlindIndexValueHMAC:
@@ -11,59 +12,59 @@ class TestSQLAlchemyBlindIndexValueHMAC:
         self.type_adapter = SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256)
 
     def test_process_bind_param_none_returns_none(self):
-        assert self.type_adapter.process_bind_param(None, None) is None
+        assert self.type_adapter.process_bind_param(None, TEST_DIALECT) is None
 
     def test_process_bind_param_string_returns_bytes(self):
-        result = self.type_adapter.process_bind_param("test@example.com", None)
+        result = self.type_adapter.process_bind_param("test@example.com", TEST_DIALECT)
         assert isinstance(result, bytes)
         assert len(result) == 32
 
     def test_process_bind_param_bytes_returns_bytes(self):
-        result = self.type_adapter.process_bind_param(b"test@example.com", None)
+        result = self.type_adapter.process_bind_param(b"test@example.com", TEST_DIALECT)
         assert isinstance(result, bytes)
         assert len(result) == 32
 
     def test_process_bind_param_deterministic(self):
-        result1 = self.type_adapter.process_bind_param("test@example.com", None)
-        result2 = self.type_adapter.process_bind_param("test@example.com", None)
+        result1 = self.type_adapter.process_bind_param("test@example.com", TEST_DIALECT)
+        result2 = self.type_adapter.process_bind_param("test@example.com", TEST_DIALECT)
         assert result1 == result2
 
     def test_process_bind_param_str_bytes_equivalent(self):
-        result_str = self.type_adapter.process_bind_param("hello", None)
-        result_bytes = self.type_adapter.process_bind_param(b"hello", None)
+        result_str = self.type_adapter.process_bind_param("hello", TEST_DIALECT)
+        result_bytes = self.type_adapter.process_bind_param(b"hello", TEST_DIALECT)
         assert result_str == result_bytes
 
     def test_process_bind_param_different_inputs_differ(self):
-        result1 = self.type_adapter.process_bind_param("user1@example.com", None)
-        result2 = self.type_adapter.process_bind_param("user2@example.com", None)
+        result1 = self.type_adapter.process_bind_param("user1@example.com", TEST_DIALECT)
+        result2 = self.type_adapter.process_bind_param("user2@example.com", TEST_DIALECT)
         assert result1 != result2
 
     def test_process_literal_param_computes_hash(self):
-        bind_result = self.type_adapter.process_bind_param("test@example.com", None)
-        literal_result = self.type_adapter.process_literal_param("test@example.com", None)
+        bind_result = self.type_adapter.process_bind_param("test@example.com", TEST_DIALECT)
+        literal_result = self.type_adapter.process_literal_param("test@example.com", TEST_DIALECT)
         assert bind_result == literal_result
 
     def test_process_bind_param_already_indexed_returns_same(self):
-        result = self.type_adapter.process_bind_param("test@example.com", None)
+        result = self.type_adapter.process_bind_param("test@example.com", TEST_DIALECT)
         blind_index_value = BlindIndexValue(result)
-        double_indexed = self.type_adapter.process_bind_param(blind_index_value, None)
+        double_indexed = self.type_adapter.process_bind_param(blind_index_value, TEST_DIALECT)
         assert result == double_indexed
 
     def test_process_literal_param_already_indexed_returns_same(self):
-        result = self.type_adapter.process_literal_param("test@example.com", None)
+        result = self.type_adapter.process_literal_param("test@example.com", TEST_DIALECT)
         blind_index_value = BlindIndexValue(result)
-        double_indexed = self.type_adapter.process_literal_param(blind_index_value, None)
+        double_indexed = self.type_adapter.process_literal_param(blind_index_value, TEST_DIALECT)
         assert result == double_indexed
 
     def test_process_literal_param_none_returns_none(self):
-        assert self.type_adapter.process_literal_param(None, None) is None
+        assert self.type_adapter.process_literal_param(None, TEST_DIALECT) is None
 
     def test_process_result_value_none_returns_none(self):
-        assert self.type_adapter.process_result_value(None, None) is None
+        assert self.type_adapter.process_result_value(None, TEST_DIALECT) is None
 
     def test_process_result_value_returns_blind_index_value(self):
         test_bytes = b"\x01\x02\x03\x04" * 8
-        result = self.type_adapter.process_result_value(test_bytes, None)
+        result = self.type_adapter.process_result_value(test_bytes, TEST_DIALECT)
         assert isinstance(result, BlindIndexValue)
         assert result == test_bytes
 
@@ -75,26 +76,26 @@ class TestSQLAlchemyBlindIndexValueArgon2:
         self.type_adapter = SQLAlchemyBlindIndexValue(BlindIndexMethod.ARGON2)
 
     def test_process_bind_param_none_returns_none(self):
-        assert self.type_adapter.process_bind_param(None, None) is None
+        assert self.type_adapter.process_bind_param(None, TEST_DIALECT) is None
 
     def test_process_bind_param_string_returns_bytes(self):
-        result = self.type_adapter.process_bind_param("test@example.com", None)
+        result = self.type_adapter.process_bind_param("test@example.com", TEST_DIALECT)
         assert isinstance(result, bytes)
         assert len(result) == 32
 
     def test_process_bind_param_deterministic(self):
-        result1 = self.type_adapter.process_bind_param("test@example.com", None)
-        result2 = self.type_adapter.process_bind_param("test@example.com", None)
+        result1 = self.type_adapter.process_bind_param("test@example.com", TEST_DIALECT)
+        result2 = self.type_adapter.process_bind_param("test@example.com", TEST_DIALECT)
         assert result1 == result2
 
     def test_process_bind_param_different_inputs_differ(self):
-        result1 = self.type_adapter.process_bind_param("user1@example.com", None)
-        result2 = self.type_adapter.process_bind_param("user2@example.com", None)
+        result1 = self.type_adapter.process_bind_param("user1@example.com", TEST_DIALECT)
+        result2 = self.type_adapter.process_bind_param("user2@example.com", TEST_DIALECT)
         assert result1 != result2
 
     def test_process_bind_param_str_bytes_equivalent(self):
-        result_str = self.type_adapter.process_bind_param("hello", None)
-        result_bytes = self.type_adapter.process_bind_param(b"hello", None)
+        result_str = self.type_adapter.process_bind_param("hello", TEST_DIALECT)
+        result_bytes = self.type_adapter.process_bind_param(b"hello", TEST_DIALECT)
         assert result_str == result_bytes
 
 
@@ -131,7 +132,7 @@ class TestSQLAlchemyBlindIndexValueConfig:
         monkeypatch.setattr(blind_index_module.settings, "BLIND_INDEX_SECRET_KEY", None)
         type_adapter = SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256)
         with pytest.raises(ValueError, match="BLIND_INDEX_SECRET_KEY must be set"):
-            type_adapter.process_bind_param("test", None)
+            type_adapter.process_bind_param("test", TEST_DIALECT)
 
     def test_different_keys_produce_different_indexes(self, monkeypatch):
         from pydantic_encryption.integrations.sqlalchemy import blind_index as blind_index_module
@@ -139,19 +140,19 @@ class TestSQLAlchemyBlindIndexValueConfig:
         type_adapter = SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256)
 
         monkeypatch.setattr(blind_index_module.settings, "BLIND_INDEX_SECRET_KEY", "key-one")
-        result1 = type_adapter.process_bind_param("test@example.com", None)
+        result1 = type_adapter.process_bind_param("test@example.com", TEST_DIALECT)
 
         monkeypatch.setattr(blind_index_module.settings, "BLIND_INDEX_SECRET_KEY", "key-two")
-        result2 = type_adapter.process_bind_param("test@example.com", None)
+        result2 = type_adapter.process_bind_param("test@example.com", TEST_DIALECT)
 
         assert result1 != result2
 
     def test_different_methods_produce_different_outputs(self):
         hmac_adapter = SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256)
         argon2_adapter = SQLAlchemyBlindIndexValue(BlindIndexMethod.ARGON2)
-        assert hmac_adapter.process_bind_param("test@example.com", None) != argon2_adapter.process_bind_param(
-            "test@example.com", None
-        )
+        assert hmac_adapter.process_bind_param(
+            "test@example.com", TEST_DIALECT
+        ) != argon2_adapter.process_bind_param("test@example.com", None)
 
     def test_python_type(self):
         type_adapter = SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256)
@@ -172,7 +173,7 @@ class TestSQLAlchemyBlindIndexValueMakeBlindIndexValue:
 
     def test_unsalted_matches_process_bind_param(self):
         made = self.type_adapter.make_blind_index_value("test@example.com")
-        bound = self.type_adapter.process_bind_param("test@example.com", None)
+        bound = self.type_adapter.process_bind_param("test@example.com", TEST_DIALECT)
         assert bytes(made) == bytes(bound)
 
     def test_salted_differs_from_unsalted(self):
@@ -195,7 +196,7 @@ class TestSQLAlchemyBlindIndexValueMakeBlindIndexValue:
         """A pre-salted BlindIndexValue is stored and compared unchanged by the column."""
 
         salted = self.type_adapter.make_blind_index_value("test@example.com", salt=b"\x01" * 16)
-        bound = self.type_adapter.process_bind_param(salted, None)
+        bound = self.type_adapter.process_bind_param(salted, TEST_DIALECT)
         assert bytes(bound) == bytes(salted)
 
 
@@ -206,9 +207,9 @@ class TestSQLAlchemyBlindIndexValueNormalization:
         adapter_strip = SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256, strip_whitespace=True)
         adapter_no_strip = SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256)
 
-        result_strip = adapter_strip.process_bind_param("  hello   world  ", None)
-        result_normalized = adapter_strip.process_bind_param("hello world", None)
-        result_raw = adapter_no_strip.process_bind_param("  hello   world  ", None)
+        result_strip = adapter_strip.process_bind_param("  hello   world  ", TEST_DIALECT)
+        result_normalized = adapter_strip.process_bind_param("hello world", TEST_DIALECT)
+        result_raw = adapter_no_strip.process_bind_param("  hello   world  ", TEST_DIALECT)
 
         assert result_strip == result_normalized
         assert result_strip != result_raw
@@ -216,32 +217,32 @@ class TestSQLAlchemyBlindIndexValueNormalization:
     def test_strip_non_characters(self):
         adapter = SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256, strip_non_characters=True)
 
-        result1 = adapter.process_bind_param("hello123world!", None)
-        result2 = adapter.process_bind_param("helloworld", None)
+        result1 = adapter.process_bind_param("hello123world!", TEST_DIALECT)
+        result2 = adapter.process_bind_param("helloworld", TEST_DIALECT)
 
         assert result1 == result2
 
     def test_strip_non_digits(self):
         adapter = SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256, strip_non_digits=True)
 
-        result1 = adapter.process_bind_param("+1 (555) 123-4567", None)
-        result2 = adapter.process_bind_param("15551234567", None)
+        result1 = adapter.process_bind_param("+1 (555) 123-4567", TEST_DIALECT)
+        result2 = adapter.process_bind_param("15551234567", TEST_DIALECT)
 
         assert result1 == result2
 
     def test_normalize_to_lowercase(self):
         adapter = SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256, normalize_to_lowercase=True)
 
-        result1 = adapter.process_bind_param("Hello@Example.COM", None)
-        result2 = adapter.process_bind_param("hello@example.com", None)
+        result1 = adapter.process_bind_param("Hello@Example.COM", TEST_DIALECT)
+        result2 = adapter.process_bind_param("hello@example.com", TEST_DIALECT)
 
         assert result1 == result2
 
     def test_normalize_to_uppercase(self):
         adapter = SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256, normalize_to_uppercase=True)
 
-        result1 = adapter.process_bind_param("Hello@Example.com", None)
-        result2 = adapter.process_bind_param("HELLO@EXAMPLE.COM", None)
+        result1 = adapter.process_bind_param("Hello@Example.com", TEST_DIALECT)
+        result2 = adapter.process_bind_param("HELLO@EXAMPLE.COM", TEST_DIALECT)
 
         assert result1 == result2
 
@@ -252,8 +253,8 @@ class TestSQLAlchemyBlindIndexValueNormalization:
             normalize_to_lowercase=True,
         )
 
-        result1 = adapter.process_bind_param("  Hello@Example.COM  ", None)
-        result2 = adapter.process_bind_param("hello@example.com", None)
+        result1 = adapter.process_bind_param("  Hello@Example.COM  ", TEST_DIALECT)
+        result2 = adapter.process_bind_param("hello@example.com", TEST_DIALECT)
 
         assert result1 == result2
 
@@ -262,8 +263,8 @@ class TestSQLAlchemyBlindIndexValueNormalization:
 
         adapter = SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256, normalize_to_lowercase=True)
 
-        result_bytes = adapter.process_bind_param(b"HELLO", None)
-        result_str = adapter.process_bind_param("HELLO", None)
+        result_bytes = adapter.process_bind_param(b"HELLO", TEST_DIALECT)
+        result_str = adapter.process_bind_param("HELLO", TEST_DIALECT)
 
         # bytes won't be lowercased, string will
         assert result_bytes != result_str

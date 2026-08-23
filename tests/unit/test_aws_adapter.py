@@ -8,7 +8,14 @@ pytest.importorskip("aws_encryption_sdk")
 from aws_encryption_sdk.caches.local import LocalCryptoMaterialsCache
 from aws_encryption_sdk.materials_managers.caching import CachingCryptoMaterialsManager
 
-from pydantic_encryption.adapters.encryption.aws import AWSAdapter, to_bytes
+from pydantic_encryption.adapters.encryption.aws import (
+    DATA_KEY_MAX_AGE_SECONDS,
+    DATA_KEY_MAX_BYTES,
+    DATA_KEY_MAX_USES,
+    MATERIALS_CACHE_SIZE,
+    AWSAdapter,
+    to_bytes,
+)
 from pydantic_encryption.config import settings
 from pydantic_encryption.types import EncryptedValue
 from tests.unit.aws_offline import offline_key_provider
@@ -54,16 +61,16 @@ def offline_materials(monkeypatch: pytest.MonkeyPatch) -> CountingCache:
     """Point the adapter at an offline materials manager so no KMS call is made."""
 
     provider = offline_key_provider()
-    cache = CountingCache(capacity=settings.KMS_MATERIALS_CACHE_SIZE)
+    cache = CountingCache(capacity=MATERIALS_CACHE_SIZE)
 
     monkeypatch.setattr(
         AWSAdapter,
         "materials_manager",
         CachingCryptoMaterialsManager(
             cache=cache,  # pyright: ignore[reportCallIssue]
-            max_age=float(settings.KMS_DATA_KEY_MAX_AGE_SECONDS),  # pyright: ignore[reportCallIssue]
-            max_messages_encrypted=settings.KMS_DATA_KEY_MAX_USES,  # pyright: ignore[reportCallIssue]
-            max_bytes_encrypted=settings.KMS_DATA_KEY_MAX_BYTES,  # pyright: ignore[reportCallIssue]
+            max_age=DATA_KEY_MAX_AGE_SECONDS,  # pyright: ignore[reportCallIssue]
+            max_messages_encrypted=DATA_KEY_MAX_USES,  # pyright: ignore[reportCallIssue]
+            max_bytes_encrypted=DATA_KEY_MAX_BYTES,  # pyright: ignore[reportCallIssue]
             master_key_provider=provider,  # pyright: ignore[reportCallIssue]
         ),
     )

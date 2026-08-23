@@ -1,5 +1,5 @@
 import threading
-from typing import ClassVar
+from typing import ClassVar, Final
 
 from pydantic_encryption.lazy import require_optional_dependency
 
@@ -16,6 +16,12 @@ from pydantic_encryption.adapters.base import EncryptionAdapter, encode_text
 from pydantic_encryption.adapters.encryption.kms_metrics import MeteredMaterialsCache
 from pydantic_encryption.config import settings
 from pydantic_encryption.types import EncryptedValue
+
+#: How long one data key may serve before the next encrypt fetches a fresh one.
+DATA_KEY_MAX_AGE_SECONDS: Final[float] = 300.0
+DATA_KEY_MAX_USES: Final[int] = 1000
+DATA_KEY_MAX_BYTES: Final[int] = 2**30
+MATERIALS_CACHE_SIZE: Final[int] = 512
 
 
 def to_bytes(ciphertext: bytes | str | EncryptedValue) -> bytes:
@@ -81,7 +87,7 @@ class AWSAdapter(EncryptionAdapter):
             if cls.materials_manager is None:
                 # The Encryption SDK builds these constructors with attrs, so pyright cannot see
                 # their generated signatures.
-                cache = MeteredMaterialsCache(capacity=settings.KMS_MATERIALS_CACHE_SIZE)
+                cache = MeteredMaterialsCache(capacity=MATERIALS_CACHE_SIZE)
                 provider = StrictAwsKmsMasterKeyProvider(  # pyright: ignore[reportCallIssue]
                     key_ids=cls.kms_key_ids(),
                     botocore_session=cls.botocore_session(),
@@ -89,9 +95,9 @@ class AWSAdapter(EncryptionAdapter):
 
                 cls.materials_manager = CachingCryptoMaterialsManager(
                     cache=cache,  # pyright: ignore[reportCallIssue]
-                    max_age=float(settings.KMS_DATA_KEY_MAX_AGE_SECONDS),  # pyright: ignore[reportCallIssue]
-                    max_messages_encrypted=settings.KMS_DATA_KEY_MAX_USES,  # pyright: ignore[reportCallIssue]
-                    max_bytes_encrypted=settings.KMS_DATA_KEY_MAX_BYTES,  # pyright: ignore[reportCallIssue]
+                    max_age=DATA_KEY_MAX_AGE_SECONDS,  # pyright: ignore[reportCallIssue]
+                    max_messages_encrypted=DATA_KEY_MAX_USES,  # pyright: ignore[reportCallIssue]
+                    max_bytes_encrypted=DATA_KEY_MAX_BYTES,  # pyright: ignore[reportCallIssue]
                     master_key_provider=provider,  # pyright: ignore[reportCallIssue]
                 )
 

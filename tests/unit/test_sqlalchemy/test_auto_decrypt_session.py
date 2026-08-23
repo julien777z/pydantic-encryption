@@ -9,7 +9,6 @@ from weakref import WeakSet
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import DeclarativeBase, Mapped, configure_mappers, mapped_column
 
-from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
 from pydantic_encryption.integrations.sqlalchemy import DeferredDecryptMixin, decrypt_pending_fields
 from pydantic_encryption.integrations.sqlalchemy.state import PENDING_DECRYPT_KEY
 from pydantic_encryption.integrations.sqlalchemy import bulk
@@ -17,6 +16,7 @@ from pydantic_encryption.integrations.sqlalchemy.bulk import collect_encrypted_c
 from pydantic_encryption.integrations.sqlalchemy.deferred import on_orm_load
 from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue
 from pydantic_encryption.types import EncryptedValue
+from tests.dialects import TEST_DIALECT
 
 
 class AutoDecryptBase(DeclarativeBase):
@@ -44,7 +44,7 @@ class AutoDecryptBlob(AutoDecryptBase, DeferredDecryptMixin):
 def encrypt_value(value: Any) -> bytes:
     """Encrypt a value via the SQLAlchemyEncryptedValue write path."""
 
-    return SQLAlchemyEncryptedValue().process_bind_param(value, None)
+    return SQLAlchemyEncryptedValue().process_bind_param(value, TEST_DIALECT)
 
 
 def wrap_encrypted(value: Any) -> EncryptedValue:

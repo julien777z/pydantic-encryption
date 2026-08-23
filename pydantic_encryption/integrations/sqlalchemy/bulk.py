@@ -2,7 +2,7 @@ import asyncio
 import threading
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, TypedDict
+from typing import Any, Final, TypedDict
 
 from pydantic_encryption.lazy import require_optional_dependency
 
@@ -47,6 +47,9 @@ def is_pending_cell(value: Any) -> bool:
     return isinstance(value, list) and any(isinstance(element, EncryptedValue) for element in value)
 
 
+#: Sized for KMS round trips rather than for cores, since a thread waiting on one releases the GIL.
+CRYPTO_MAX_WORKERS: Final[int] = 64
+
 crypto_executor_lock = threading.Lock()
 crypto_executor: ThreadPoolExecutor | None = None
 
@@ -62,7 +65,7 @@ def decryption_executor() -> ThreadPoolExecutor:
     with crypto_executor_lock:
         if crypto_executor is None:
             crypto_executor = ThreadPoolExecutor(
-                max_workers=settings.KMS_CRYPTO_MAX_WORKERS,
+                max_workers=CRYPTO_MAX_WORKERS,
                 thread_name_prefix="pydantic-encryption-decrypt",
             )
 

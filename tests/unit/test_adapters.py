@@ -1,5 +1,3 @@
-import pytest
-
 from pydantic_encryption.adapters.blind_index.hmac_sha256 import HMACSHA256Adapter
 from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
 from pydantic_encryption.adapters.hashing.argon2 import Argon2Adapter
