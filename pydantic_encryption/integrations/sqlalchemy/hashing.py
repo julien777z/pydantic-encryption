@@ -1,3 +1,5 @@
+from typing import Any
+
 from pydantic_encryption.lazy import require_optional_dependency
 
 require_optional_dependency("sqlalchemy", "sqlalchemy")
@@ -44,7 +46,7 @@ class SQLAlchemyHashedValue(TypeDecorator):
         return HashedValue(value)
 
     @property
-    def python_type(self):
+    def python_type(self) -> type[Any]:
         """Return the Python type this column is bound to."""
 
-        return self.impl.python_type
+        return self.impl_instance.python_type

@@ -370,11 +370,6 @@ class TestEncryptedValueNoneHandling:
 
         assert self.type_adapter.encrypt_cell(None) is None
 
-    def test_decrypt_cell_none_returns_none(self):
-        """Test that decrypting None returns None without invoking the backend."""
-
-        assert self.type_adapter.decrypt_cell(None) is None
-
     def test_python_type_matches_impl(self):
         """Test that python_type mirrors the LargeBinary impl type."""
 

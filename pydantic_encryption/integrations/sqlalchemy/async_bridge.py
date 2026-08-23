@@ -1,18 +1,14 @@
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable, Coroutine
 from typing import Any, TypeVar
 
-try:
-    from sqlalchemy.util import await_  # type: ignore[attr-defined]
-except ImportError:
-    from sqlalchemy.util import await_only as await_
-
 from sqlalchemy.exc import MissingGreenlet
+from sqlalchemy.util import await_only
 
 T = TypeVar("T")
 
 
 def run_async_or_sync(
-    async_fn: Callable[..., Awaitable[T]],
+    async_fn: Callable[..., Coroutine[Any, Any, T]],
     sync_fn: Callable[..., T],
     *args: Any,
     **kwargs: Any,
@@ -21,7 +17,7 @@ def run_async_or_sync(
 
     coro = async_fn(*args, **kwargs)
     try:
-        return await_(coro)
+        return await_only(coro)
     except MissingGreenlet:
         coro.close()
 

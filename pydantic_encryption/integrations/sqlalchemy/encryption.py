@@ -46,11 +46,8 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
 
         return self.backend().encrypt(encode_value(value))
 
-    def decrypt_cell(self, value: str | bytes | None) -> str | bytes | None:
+    def decrypt_cell(self, value: str | bytes) -> str:
         """Decrypt a single ciphertext; callers are responsible for decoding."""
-
-        if value is None:
-            return None
 
         return self.backend().decrypt(value)
 
@@ -76,10 +73,10 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
         return decode_value(self.decrypt_cell(value))
 
     @property
-    def python_type(self):
+    def python_type(self) -> type[Any]:
         """Return the Python type this column is bound to."""
 
-        return self.impl.python_type
+        return self.impl_instance.python_type
 
 
 class SQLAlchemyPGEncryptedArray(TypeDecorator):
@@ -95,7 +92,7 @@ class SQLAlchemyPGEncryptedArray(TypeDecorator):
 
     def process_bind_param(
         self, value: list[EncryptableValue] | None, dialect: Dialect
-    ) -> list[bytes] | None:
+    ) -> list[EncryptedValue | None] | None:
         """Encrypt each element before binding to the database."""
 
         if value is None:
@@ -105,7 +102,7 @@ class SQLAlchemyPGEncryptedArray(TypeDecorator):
 
     def process_literal_param(
         self, value: list[EncryptableValue] | None, dialect: Dialect
-    ) -> list[bytes] | None:
+    ) -> list[EncryptedValue | None] | None:
         """Encrypt each element for literal SQL expressions."""
 
         if value is None:
@@ -130,7 +127,7 @@ class SQLAlchemyPGEncryptedArray(TypeDecorator):
         ]
 
     @property
-    def python_type(self):
+    def python_type(self) -> type[Any]:
         """Return the Python type this column is bound to."""
 
         return list
