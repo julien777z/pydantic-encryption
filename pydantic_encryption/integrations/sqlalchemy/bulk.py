@@ -12,9 +12,10 @@ from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 
-from pydantic_encryption.adapters.registry import get_encryption_backend
-from pydantic_encryption.config import settings
-from pydantic_encryption.integrations.sqlalchemy.encryption import DeferrableEncryptedType
+from pydantic_encryption.integrations.sqlalchemy.encryption import (
+    DeferrableEncryptedType,
+    resolve_backend,
+)
 from pydantic_encryption.integrations.sqlalchemy.serialization import (
     decode_value,
 )
@@ -23,7 +24,7 @@ from pydantic_encryption.integrations.sqlalchemy.state import (
     read_raw_cell,
     set_decrypted,
 )
-from pydantic_encryption.types import EncryptedValue
+from pydantic_encryption.types import EncryptedValue, FieldBinding
 
 
 class DecryptAssignment(TypedDict):
@@ -33,21 +34,36 @@ class DecryptAssignment(TypedDict):
     column_key: str
     element_index: int | None
     ciphertext: bytes
+    binding: FieldBinding | None
 
 
-def cell_assignments(row: Any, column_key: str, value: Any) -> list[DecryptAssignment]:
+def cell_assignments(
+    row: Any, column_key: str, value: Any, binding: FieldBinding | None
+) -> list[DecryptAssignment]:
     """Return one assignment per ciphertext a loaded cell still holds, array elements included."""
 
     if isinstance(value, EncryptedValue):
         return [
-            DecryptAssignment(row=row, column_key=column_key, element_index=None, ciphertext=bytes(value))
+            DecryptAssignment(
+                row=row,
+                column_key=column_key,
+                element_index=None,
+                ciphertext=bytes(value),
+                binding=binding,
+            )
         ]
 
     if not isinstance(value, list):
         return []
 
     return [
-        DecryptAssignment(row=row, column_key=column_key, element_index=index, ciphertext=bytes(element))
+        DecryptAssignment(
+            row=row,
+            column_key=column_key,
+            element_index=index,
+            ciphertext=bytes(element),
+            binding=binding,
+        )
         for index, element in enumerate(value)
         if isinstance(element, EncryptedValue)
     ]
@@ -87,14 +103,20 @@ def column_key(column: InstrumentedAttribute | str) -> str:
     return column if isinstance(column, str) else column.key
 
 
-def resolve_backend() -> Any:
-    """Return the configured encryption backend, raising if ENCRYPTION_METHOD is unset."""
+def mapped_column_binding(row: Any, column_key: str) -> FieldBinding | None:
+    """Return the binding the mapped column stamps onto the ciphertexts it stores."""
 
-    method = settings.ENCRYPTION_METHOD
-    if method is None:
-        raise ValueError("ENCRYPTION_METHOD must be set to decrypt values.")
+    state = sa_inspect(row, raiseerr=False)
 
-    return get_encryption_backend(method)
+    if state is None or not hasattr(state, "mapper"):
+        return None
+
+    column = state.mapper.columns.get(column_key)
+
+    if column is None or not isinstance(column.type, DeferrableEncryptedType):
+        return None
+
+    return column.type.binding
 
 
 def collect_row_assignments(rows: Iterable[Any], column_keys: Iterable[str]) -> list[DecryptAssignment]:
@@ -106,7 +128,7 @@ def collect_row_assignments(rows: Iterable[Any], column_keys: Iterable[str]) -> 
         assignment
         for row in rows
         for key in keys
-        for assignment in cell_assignments(row, key, read_raw_cell(row, key))
+        for assignment in cell_assignments(row, key, read_raw_cell(row, key), mapped_column_binding(row, key))
     ]
 
 
@@ -119,7 +141,7 @@ def apply_plaintexts(assignments: list[DecryptAssignment], plaintexts: list[str]
         row = assignment["row"]
         column_key = assignment["column_key"]
         element_index = assignment["element_index"]
-        value = decode_value(plaintext)
+        value = decode_value(plaintext, assignment["binding"])
 
         if element_index is None:
             set_decrypted(row, column_key, value)
@@ -167,8 +189,8 @@ async def decrypt_rows(rows: Iterable[Any], *columns: InstrumentedAttribute | st
     await decrypt_assignments(backend, assignments)
 
 
-async def decrypt_values(values: Iterable[Any]) -> list[Any]:
-    """Decrypt a flat iterable of ciphertexts, preserving non-encrypted positions as-is."""
+async def decrypt_values(values: Iterable[Any], binding: FieldBinding | None) -> list[Any]:
+    """Decrypt a flat iterable of one field's ciphertexts, preserving non-encrypted positions as-is."""
 
     values_list = list(values)
     if not values_list:
@@ -188,7 +210,7 @@ async def decrypt_values(values: Iterable[Any]) -> list[Any]:
     plaintexts = await decrypt_off_loop(backend, encrypted_blobs)
 
     for index, plaintext in zip(indexes, plaintexts):
-        values_list[index] = decode_value(plaintext)
+        values_list[index] = decode_value(plaintext, binding)
 
     return values_list
 
@@ -225,7 +247,9 @@ def collect_encrypted_cells(
             if not isinstance(column.type, DeferrableEncryptedType) or not column.type.deferred:
                 continue
 
-            assignments.extend(cell_assignments(entity, column.key, state.dict.get(column.key)))
+            assignments.extend(
+                cell_assignments(entity, column.key, state.dict.get(column.key), column.type.binding)
+            )
 
         unloaded = state.unloaded
         for relationship in state.mapper.relationships:

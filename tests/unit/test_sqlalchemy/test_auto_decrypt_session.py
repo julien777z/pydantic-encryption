@@ -17,7 +17,7 @@ from pydantic_encryption.integrations.sqlalchemy.bulk import DecryptAssignment, 
 from pydantic_encryption.integrations.sqlalchemy.deferred import on_orm_load
 from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue
 from pydantic_encryption.types import EncryptedValue
-from tests.dialects import TEST_DIALECT
+from tests.mapped_columns import encrypt_as_column
 
 
 class AutoDecryptBase(DeclarativeBase):
@@ -42,20 +42,10 @@ class AutoDecryptBlob(AutoDecryptBase, DeferredDecryptMixin):
     payload: Mapped[bytes | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
 
 
-def encrypt_value(value: Any) -> bytes:
-    """Encrypt a value via the SQLAlchemyEncryptedValue write path."""
+def wrap_encrypted(model: Any, column_key: str, value: Any) -> EncryptedValue:
+    """Encrypt a value as its own column stores it, the way a deferred read hands it back."""
 
-    ciphertext = SQLAlchemyEncryptedValue().process_bind_param(value, TEST_DIALECT)
-
-    assert ciphertext is not None
-
-    return ciphertext
-
-
-def wrap_encrypted(value: Any) -> EncryptedValue:
-    """Wrap ciphertext in EncryptedValue the way process_result_value does on read."""
-
-    return EncryptedValue(encrypt_value(value))
+    return encrypt_as_column(model, column_key, value)
 
 
 class TestOnOrmLoadListener:
@@ -116,8 +106,8 @@ class TestDecryptPendingFields:
 
     def test_drain_decrypts_every_pending_class(self):
         session = AsyncSession()
-        user = AutoDecryptUser(id=1, email=wrap_encrypted("a@x.com"))
-        blob = AutoDecryptBlob(id=1, payload=wrap_encrypted(b"shh"))
+        user = AutoDecryptUser(id=1, email=wrap_encrypted(AutoDecryptUser, "email", "a@x.com"))
+        blob = AutoDecryptBlob(id=1, payload=wrap_encrypted(AutoDecryptBlob, "payload", b"shh"))
 
         bucket: dict[type, WeakSet] = defaultdict(WeakSet)
         bucket[AutoDecryptUser].add(user)
@@ -146,7 +136,7 @@ class TestBytesColumnIdempotency:
         configure_mappers()
 
     def test_collect_skips_already_decrypted_bytes_plaintext(self):
-        blob = AutoDecryptBlob(id=1, payload=wrap_encrypted(b"shh"))
+        blob = AutoDecryptBlob(id=1, payload=wrap_encrypted(AutoDecryptBlob, "payload", b"shh"))
 
         asyncio.run(AutoDecryptBlob.decrypt_many([blob]))
 
@@ -170,8 +160,8 @@ class TestDrainBatching:
         """Test that one drain decrypts both classes' cells in a single worker-thread batch."""
 
         session = AsyncSession()
-        user = AutoDecryptUser(id=1, email=wrap_encrypted("a@x.com"))
-        blob = AutoDecryptBlob(id=1, payload=wrap_encrypted(b"shh"))
+        user = AutoDecryptUser(id=1, email=wrap_encrypted(AutoDecryptUser, "email", "a@x.com"))
+        blob = AutoDecryptBlob(id=1, payload=wrap_encrypted(AutoDecryptBlob, "payload", b"shh"))
 
         bucket: dict[type, WeakSet] = defaultdict(WeakSet)
         bucket[AutoDecryptUser].add(user)
@@ -207,7 +197,7 @@ class TestNoDirtyAfterDecrypt:
         configure_mappers()
 
     def test_decrypt_many_does_not_mark_column_dirty(self):
-        user = AutoDecryptUser(id=1, email=wrap_encrypted("a@x.com"))
+        user = AutoDecryptUser(id=1, email=wrap_encrypted(AutoDecryptUser, "email", "a@x.com"))
         state = sa_inspect(user)
         state._commit_all(state.dict)
 

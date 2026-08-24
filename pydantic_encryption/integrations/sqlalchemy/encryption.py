@@ -4,6 +4,7 @@ from pydantic_encryption.lazy import require_optional_dependency
 
 require_optional_dependency("sqlalchemy", "sqlalchemy")
 
+from sqlalchemy import Column, Table, event
 from sqlalchemy.engine import Dialect
 from sqlalchemy.types import ARRAY, LargeBinary, TypeDecorator
 
@@ -14,7 +15,38 @@ from pydantic_encryption.integrations.sqlalchemy.serialization import (
     decode_value,
     encode_value,
 )
-from pydantic_encryption.types import EncryptedValue
+from pydantic_encryption.types import EncryptedValue, FieldBinding
+
+
+def resolve_backend() -> Any:
+    """Return the configured encryption backend, raising if ENCRYPTION_METHOD is unset."""
+
+    method = settings.ENCRYPTION_METHOD
+
+    if method is None:
+        raise ValueError("ENCRYPTION_METHOD must be set to encrypt or decrypt values.")
+
+    return get_encryption_backend(method)
+
+
+def encrypt_cell(
+    value: EncryptableValue | EncryptedValue | None, binding: FieldBinding | None
+) -> EncryptedValue | None:
+    """Encode + encrypt one value against its field binding, passing pre-encrypted values through."""
+
+    if value is None:
+        return None
+
+    if isinstance(value, EncryptedValue):
+        return value
+
+    return resolve_backend().encrypt(encode_value(value, binding))
+
+
+def decrypt_cell(value: str | bytes, binding: FieldBinding | None) -> EncryptableValue:
+    """Decrypt one ciphertext and decode it, refusing one written for a different field."""
+
+    return decode_value(resolve_backend().decrypt(value), binding)
 
 
 class DeferrableEncryptedType(TypeDecorator):
@@ -23,6 +55,26 @@ class DeferrableEncryptedType(TypeDecorator):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.deferred = False
+        self.binding: FieldBinding | None = None
+
+    def bind_to(self, binding: FieldBinding) -> None:
+        """Record the table and column whose values this type encrypts and decrypts."""
+
+        self.binding = binding
+
+
+def bind_encrypted_column(column: Column, table: Table) -> None:
+    """Bind an encrypted column's ciphertexts to the table and column they are stored in."""
+
+    if not isinstance(column.type, DeferrableEncryptedType):
+        return
+
+    # Copy so a type instance shared across columns is not stamped with one column's identity.
+    column.type = column.type.copy()
+    column.type.bind_to(FieldBinding(table=table.fullname, column=column.key))
+
+
+event.listen(Column, "after_parent_attach", bind_encrypted_column)
 
 
 class SQLAlchemyEncryptedValue(DeferrableEncryptedType):
@@ -31,34 +83,10 @@ class SQLAlchemyEncryptedValue(DeferrableEncryptedType):
     impl = LargeBinary
     cache_ok = True
 
-    @staticmethod
-    def backend() -> Any:
-        """Return the configured encryption backend, raising if ENCRYPTION_METHOD is unset."""
-
-        if settings.ENCRYPTION_METHOD is None:
-            raise ValueError("ENCRYPTION_METHOD must be set to use SQLAlchemyEncryptedValue.")
-
-        return get_encryption_backend(settings.ENCRYPTION_METHOD)
-
-    def encrypt_cell(self, value: EncryptableValue | EncryptedValue | None) -> EncryptedValue | None:
-        """Encode + encrypt a single value, passing pre-encrypted values through."""
-
-        if value is None:
-            return None
-        if isinstance(value, EncryptedValue):
-            return value
-
-        return self.backend().encrypt(encode_value(value))
-
-    def decrypt_cell(self, value: str | bytes) -> str:
-        """Decrypt a single ciphertext; callers are responsible for decoding."""
-
-        return self.backend().decrypt(value)
-
     def process_bind_param(self, value: EncryptableValue | None, dialect: Dialect) -> bytes | None:
         """Encrypt a value before binding it to the database."""
 
-        return self.encrypt_cell(value)
+        return encrypt_cell(value, self.binding)
 
     # SQLAlchemy annotates process_literal_param as returning str, but TypeDecorator.literal_processor
     # feeds the result to the impl's literal processor, which for LargeBinary takes bytes.
@@ -67,7 +95,7 @@ class SQLAlchemyEncryptedValue(DeferrableEncryptedType):
     ) -> bytes | None:
         """Encrypt a value for literal SQL expressions."""
 
-        return self.encrypt_cell(value)
+        return encrypt_cell(value, self.binding)
 
     def process_result_value(self, value: str | bytes | None, dialect: Dialect) -> EncryptableValue | None:
         """Decrypt a value after retrieving it from the database."""
@@ -78,7 +106,7 @@ class SQLAlchemyEncryptedValue(DeferrableEncryptedType):
         if self.deferred:
             return EncryptedValue(value)
 
-        return decode_value(self.decrypt_cell(value))
+        return decrypt_cell(value, self.binding)
 
     @property
     def python_type(self) -> type[Any]:
@@ -93,10 +121,6 @@ class SQLAlchemyPGEncryptedArray(DeferrableEncryptedType):
     impl = ARRAY(LargeBinary)
     cache_ok = True
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        self.element_type = SQLAlchemyEncryptedValue()
-
     def process_bind_param(
         self, value: list[EncryptableValue | None] | None, dialect: Dialect
     ) -> list[EncryptedValue | None] | None:
@@ -105,7 +129,7 @@ class SQLAlchemyPGEncryptedArray(DeferrableEncryptedType):
         if value is None:
             return None
 
-        return [self.element_type.encrypt_cell(element) for element in value]
+        return [encrypt_cell(element, self.binding) for element in value]
 
     # SQLAlchemy annotates process_literal_param as returning str, but TypeDecorator.literal_processor
     # feeds the result to the impl's literal processor, which for an array of LargeBinary takes a list.
@@ -117,7 +141,7 @@ class SQLAlchemyPGEncryptedArray(DeferrableEncryptedType):
         if value is None:
             return None
 
-        return [self.element_type.encrypt_cell(element) for element in value]
+        return [encrypt_cell(element, self.binding) for element in value]
 
     def process_result_value(
         self, value: list[bytes | None] | None, dialect: Dialect
@@ -130,10 +154,7 @@ class SQLAlchemyPGEncryptedArray(DeferrableEncryptedType):
         if self.deferred:
             return [None if element is None else EncryptedValue(element) for element in value]
 
-        return [
-            None if element is None else decode_value(self.element_type.decrypt_cell(element))
-            for element in value
-        ]
+        return [None if element is None else decrypt_cell(element, self.binding) for element in value]
 
     @property
     def python_type(self) -> type[Any]:

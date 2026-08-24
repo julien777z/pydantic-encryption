@@ -10,6 +10,8 @@ from pydantic_encryption.config import settings
 from pydantic_encryption.integrations.sqlalchemy.encryption import (
     SQLAlchemyEncryptedValue,
     SQLAlchemyPGEncryptedArray,
+    encrypt_cell,
+    resolve_backend,
 )
 from pydantic_encryption.integrations.sqlalchemy.serialization import (
     TypePrefix,
@@ -24,239 +26,239 @@ class TestEncodeValue:
     """Test ``encode_value`` serialization."""
 
     def test_serialize_str(self):
-        result = encode_value("hello world")
-        assert result == f"v1:{TypePrefix.STR}:hello world"
+        result = encode_value("hello world", None)
+        assert result == f"v2::{TypePrefix.STR}:hello world"
 
     def test_serialize_str_with_colon(self):
-        result = encode_value("hello:world")
-        assert result == f"v1:{TypePrefix.STR}:hello:world"
+        result = encode_value("hello:world", None)
+        assert result == f"v2::{TypePrefix.STR}:hello:world"
 
     def test_serialize_bytes(self):
         test_bytes = b"\x00\x01\x02\x03binary\xff\xfe"
-        result = encode_value(test_bytes)
+        result = encode_value(test_bytes, None)
         expected_b64 = base64.b64encode(test_bytes).decode("ascii")
-        assert result == f"v1:{TypePrefix.BYTES}:{expected_b64}"
+        assert result == f"v2::{TypePrefix.BYTES}:{expected_b64}"
 
     def test_serialize_bytes_empty(self):
-        result = encode_value(b"")
-        assert result == f"v1:{TypePrefix.BYTES}:"
+        result = encode_value(b"", None)
+        assert result == f"v2::{TypePrefix.BYTES}:"
 
     def test_serialize_int(self):
-        result = encode_value(42)
-        assert result == f"v1:{TypePrefix.INT}:42"
+        result = encode_value(42, None)
+        assert result == f"v2::{TypePrefix.INT}:42"
 
     def test_serialize_int_negative(self):
-        result = encode_value(-123)
-        assert result == f"v1:{TypePrefix.INT}:-123"
+        result = encode_value(-123, None)
+        assert result == f"v2::{TypePrefix.INT}:-123"
 
     def test_serialize_bool_true(self):
-        result = encode_value(True)
-        assert result == f"v1:{TypePrefix.BOOL}:true"
+        result = encode_value(True, None)
+        assert result == f"v2::{TypePrefix.BOOL}:true"
 
     def test_serialize_bool_false(self):
-        result = encode_value(False)
-        assert result == f"v1:{TypePrefix.BOOL}:false"
+        result = encode_value(False, None)
+        assert result == f"v2::{TypePrefix.BOOL}:false"
 
     def test_serialize_date(self):
-        result = encode_value(date(2025, 1, 21))
-        assert result == f"v1:{TypePrefix.DATE}:2025-01-21"
+        result = encode_value(date(2025, 1, 21), None)
+        assert result == f"v2::{TypePrefix.DATE}:2025-01-21"
 
     def test_serialize_datetime(self):
-        result = encode_value(datetime(2025, 1, 21, 14, 30, 45))
-        assert result == f"v1:{TypePrefix.DATETIME}:2025-01-21T14:30:45"
+        result = encode_value(datetime(2025, 1, 21, 14, 30, 45), None)
+        assert result == f"v2::{TypePrefix.DATETIME}:2025-01-21T14:30:45"
 
     def test_serialize_datetime_with_timezone(self):
-        result = encode_value(datetime(2025, 1, 21, 14, 30, 45, tzinfo=timezone.utc))
-        assert result == f"v1:{TypePrefix.DATETIME}:2025-01-21T14:30:45+00:00"
+        result = encode_value(datetime(2025, 1, 21, 14, 30, 45, tzinfo=timezone.utc), None)
+        assert result == f"v2::{TypePrefix.DATETIME}:2025-01-21T14:30:45+00:00"
 
     def test_serialize_time(self):
-        result = encode_value(time(14, 30, 45))
-        assert result == f"v1:{TypePrefix.TIME}:14:30:45"
+        result = encode_value(time(14, 30, 45), None)
+        assert result == f"v2::{TypePrefix.TIME}:14:30:45"
 
     def test_serialize_time_with_microseconds(self):
-        result = encode_value(time(14, 30, 45, 123456))
-        assert result == f"v1:{TypePrefix.TIME}:14:30:45.123456"
+        result = encode_value(time(14, 30, 45, 123456), None)
+        assert result == f"v2::{TypePrefix.TIME}:14:30:45.123456"
 
     def test_serialize_time_with_timezone(self):
-        result = encode_value(time(14, 30, 45, tzinfo=timezone.utc))
-        assert result == f"v1:{TypePrefix.TIME}:14:30:45+00:00"
+        result = encode_value(time(14, 30, 45, tzinfo=timezone.utc), None)
+        assert result == f"v2::{TypePrefix.TIME}:14:30:45+00:00"
 
     def test_serialize_timedelta(self):
         td = timedelta(days=1, hours=2, minutes=30, seconds=45)
-        result = encode_value(td)
-        assert result == f"v1:{TypePrefix.TIMEDELTA}:{td.days},{td.seconds},{td.microseconds}"
+        result = encode_value(td, None)
+        assert result == f"v2::{TypePrefix.TIMEDELTA}:{td.days},{td.seconds},{td.microseconds}"
 
     def test_serialize_timedelta_negative(self):
         td = timedelta(days=-1, hours=-2)
-        result = encode_value(td)
-        assert result == f"v1:{TypePrefix.TIMEDELTA}:{td.days},{td.seconds},{td.microseconds}"
+        result = encode_value(td, None)
+        assert result == f"v2::{TypePrefix.TIMEDELTA}:{td.days},{td.seconds},{td.microseconds}"
 
     def test_serialize_timedelta_fractional(self):
         td = timedelta(seconds=1.5)
-        result = encode_value(td)
-        assert result == f"v1:{TypePrefix.TIMEDELTA}:{td.days},{td.seconds},{td.microseconds}"
+        result = encode_value(td, None)
+        assert result == f"v2::{TypePrefix.TIMEDELTA}:{td.days},{td.seconds},{td.microseconds}"
 
     def test_serialize_float(self):
-        result = encode_value(3.14159)
-        assert result == f"v1:{TypePrefix.FLOAT}:3.14159"
+        result = encode_value(3.14159, None)
+        assert result == f"v2::{TypePrefix.FLOAT}:3.14159"
 
     def test_serialize_float_negative(self):
-        result = encode_value(-2.5)
-        assert result == f"v1:{TypePrefix.FLOAT}:-2.5"
+        result = encode_value(-2.5, None)
+        assert result == f"v2::{TypePrefix.FLOAT}:-2.5"
 
     def test_serialize_float_scientific(self):
-        result = encode_value(1e-10)
-        assert result == f"v1:{TypePrefix.FLOAT}:1e-10"
+        result = encode_value(1e-10, None)
+        assert result == f"v2::{TypePrefix.FLOAT}:1e-10"
 
     def test_serialize_decimal(self):
-        result = encode_value(Decimal("123.456789"))
-        assert result == f"v1:{TypePrefix.DECIMAL}:123.456789"
+        result = encode_value(Decimal("123.456789"), None)
+        assert result == f"v2::{TypePrefix.DECIMAL}:123.456789"
 
     def test_serialize_decimal_high_precision(self):
-        result = encode_value(Decimal("0.123456789012345678901234567890"))
-        assert result == f"v1:{TypePrefix.DECIMAL}:0.123456789012345678901234567890"
+        result = encode_value(Decimal("0.123456789012345678901234567890"), None)
+        assert result == f"v2::{TypePrefix.DECIMAL}:0.123456789012345678901234567890"
 
     def test_serialize_decimal_negative(self):
-        result = encode_value(Decimal("-999.99"))
-        assert result == f"v1:{TypePrefix.DECIMAL}:-999.99"
+        result = encode_value(Decimal("-999.99"), None)
+        assert result == f"v2::{TypePrefix.DECIMAL}:-999.99"
 
     def test_serialize_uuid(self):
-        result = encode_value(UUID("12345678-1234-5678-1234-567812345678"))
-        assert result == f"v1:{TypePrefix.UUID}:12345678-1234-5678-1234-567812345678"
+        result = encode_value(UUID("12345678-1234-5678-1234-567812345678"), None)
+        assert result == f"v2::{TypePrefix.UUID}:12345678-1234-5678-1234-567812345678"
 
 
 class TestDecodeValue:
     """Test ``decode_value`` deserialization."""
 
     def test_deserialize_str(self):
-        result = decode_value(f"v1:{TypePrefix.STR}:hello world")
+        result = decode_value(f"v2::{TypePrefix.STR}:hello world", None)
         assert result == "hello world"
         assert isinstance(result, str)
 
     def test_deserialize_str_with_colon(self):
-        result = decode_value(f"v1:{TypePrefix.STR}:hello:world")
+        result = decode_value(f"v2::{TypePrefix.STR}:hello:world", None)
         assert result == "hello:world"
 
     def test_deserialize_bytes(self):
         test_bytes = b"\x00\x01\x02\x03binary\xff\xfe"
         encoded = base64.b64encode(test_bytes).decode("ascii")
-        result = decode_value(f"v1:{TypePrefix.BYTES}:{encoded}")
+        result = decode_value(f"v2::{TypePrefix.BYTES}:{encoded}", None)
         assert result == test_bytes
         assert isinstance(result, bytes)
 
     def test_deserialize_bytes_empty(self):
-        result = decode_value(f"v1:{TypePrefix.BYTES}:")
+        result = decode_value(f"v2::{TypePrefix.BYTES}:", None)
         assert result == b""
         assert isinstance(result, bytes)
 
     def test_deserialize_int(self):
-        result = decode_value(f"v1:{TypePrefix.INT}:42")
+        result = decode_value(f"v2::{TypePrefix.INT}:42", None)
         assert result == 42
         assert isinstance(result, int)
 
     def test_deserialize_int_negative(self):
-        result = decode_value(f"v1:{TypePrefix.INT}:-123")
+        result = decode_value(f"v2::{TypePrefix.INT}:-123", None)
         assert result == -123
 
     def test_deserialize_bool_true(self):
-        result = decode_value(f"v1:{TypePrefix.BOOL}:true")
+        result = decode_value(f"v2::{TypePrefix.BOOL}:true", None)
         assert result is True
         assert isinstance(result, bool)
 
     def test_deserialize_bool_false(self):
-        result = decode_value(f"v1:{TypePrefix.BOOL}:false")
+        result = decode_value(f"v2::{TypePrefix.BOOL}:false", None)
         assert result is False
         assert isinstance(result, bool)
 
     def test_deserialize_date(self):
-        result = decode_value(f"v1:{TypePrefix.DATE}:2025-01-21")
+        result = decode_value(f"v2::{TypePrefix.DATE}:2025-01-21", None)
         assert result == date(2025, 1, 21)
         assert isinstance(result, date)
         assert not isinstance(result, datetime)
 
     def test_deserialize_datetime(self):
-        result = decode_value(f"v1:{TypePrefix.DATETIME}:2025-01-21T14:30:45")
+        result = decode_value(f"v2::{TypePrefix.DATETIME}:2025-01-21T14:30:45", None)
         assert result == datetime(2025, 1, 21, 14, 30, 45)
         assert isinstance(result, datetime)
 
     def test_deserialize_datetime_with_timezone(self):
-        result = decode_value(f"v1:{TypePrefix.DATETIME}:2025-01-21T14:30:45+00:00")
+        result = decode_value(f"v2::{TypePrefix.DATETIME}:2025-01-21T14:30:45+00:00", None)
 
         assert isinstance(result, datetime)
         assert result == datetime(2025, 1, 21, 14, 30, 45, tzinfo=timezone.utc)
         assert result.tzinfo is not None
 
     def test_deserialize_time(self):
-        result = decode_value(f"v1:{TypePrefix.TIME}:14:30:45")
+        result = decode_value(f"v2::{TypePrefix.TIME}:14:30:45", None)
         assert result == time(14, 30, 45)
         assert isinstance(result, time)
 
     def test_deserialize_time_with_microseconds(self):
-        result = decode_value(f"v1:{TypePrefix.TIME}:14:30:45.123456")
+        result = decode_value(f"v2::{TypePrefix.TIME}:14:30:45.123456", None)
         assert result == time(14, 30, 45, 123456)
 
     def test_deserialize_time_with_timezone(self):
-        result = decode_value(f"v1:{TypePrefix.TIME}:14:30:45+00:00")
+        result = decode_value(f"v2::{TypePrefix.TIME}:14:30:45+00:00", None)
 
         assert isinstance(result, time)
         assert result == time(14, 30, 45, tzinfo=timezone.utc)
         assert result.tzinfo is not None
 
     def test_deserialize_timedelta(self):
-        result = decode_value(f"v1:{TypePrefix.TIMEDELTA}:1,9045,0")
+        result = decode_value(f"v2::{TypePrefix.TIMEDELTA}:1,9045,0", None)
         assert result == timedelta(days=1, hours=2, minutes=30, seconds=45)
         assert isinstance(result, timedelta)
 
     def test_deserialize_timedelta_negative(self):
-        result = decode_value(f"v1:{TypePrefix.TIMEDELTA}:-2,79200,0")
+        result = decode_value(f"v2::{TypePrefix.TIMEDELTA}:-2,79200,0", None)
         assert result == timedelta(days=-1, hours=-2)
 
     def test_deserialize_timedelta_fractional(self):
-        result = decode_value(f"v1:{TypePrefix.TIMEDELTA}:0,1,500000")
+        result = decode_value(f"v2::{TypePrefix.TIMEDELTA}:0,1,500000", None)
         assert result == timedelta(seconds=1.5)
 
     def test_deserialize_float(self):
-        result = decode_value(f"v1:{TypePrefix.FLOAT}:3.14159")
+        result = decode_value(f"v2::{TypePrefix.FLOAT}:3.14159", None)
         assert result == 3.14159
         assert isinstance(result, float)
 
     def test_deserialize_float_negative(self):
-        result = decode_value(f"v1:{TypePrefix.FLOAT}:-2.5")
+        result = decode_value(f"v2::{TypePrefix.FLOAT}:-2.5", None)
         assert result == -2.5
 
     def test_deserialize_float_scientific(self):
-        result = decode_value(f"v1:{TypePrefix.FLOAT}:1e-10")
+        result = decode_value(f"v2::{TypePrefix.FLOAT}:1e-10", None)
         assert result == 1e-10
 
     def test_deserialize_decimal(self):
-        result = decode_value(f"v1:{TypePrefix.DECIMAL}:123.456789")
+        result = decode_value(f"v2::{TypePrefix.DECIMAL}:123.456789", None)
         assert result == Decimal("123.456789")
         assert isinstance(result, Decimal)
 
     def test_deserialize_decimal_high_precision(self):
-        result = decode_value(f"v1:{TypePrefix.DECIMAL}:0.123456789012345678901234567890")
+        result = decode_value(f"v2::{TypePrefix.DECIMAL}:0.123456789012345678901234567890", None)
         assert result == Decimal("0.123456789012345678901234567890")
 
     def test_deserialize_decimal_negative(self):
-        result = decode_value(f"v1:{TypePrefix.DECIMAL}:-999.99")
+        result = decode_value(f"v2::{TypePrefix.DECIMAL}:-999.99", None)
         assert result == Decimal("-999.99")
 
     def test_deserialize_uuid(self):
-        result = decode_value(f"v1:{TypePrefix.UUID}:12345678-1234-5678-1234-567812345678")
+        result = decode_value(f"v2::{TypePrefix.UUID}:12345678-1234-5678-1234-567812345678", None)
         assert result == UUID("12345678-1234-5678-1234-567812345678")
         assert isinstance(result, UUID)
 
     def test_deserialize_legacy_format_raises_error(self):
         with pytest.raises(RuntimeError, match="Unknown version"):
-            decode_value("str:hello world")
+            decode_value("str:hello world", None)
 
     def test_deserialize_unknown_version_raises_error(self):
         with pytest.raises(RuntimeError, match="Unknown version"):
-            decode_value("v2:str:hello world")
+            decode_value("v99:str:hello world", None)
 
     def test_deserialize_no_colon_raises_error(self):
         with pytest.raises(RuntimeError, match="Unknown version"):
-            decode_value("no_colon_here")
+            decode_value("no_colon_here", None)
 
 
 class TestRoundTrip:
@@ -264,59 +266,59 @@ class TestRoundTrip:
 
     def test_roundtrip_str(self):
         original = "hello world"
-        assert decode_value(encode_value(original)) == original
+        assert decode_value(encode_value(original, None), None) == original
 
     def test_roundtrip_bytes(self):
         original = b"\x00\x01\x02\x03binary\xff\xfe"
-        assert decode_value(encode_value(original)) == original
+        assert decode_value(encode_value(original, None), None) == original
 
     def test_roundtrip_int(self):
         original = -12345
-        assert decode_value(encode_value(original)) == original
+        assert decode_value(encode_value(original, None), None) == original
 
     def test_roundtrip_bool_true(self):
-        result = decode_value(encode_value(True))
+        result = decode_value(encode_value(True, None), None)
         assert result is True
         assert isinstance(result, bool)
 
     def test_roundtrip_bool_false(self):
-        result = decode_value(encode_value(False))
+        result = decode_value(encode_value(False, None), None)
         assert result is False
         assert isinstance(result, bool)
 
     def test_roundtrip_date(self):
         original = date(2025, 1, 21)
-        assert decode_value(encode_value(original)) == original
+        assert decode_value(encode_value(original, None), None) == original
 
     def test_roundtrip_datetime(self):
         original = datetime(2025, 1, 21, 14, 30, 45, tzinfo=timezone.utc)
-        assert decode_value(encode_value(original)) == original
+        assert decode_value(encode_value(original, None), None) == original
 
     def test_roundtrip_time(self):
         original = time(14, 30, 45, 123456, tzinfo=timezone.utc)
-        assert decode_value(encode_value(original)) == original
+        assert decode_value(encode_value(original, None), None) == original
 
     def test_roundtrip_timedelta(self):
         original = timedelta(days=5, hours=3, minutes=30, seconds=45, microseconds=123456)
-        assert decode_value(encode_value(original)) == original
+        assert decode_value(encode_value(original, None), None) == original
 
     def test_roundtrip_timedelta_negative(self):
         original = timedelta(days=-10, hours=-5)
-        assert decode_value(encode_value(original)) == original
+        assert decode_value(encode_value(original, None), None) == original
 
     def test_roundtrip_float(self):
         original = 3.141592653589793
-        assert decode_value(encode_value(original)) == original
+        assert decode_value(encode_value(original, None), None) == original
 
     def test_roundtrip_decimal(self):
         original = Decimal("123.456789012345678901234567890")
-        result = decode_value(encode_value(original))
+        result = decode_value(encode_value(original, None), None)
         assert result == original
         assert isinstance(result, Decimal)
 
     def test_roundtrip_uuid(self):
         original = UUID("12345678-1234-5678-1234-567812345678")
-        result = decode_value(encode_value(original))
+        result = decode_value(encode_value(original, None), None)
         assert result == original
         assert isinstance(result, UUID)
 
@@ -328,8 +330,8 @@ class TestEncryptionIdempotency:
         self.type_adapter = SQLAlchemyEncryptedValue()
 
     def test_encrypt_cell_already_encrypted_returns_same(self):
-        encrypted = self.type_adapter.encrypt_cell("hello")
-        double_encrypted = self.type_adapter.encrypt_cell(encrypted)
+        encrypted = encrypt_cell("hello", None)
+        double_encrypted = encrypt_cell(encrypted, None)
         assert encrypted == double_encrypted
 
     def test_process_bind_param_already_encrypted_returns_same(self):
@@ -350,20 +352,20 @@ class TestEncryptionIdempotency:
 
 
 class TestBackendResolution:
-    """Test ``SQLAlchemyEncryptedValue.backend`` configuration handling."""
+    """Test ``resolve_backend`` configuration handling."""
 
     def test_backend_returns_configured_adapter(self):
-        """Test that backend returns the adapter configured by ENCRYPTION_METHOD."""
+        """Test that the resolver returns the adapter configured by ENCRYPTION_METHOD."""
 
-        assert SQLAlchemyEncryptedValue.backend() is FernetAdapter
+        assert resolve_backend() is FernetAdapter
 
     def test_backend_raises_when_encryption_method_unset(self, monkeypatch):
-        """Test that backend raises a ValueError when ENCRYPTION_METHOD is unset."""
+        """Test that the resolver raises a ValueError when ENCRYPTION_METHOD is unset."""
 
         monkeypatch.setattr(settings, "ENCRYPTION_METHOD", None)
 
         with pytest.raises(ValueError, match="ENCRYPTION_METHOD must be set"):
-            SQLAlchemyEncryptedValue.backend()
+            resolve_backend()
 
 
 class TestEncryptedValueNoneHandling:
@@ -375,7 +377,7 @@ class TestEncryptedValueNoneHandling:
     def test_encrypt_cell_none_returns_none(self):
         """Test that encrypting None returns None without invoking the backend."""
 
-        assert self.type_adapter.encrypt_cell(None) is None
+        assert encrypt_cell(None, None) is None
 
     def test_python_type_matches_impl(self):
         """Test that python_type mirrors the LargeBinary impl type."""

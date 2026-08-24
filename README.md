@@ -188,7 +188,7 @@ async with AsyncSession(engine) as session:
     await users[0].decrypt()                              # one mixin instance
     await User.decrypt_many(users)                        # batch of one class
     await decrypt_rows(users, User.email)                 # InstrumentedAttribute or column names
-    await decrypt_values(ciphertexts)                     # flat ciphertexts; preserves None positions
+    await decrypt_values(ciphertexts, column_binding)     # flat ciphertexts; preserves None positions
 ```
 
 ### Safety: Catching Accidental Ciphertext Access
@@ -196,6 +196,34 @@ async with AsyncSession(engine) as session:
 Loaded rows hold an `EncryptedValue` until the session's pending batch is drained, so a read path that never drains is caught rather than silently paying a per-cell decrypt. Drain with `await decrypt_pending_fields(session)`, or `decrypt_pending_fields_sync(session)` on a synchronous session.
 
 Coercing an undrained value via `str(value)` / `f"{value}"` / `"%s" % value` raises `EncryptedValueAccessError`. `repr(value)` is a safe `<EncryptedValue: N bytes>` marker, and `bytes(value)` returns the raw ciphertext. Use `is_encrypted(value)` to guard at a boundary.
+
+## Field Binding
+
+Every value a mapped column encrypts is bound to that column's own schema-qualified table and name, so a
+ciphertext moved to another column, another table, or a path that names no column is refused on read
+rather than decrypted.
+
+```python
+from pydantic_encryption import FieldBindingError
+
+# `ssn` and `nickname` are both encrypted columns on the same table.
+person.nickname = stored_ssn_ciphertext
+
+await person.decrypt()  # raises FieldBindingError
+```
+
+Columns bind themselves when they attach to their table, so nothing has to be declared. The batched drain
+reads each cell's binding from the column it was loaded from; `decrypt_values` takes a flat list with no
+column of its own, so name the field its ciphertexts were written for:
+
+```python
+from pydantic_encryption import FieldBinding
+
+await decrypt_values(ciphertexts, FieldBinding(table="secure.people", column="ssn"))
+```
+
+Values encrypted outside a column — a Pydantic `Encrypted` field, or a standalone column type — carry no
+binding, and decrypt only where no binding is named.
 
 ## Manual Encryption or Hashing
 

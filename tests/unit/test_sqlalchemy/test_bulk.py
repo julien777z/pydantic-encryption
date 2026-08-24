@@ -20,6 +20,7 @@ from pydantic_encryption.integrations.sqlalchemy.encryption import (
 )
 from pydantic_encryption.types import EncryptedValue
 from tests.dialects import TEST_DIALECT
+from tests.mapped_columns import encrypt_as_column
 
 
 class DeferBase(DeclarativeBase):
@@ -151,14 +152,10 @@ class BulkContractor(BulkBase, DeferredDecryptMixin):
     org: Mapped["BulkOrg | None"] = relationship(back_populates="contractors")
 
 
-def encrypt_deferred(value: str) -> bytes:
-    """Encrypt a value using SQLAlchemyEncryptedValue on the write path."""
+def encrypt_deferred(column_key: str, value: str) -> bytes:
+    """Encrypt a value as the contractor column that stores it writes it, binding included."""
 
-    ciphertext = SQLAlchemyEncryptedValue().process_bind_param(value, TEST_DIALECT)
-
-    assert ciphertext is not None
-
-    return ciphertext
+    return encrypt_as_column(BulkContractor, column_key, value)
 
 
 class TestDeferredDecryptMixin:
@@ -171,8 +168,8 @@ class TestDeferredDecryptMixin:
     def test_instance_decrypt(self):
         contractor = BulkContractor(
             id=1,
-            first_name=encrypt_deferred("Alice"),
-            last_name=encrypt_deferred("Smith"),
+            first_name=encrypt_deferred("first_name", "Alice"),
+            last_name=encrypt_deferred("last_name", "Smith"),
         )
 
         returned = asyncio.run(contractor.decrypt())
@@ -185,8 +182,8 @@ class TestDeferredDecryptMixin:
         contractors = [
             BulkContractor(
                 id=i,
-                first_name=encrypt_deferred(f"First{i}"),
-                last_name=encrypt_deferred(f"Last{i}"),
+                first_name=encrypt_deferred("first_name", f"First{i}"),
+                last_name=encrypt_deferred("last_name", f"Last{i}"),
             )
             for i in range(3)
         ]
@@ -201,8 +198,8 @@ class TestDeferredDecryptMixin:
         contractors = [
             BulkContractor(
                 id=i,
-                first_name=encrypt_deferred(f"Gen{i}"),
-                last_name=encrypt_deferred(f"Last{i}"),
+                first_name=encrypt_deferred("first_name", f"Gen{i}"),
+                last_name=encrypt_deferred("last_name", f"Last{i}"),
             )
             for i in range(3)
         ]
@@ -214,7 +211,7 @@ class TestDeferredDecryptMixin:
             assert contractor.last_name == f"Last{i}"
 
     def test_none_column_values_skipped(self):
-        contractor = BulkContractor(id=1, first_name=encrypt_deferred("Alice"), last_name=None)
+        contractor = BulkContractor(id=1, first_name=encrypt_deferred("first_name", "Alice"), last_name=None)
 
         asyncio.run(contractor.decrypt())
 
@@ -223,7 +220,7 @@ class TestDeferredDecryptMixin:
 
     def test_walks_loaded_relationships(self):
         org = BulkOrg(id=1, name="Acme")
-        contractor = BulkContractor(id=1, first_name=encrypt_deferred("Alice"), last_name=None)
+        contractor = BulkContractor(id=1, first_name=encrypt_deferred("first_name", "Alice"), last_name=None)
         org.contractors = [contractor]
 
         asyncio.run(org.decrypt())
@@ -252,7 +249,7 @@ class TestDecryptValues:
     def test_decrypts_list_of_ciphertexts(self):
         values = [self.make_ciphertext(f"user-{i}") for i in range(3)]
 
-        result = asyncio.run(decrypt_values(values))
+        result = asyncio.run(decrypt_values(values, None))
 
         assert result == ["user-0", "user-1", "user-2"]
 
@@ -264,16 +261,16 @@ class TestDecryptValues:
             None,
         ]
 
-        result = asyncio.run(decrypt_values(values))
+        result = asyncio.run(decrypt_values(values, None))
 
         assert result == ["a", None, "b", None]
 
     def test_empty_input(self):
-        assert asyncio.run(decrypt_values([])) == []
+        assert asyncio.run(decrypt_values([], None)) == []
 
     def test_passes_through_non_bytes_cells(self):
         values = [self.make_ciphertext("a"), 42, "plain", None]
 
-        result = asyncio.run(decrypt_values(values))
+        result = asyncio.run(decrypt_values(values, None))
 
         assert result == ["a", 42, "plain", None]

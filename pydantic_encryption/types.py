@@ -1,6 +1,10 @@
 from enum import Enum
 
+from pydantic import BaseModel, ConfigDict, field_validator
+
 from pydantic_encryption.normalization import NormalizationFlags, validate_normalization_flags
+
+FIELD_BINDING_SEPARATOR = "."
 
 
 class Encrypted:
@@ -27,6 +31,35 @@ class BlindIndexMethod(Enum):
 
 class EncryptedValueAccessError(RuntimeError):
     """Raised when an encrypted ciphertext is coerced to str before decryption."""
+
+
+class FieldBindingError(RuntimeError):
+    """Raised when a ciphertext is read back as a different field than the one it was written for."""
+
+
+class FieldBinding(BaseModel):
+    """The table and column a stored ciphertext belongs to, so it cannot be read back as another."""
+
+    model_config = ConfigDict(frozen=True)
+
+    table: str
+    column: str
+
+    @field_validator("table", "column")
+    @classmethod
+    def reject_envelope_delimiter(cls, value: str) -> str:
+        """Reject a name carrying the delimiter that separates the envelope's own segments."""
+
+        if ":" in value:
+            raise ValueError("A bound table or column name cannot contain ':'.")
+
+        return value
+
+    @property
+    def identity(self) -> str:
+        """Return the canonical form stored alongside the ciphertext and compared on read."""
+
+        return f"{self.table}{FIELD_BINDING_SEPARATOR}{self.column}"
 
 
 class TaggedBytes(bytes):
@@ -108,6 +141,8 @@ __all__ = [
     "EncryptionMethod",
     "EncryptedValue",
     "EncryptedValueAccessError",
+    "FieldBinding",
+    "FieldBindingError",
     "HashedValue",
     "BlindIndex",
     "BlindIndexMethod",
