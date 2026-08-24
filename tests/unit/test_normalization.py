@@ -42,6 +42,34 @@ class TestStripNonDigits:
         assert normalize_value("hello world", {"strip_non_digits": True}) == ""
 
 
+class TestStripTrailingPunctuation:
+    def test_removes_trailing_period(self):
+        assert normalize_value("123 Main St.", {"strip_trailing_punctuation": True}) == "123 Main St"
+
+    def test_removes_trailing_comma(self):
+        assert (
+            normalize_value("123 Main St, Apt 2", {"strip_trailing_punctuation": True}) == "123 Main St Apt 2"
+        )
+
+    def test_drops_punctuation_only_tokens(self):
+        assert (
+            normalize_value("123 Main St , Apt 2", {"strip_trailing_punctuation": True})
+            == "123 Main St Apt 2"
+        )
+
+    def test_keeps_interior_punctuation(self):
+        assert normalize_value("P.O. Box", {"strip_trailing_punctuation": True}) == "P.O Box"
+
+    def test_collapses_whitespace_between_tokens(self):
+        assert normalize_value("a.   b.", {"strip_trailing_punctuation": True}) == "a b"
+
+    def test_empty_string_stays_empty(self):
+        assert normalize_value("", {"strip_trailing_punctuation": True}) == ""
+
+    def test_noop_when_disabled(self):
+        assert normalize_value("123 Main St.", {}) == "123 Main St."
+
+
 class TestNormalizeToLowercase:
     def test_lowercases(self):
         assert normalize_value("Hello@Example.COM", {"normalize_to_lowercase": True}) == "hello@example.com"

@@ -1,5 +1,7 @@
 import re
-from typing import TypedDict
+from typing import Final, TypedDict
+
+TRAILING_PUNCTUATION: Final[str] = ".,"
 
 
 class NormalizationFlags(TypedDict, total=False):
@@ -8,6 +10,7 @@ class NormalizationFlags(TypedDict, total=False):
     strip_whitespace: bool
     strip_non_characters: bool
     strip_non_digits: bool
+    strip_trailing_punctuation: bool
     normalize_to_lowercase: bool
     normalize_to_uppercase: bool
 
@@ -35,6 +38,11 @@ def normalize_value(value: str, flags: NormalizationFlags) -> str:
 
     if flags.get("strip_non_digits"):
         value = re.sub(r"[^0-9]", "", value)
+
+    if flags.get("strip_trailing_punctuation"):
+        value = " ".join(
+            stripped for token in value.split() if (stripped := token.rstrip(TRAILING_PUNCTUATION))
+        )
 
     if flags.get("normalize_to_lowercase"):
         value = value.lower()
