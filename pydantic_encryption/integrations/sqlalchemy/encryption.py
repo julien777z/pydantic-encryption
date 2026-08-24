@@ -52,15 +52,16 @@ def decrypt_cell(value: str | bytes, binding: FieldBinding | None) -> Encryptabl
 class DeferrableEncryptedType(TypeDecorator):
     """Encrypted column type whose read path can hand back ciphertext for the batched drain."""
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(self, *args: Any, binding_name: str | None = None, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.deferred = False
         self.binding: FieldBinding | None = None
+        self.binding_name = binding_name
 
-    def bind_to(self, binding: FieldBinding) -> None:
-        """Record the table and column whose values this type encrypts and decrypts."""
+    def bind_to(self, table_name: str, column_key: str) -> None:
+        """Record the field whose values this type encrypts, under its own name if one is pinned."""
 
-        self.binding = binding
+        self.binding = FieldBinding(table=table_name, column=self.binding_name or column_key)
 
 
 def bind_encrypted_column(column: Column, table: Table) -> None:
@@ -71,7 +72,7 @@ def bind_encrypted_column(column: Column, table: Table) -> None:
 
     # Copy so a type instance shared across columns is not stamped with one column's identity.
     column.type = column.type.copy()
-    column.type.bind_to(FieldBinding(table=table.fullname, column=column.key))
+    column.type.bind_to(table.fullname, column.key)
 
 
 event.listen(Column, "after_parent_attach", bind_encrypted_column)

@@ -8,6 +8,7 @@ from pydantic_encryption.integrations.sqlalchemy.encryption import (
     SQLAlchemyEncryptedValue,
     SQLAlchemyPGEncryptedArray,
     decrypt_cell,
+    encrypt_cell,
 )
 from pydantic_encryption.integrations.sqlalchemy.serialization import decode_value, encode_value
 from pydantic_encryption.types import EncryptedValue, FieldBinding, FieldBindingError
@@ -77,6 +78,60 @@ class TestColumnsCarryTheirOwnBinding:
 
         with pytest.raises(ValueError, match="cannot contain"):
             FieldBinding(table="schema:table", column="ssn")
+
+
+class RenamedBase(DeclarativeBase):
+    """Isolated declarative base for the pinned-binding tests."""
+
+
+class RenamedPerson(RenamedBase, DeferredDecryptMixin):
+    """Mapped class whose column was renamed while its stored values keep their original binding."""
+
+    __tablename__ = "_binding_person"
+    __table_args__ = {"schema": "secure"}
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    full_name: Mapped[str | None] = mapped_column(
+        SQLAlchemyEncryptedValue(binding_name="legal_full_name"), nullable=True, default=None
+    )
+
+
+class TestAPinnedBindingSurvivesAColumnRename:
+    """Test that a renamed column can keep reading the values its former name wrote."""
+
+    @classmethod
+    def setup_class(cls):
+        configure_mappers()
+
+    def test_the_pinned_name_replaces_the_column_key(self):
+        """Test that the binding follows the pinned name rather than the current column."""
+
+        assert column_binding(RenamedPerson, "full_name") == FieldBinding(
+            table="secure._binding_person", column="legal_full_name"
+        )
+
+    def test_it_reads_a_value_written_under_the_former_name(self):
+        """Test that data written before the rename still decrypts through the renamed column."""
+
+        written_before_the_rename = encrypt_cell(
+            "Sam Rivers", FieldBinding(table="secure._binding_person", column="legal_full_name")
+        )
+
+        assert written_before_the_rename is not None
+
+        person = RenamedPerson(id=1, full_name=written_before_the_rename)
+
+        asyncio.run(person.decrypt())
+
+        assert person.full_name == "Sam Rivers"
+
+    def test_it_still_refuses_another_field(self):
+        """Test that pinning a name narrows the binding to that field rather than disabling the check."""
+
+        ciphertext = encrypt_as_column(BindingPerson, "nickname", "Sam")
+
+        with pytest.raises(FieldBindingError, match="legal_full_name"):
+            decrypt_cell(ciphertext, column_binding(RenamedPerson, "full_name"))
 
 
 class TestCiphertextIsRejectedAsAnotherField:

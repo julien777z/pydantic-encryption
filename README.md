@@ -227,6 +227,18 @@ await decrypt_values((ciphertext, binding) for ciphertext in ciphertexts)
 Values encrypted outside a column — a Pydantic `Encrypted` field, or a standalone column type — carry no
 binding, and decrypt only where no binding is named.
 
+### Renaming a Bound Column
+
+A column's name is part of its binding, so renaming one leaves its stored values bound to the old name.
+Pin `binding_name` to keep reading them:
+
+```python
+full_name: Mapped[bytes] = mapped_column(SQLAlchemyEncryptedValue(binding_name="legal_full_name"))
+```
+
+The check still holds — the column reads only what was written for the pinned name. Without it, values
+written before the rename have to be re-encrypted under the new name.
+
 ## Manual Encryption or Hashing
 
 Fields annotated with `Encrypted` are encrypted and fields annotated with `Hashed` are hashed during model initialization:
