@@ -221,6 +221,16 @@ class TestSQLAlchemyBlindIndexValueNormalization:
 
         assert result1 == result2
 
+    def test_strip_trailing_punctuation(self):
+        """Test that the flag reaches the hash through the column type."""
+
+        adapter = SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256, strip_trailing_punctuation=True)
+
+        result1 = adapter.process_bind_param("first second.", None)
+        result2 = adapter.process_bind_param("first second", None)
+
+        assert result1 == result2
+
     def test_strip_non_digits(self):
         adapter = SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256, strip_non_digits=True)
 

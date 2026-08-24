@@ -84,6 +84,24 @@ class TestMakeBlindIndexHMAC:
 
         assert formatted == digits
 
+    def test_strip_trailing_punctuation(self):
+        """Test that the flag reaches the hash through the factory."""
+
+        dotted = make_blind_index(
+            "first second.",
+            method=BlindIndexMethod.HMAC_SHA256,
+            strip_trailing_punctuation=True,
+            key=TEST_KEY,
+        )
+        plain = make_blind_index(
+            "first second",
+            method=BlindIndexMethod.HMAC_SHA256,
+            strip_trailing_punctuation=True,
+            key=TEST_KEY,
+        )
+
+        assert dotted == plain
+
     def test_salt_uses_length_prefixed_encoding(self):
         """Test that the salted HMAC folds in a length-tagged salt before the normalized value."""
 
