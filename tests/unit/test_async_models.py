@@ -50,9 +50,9 @@ class TestAsyncInit:
             email: Annotated[bytes, Encrypted]
             password: Annotated[bytes, Hashed]
 
-        model = await _Model.async_init(username="john", email="john@example.com", password="secret123")
+        model = await _Model.async_init(username="test name", email="test@example.com", password="secret123")
 
-        assert model.username == "john"
+        assert model.username == "test name"
         assert isinstance(model.email, EncryptedValue)
         assert isinstance(model.password, HashedValue)
 
@@ -255,17 +255,17 @@ class TestAsyncInitNestedModels:
     async def test_async_init_nested_model_encrypts(self):
         """Nested SecureModel fields have their crypto processed during async_init."""
 
-        class _Address(BaseModel):
-            street: Annotated[bytes, Encrypted]
+        class _Nested(BaseModel):
+            value: Annotated[bytes, Encrypted]
 
         class _User(BaseModel):
             name: str
-            address: _Address
+            nested: _Nested
 
-        user = await _User.async_init(name="John", address={"street": "123 Main St"})
+        user = await _User.async_init(name="test name", nested={"value": "first"})
 
-        assert user.name == "John"
-        assert isinstance(user.address.street, EncryptedValue)
+        assert user.name == "test name"
+        assert isinstance(user.nested.value, EncryptedValue)
 
     @pytest.mark.asyncio
     async def test_async_init_nested_model_hashes(self):
@@ -278,133 +278,133 @@ class TestAsyncInitNestedModels:
             name: str
             credentials: _Credentials
 
-        user = await _User.async_init(name="John", credentials={"password": "secret123"})
+        user = await _User.async_init(name="test name", credentials={"password": "secret123"})
 
-        assert user.name == "John"
+        assert user.name == "test name"
         assert isinstance(user.credentials.password, HashedValue)
 
     @pytest.mark.asyncio
     async def test_async_init_nested_model_mixed(self):
         """Parent and nested models both have crypto fields processed."""
 
-        class _Address(BaseModel):
-            street: Annotated[bytes, Encrypted]
+        class _Nested(BaseModel):
+            value: Annotated[bytes, Encrypted]
 
         class _User(BaseModel):
             email: Annotated[bytes, Encrypted]
-            address: _Address
+            nested: _Nested
 
-        user = await _User.async_init(email="john@example.com", address={"street": "123 Main St"})
+        user = await _User.async_init(email="test@example.com", nested={"value": "first"})
 
         assert isinstance(user.email, EncryptedValue)
-        assert isinstance(user.address.street, EncryptedValue)
+        assert isinstance(user.nested.value, EncryptedValue)
 
     @pytest.mark.asyncio
     async def test_async_init_pre_constructed_nested_model(self):
         """Pre-constructed nested models (already encrypted) remain valid."""
 
-        class _Address(BaseModel):
-            street: Annotated[bytes, Encrypted]
+        class _Nested(BaseModel):
+            value: Annotated[bytes, Encrypted]
 
         class _User(BaseModel):
             name: str
-            address: _Address
+            nested: _Nested
 
-        address = _Address(street=b"123 Main St")  # sync crypto already ran
-        assert isinstance(address.street, EncryptedValue)
+        nested = _Nested(value=b"first")  # sync crypto already ran
+        assert isinstance(nested.value, EncryptedValue)
 
-        user = await _User.async_init(name="John", address=address)
+        user = await _User.async_init(name="test name", nested=nested)
 
-        assert user.name == "John"
-        assert isinstance(user.address.street, EncryptedValue)
+        assert user.name == "test name"
+        assert isinstance(user.nested.value, EncryptedValue)
 
     @pytest.mark.asyncio
     async def test_async_init_nested_model_in_list(self):
         """SecureModel instances inside a list are recursively processed."""
 
-        class _Address(BaseModel):
-            street: Annotated[bytes, Encrypted]
+        class _Nested(BaseModel):
+            value: Annotated[bytes, Encrypted]
 
         class _User(BaseModel):
             name: str
-            addresses: list[_Address]
+            nested: list[_Nested]
 
         user = await _User.async_init(
-            name="John",
-            addresses=[{"street": "123 Main St"}, {"street": "456 Oak Ave"}],
+            name="test name",
+            nested=[{"value": "first"}, {"value": "second"}],
         )
 
-        assert user.name == "John"
-        assert isinstance(user.addresses[0].street, EncryptedValue)
-        assert isinstance(user.addresses[1].street, EncryptedValue)
+        assert user.name == "test name"
+        assert isinstance(user.nested[0].value, EncryptedValue)
+        assert isinstance(user.nested[1].value, EncryptedValue)
 
     @pytest.mark.asyncio
     async def test_async_init_nested_model_in_dict(self):
         """SecureModel instances inside a dict are recursively processed."""
 
-        class _Address(BaseModel):
-            street: Annotated[bytes, Encrypted]
+        class _Nested(BaseModel):
+            value: Annotated[bytes, Encrypted]
 
         class _User(BaseModel):
             name: str
-            addresses: dict[str, _Address]
+            nested: dict[str, _Nested]
 
         user = await _User.async_init(
-            name="John",
-            addresses={"home": {"street": "123 Main St"}, "work": {"street": "456 Oak Ave"}},
+            name="test name",
+            nested={"first": {"value": "one"}, "second": {"value": "two"}},
         )
 
-        assert user.name == "John"
-        assert isinstance(user.addresses["home"].street, EncryptedValue)
-        assert isinstance(user.addresses["work"].street, EncryptedValue)
+        assert user.name == "test name"
+        assert isinstance(user.nested["first"].value, EncryptedValue)
+        assert isinstance(user.nested["second"].value, EncryptedValue)
 
     @pytest.mark.asyncio
     async def test_async_init_nested_model_in_nested_list(self):
         """SecureModel instances inside nested lists are recursively processed."""
 
-        class _Address(BaseModel):
-            street: Annotated[bytes, Encrypted]
+        class _Nested(BaseModel):
+            value: Annotated[bytes, Encrypted]
 
         class _User(BaseModel):
             name: str
-            address_groups: list[list[_Address]]
+            nested_groups: list[list[_Nested]]
 
         user = await _User.async_init(
-            name="John",
-            address_groups=[
-                [{"street": "123 Main St"}],
-                [{"street": "456 Oak Ave"}, {"street": "789 Elm St"}],
+            name="test name",
+            nested_groups=[
+                [{"value": "one"}],
+                [{"value": "two"}, {"value": "three"}],
             ],
         )
 
-        assert user.name == "John"
-        assert isinstance(user.address_groups[0][0].street, EncryptedValue)
-        assert isinstance(user.address_groups[1][0].street, EncryptedValue)
-        assert isinstance(user.address_groups[1][1].street, EncryptedValue)
+        assert user.name == "test name"
+        assert isinstance(user.nested_groups[0][0].value, EncryptedValue)
+        assert isinstance(user.nested_groups[1][0].value, EncryptedValue)
+        assert isinstance(user.nested_groups[1][1].value, EncryptedValue)
 
     @pytest.mark.asyncio
     async def test_async_init_nested_model_in_dict_of_lists(self):
         """SecureModel instances inside dict values that are lists are recursively processed."""
 
-        class _Address(BaseModel):
-            street: Annotated[bytes, Encrypted]
+        class _Nested(BaseModel):
+            value: Annotated[bytes, Encrypted]
 
         class _User(BaseModel):
             name: str
-            addresses: dict[str, list[_Address]]
+            nested: dict[str, list[_Nested]]
 
         user = await _User.async_init(
-            name="John",
-            addresses={
-                "home": [{"street": "123 Main St"}, {"street": "456 Oak Ave"}],
-                "work": [{"street": "789 Elm St"}],
+            name="test name",
+            nested={
+                "first": [{"value": "one"}, {"value": "two"}],
+                "second": [{"value": "three"}],
             },
         )
 
-        assert user.name == "John"
-        assert isinstance(user.addresses["home"][0].street, EncryptedValue)
-        assert isinstance(user.addresses["home"][1].street, EncryptedValue)
-        assert isinstance(user.addresses["work"][0].street, EncryptedValue)
+        assert user.name == "test name"
+        assert isinstance(user.nested["first"][0].value, EncryptedValue)
+        assert isinstance(user.nested["first"][1].value, EncryptedValue)
+        assert isinstance(user.nested["second"][0].value, EncryptedValue)
 
 
 class TestAsyncBlindIndexData:
@@ -520,18 +520,18 @@ class TestAsyncEncryptDataErrors:
         class _Model(BaseModel):
             name: str
 
-        model = construct_without_crypto(_Model, name="john")
+        model = construct_without_crypto(_Model, name="test name")
         await model.async_encrypt_data()
-        assert model.name == "john"
+        assert model.name == "test name"
 
     @pytest.mark.asyncio
     async def test_async_decrypt_no_pending_fields_is_noop(self):
         class _Model(BaseModel):
             name: str
 
-        model = construct_without_crypto(_Model, name="john")
+        model = construct_without_crypto(_Model, name="test name")
         result = await model.async_decrypt_data()
-        assert model.name == "john"
+        assert model.name == "test name"
         assert result is model
 
     @pytest.mark.asyncio
@@ -539,15 +539,15 @@ class TestAsyncEncryptDataErrors:
         class _Model(BaseModel):
             name: str
 
-        model = construct_without_crypto(_Model, name="john")
+        model = construct_without_crypto(_Model, name="test name")
         await model.async_hash_data()
-        assert model.name == "john"
+        assert model.name == "test name"
 
     @pytest.mark.asyncio
     async def test_async_blind_index_no_pending_fields_is_noop(self):
         class _Model(BaseModel):
             name: str
 
-        model = construct_without_crypto(_Model, name="john")
+        model = construct_without_crypto(_Model, name="test name")
         await model.async_blind_index_data()
-        assert model.name == "john"
+        assert model.name == "test name"

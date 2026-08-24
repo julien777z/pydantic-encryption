@@ -84,8 +84,21 @@ class TestBlindIndexAnnotationNormalization:
         class UserModel(BaseModel):
             name_index: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256, strip_whitespace=True)]
 
-        user1 = UserModel(name_index=b"  John   Doe  ")
-        user2 = UserModel(name_index=b"John Doe")
+        user1 = UserModel(name_index=b"  first   second  ")
+        user2 = UserModel(name_index=b"first second")
+
+        assert user1.name_index == user2.name_index
+
+    def test_strip_trailing_punctuation(self):
+        """Test that the flag reaches the hash through the annotation path."""
+
+        class UserModel(BaseModel):
+            name_index: Annotated[
+                bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256, strip_trailing_punctuation=True)
+            ]
+
+        user1 = UserModel(name_index=b"first second.")
+        user2 = UserModel(name_index=b"first second")
 
         assert user1.name_index == user2.name_index
 
@@ -93,8 +106,8 @@ class TestBlindIndexAnnotationNormalization:
         class UserModel(BaseModel):
             phone_index: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256, strip_non_digits=True)]
 
-        user1 = UserModel(phone_index=b"+1 (555) 123-4567")
-        user2 = UserModel(phone_index=b"15551234567")
+        user1 = UserModel(phone_index=b"a1 (b2) c3-d4")
+        user2 = UserModel(phone_index=b"1234")
 
         assert user1.phone_index == user2.phone_index
 

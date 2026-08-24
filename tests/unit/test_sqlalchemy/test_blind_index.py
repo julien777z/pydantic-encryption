@@ -196,8 +196,8 @@ class TestSQLAlchemyBlindIndexValueMakeBlindIndexValue:
 
     def test_uses_column_normalization_flags(self):
         salt = b"\x01" * 16
-        formatted = self.digit_adapter.make_blind_index_value("555-0100", salt=salt)
-        digits = self.digit_adapter.make_blind_index_value("5550100", salt=salt)
+        formatted = self.digit_adapter.make_blind_index_value("12-34", salt=salt)
+        digits = self.digit_adapter.make_blind_index_value("1234", salt=salt)
         assert formatted == digits
 
     def test_salted_value_passes_through_bind(self):
@@ -232,11 +232,21 @@ class TestSQLAlchemyBlindIndexValueNormalization:
 
         assert result1 == result2
 
+    def test_strip_trailing_punctuation(self):
+        """Test that the flag reaches the hash through the column type."""
+
+        adapter = SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256, strip_trailing_punctuation=True)
+
+        result1 = adapter.process_bind_param("first second.", TEST_DIALECT)
+        result2 = adapter.process_bind_param("first second", TEST_DIALECT)
+
+        assert result1 == result2
+
     def test_strip_non_digits(self):
         adapter = SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256, strip_non_digits=True)
 
-        result1 = adapter.process_bind_param("+1 (555) 123-4567", TEST_DIALECT)
-        result2 = adapter.process_bind_param("15551234567", TEST_DIALECT)
+        result1 = adapter.process_bind_param("a1 (b2) c3-d4", TEST_DIALECT)
+        result2 = adapter.process_bind_param("1234", TEST_DIALECT)
 
         assert result1 == result2
 

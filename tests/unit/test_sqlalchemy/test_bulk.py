@@ -168,15 +168,15 @@ class TestDeferredDecryptMixin:
     def test_instance_decrypt(self):
         contractor = BulkContractor(
             id=1,
-            first_name=encrypt_deferred("first_name", "Alice"),
-            last_name=encrypt_deferred("last_name", "Smith"),
+            first_name=encrypt_deferred("first_name", "first"),
+            last_name=encrypt_deferred("last_name", "last"),
         )
 
         returned = asyncio.run(contractor.decrypt())
 
         assert returned is contractor
-        assert contractor.first_name == "Alice"
-        assert contractor.last_name == "Smith"
+        assert contractor.first_name == "first"
+        assert contractor.last_name == "last"
 
     def test_decrypt_many(self):
         contractors = [
@@ -211,21 +211,25 @@ class TestDeferredDecryptMixin:
             assert contractor.last_name == f"Last{i}"
 
     def test_none_column_values_skipped(self):
-        contractor = BulkContractor(id=1, first_name=encrypt_deferred("first_name", "Alice"), last_name=None)
+        contractor = BulkContractor(
+            id=1, first_name=encrypt_deferred("first_name", "first"), last_name=None
+        )
 
         asyncio.run(contractor.decrypt())
 
-        assert contractor.first_name == "Alice"
+        assert contractor.first_name == "first"
         assert contractor.last_name is None
 
     def test_walks_loaded_relationships(self):
         org = BulkOrg(id=1, name="Acme")
-        contractor = BulkContractor(id=1, first_name=encrypt_deferred("first_name", "Alice"), last_name=None)
+        contractor = BulkContractor(
+            id=1, first_name=encrypt_deferred("first_name", "first"), last_name=None
+        )
         org.contractors = [contractor]
 
         asyncio.run(org.decrypt())
 
-        assert contractor.first_name == "Alice"
+        assert contractor.first_name == "first"
 
     def test_all_columns_none(self):
         contractor = BulkContractor(id=1, first_name=None, last_name=None)

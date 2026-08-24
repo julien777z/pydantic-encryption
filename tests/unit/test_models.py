@@ -61,9 +61,9 @@ class TestModelEncryption:
             email: Annotated[bytes, Encrypted]
             password: Annotated[bytes, Hashed]
 
-        model = _MixedModel(username="john", email=b"john@example.com", password=b"secret123")
+        model = _MixedModel(username="test name", email=b"john@example.com", password=b"secret123")
 
-        assert model.username == "john"
+        assert model.username == "test name"
         assert isinstance(model.email, EncryptedValue)
         assert isinstance(model.password, HashedValue)
 
@@ -77,9 +77,9 @@ class TestModelEncryption:
             password: Annotated[bytes, Hashed]
             secret: Annotated[bytes, Encrypted]
 
-        model = _SecureUser(username="john", password=b"pass123", secret=b"my secret")
+        model = _SecureUser(username="test name", password=b"pass123", secret=b"my secret")
 
-        assert model.username == "john"
+        assert model.username == "test name"
         assert isinstance(model.password, HashedValue)
         assert isinstance(model.secret, EncryptedValue)
 
