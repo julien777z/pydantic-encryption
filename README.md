@@ -188,7 +188,7 @@ async with AsyncSession(engine) as session:
     await users[0].decrypt()                              # one mixin instance
     await User.decrypt_many(users)                        # batch of one class
     await decrypt_rows(users, User.email)                 # InstrumentedAttribute or column names
-    await decrypt_values(ciphertexts, column_binding)     # flat ciphertexts; preserves None positions
+    await decrypt_values(bound_ciphertexts)               # (value, binding) pairs; preserves None positions
 ```
 
 ### Safety: Catching Accidental Ciphertext Access
@@ -219,7 +219,9 @@ column of its own, so name the field its ciphertexts were written for:
 ```python
 from pydantic_encryption import FieldBinding
 
-await decrypt_values(ciphertexts, FieldBinding(table="secure.people", column="ssn"))
+binding = FieldBinding(table="secure.people", column="ssn")
+
+await decrypt_values((ciphertext, binding) for ciphertext in ciphertexts)
 ```
 
 Values encrypted outside a column — a Pydantic `Encrypted` field, or a standalone column type — carry no

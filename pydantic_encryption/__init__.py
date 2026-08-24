@@ -24,6 +24,7 @@ from pydantic_encryption.types import (
 if TYPE_CHECKING:
     from pydantic_encryption.adapters.encryption.aws import AWSAdapter
     from pydantic_encryption.integrations.sqlalchemy import (
+        BoundValue,
         DeferredDecryptMixin,
         SQLAlchemyBlindIndexValue,
         SQLAlchemyEncryptedValue,
@@ -38,6 +39,7 @@ if TYPE_CHECKING:
 
 
 LAZY_EXPORTS: dict[str, tuple[str, str]] = {
+    "BoundValue": ("pydantic_encryption.integrations.sqlalchemy", "BoundValue"),
     "AWSAdapter": ("pydantic_encryption.adapters.encryption.aws", "AWSAdapter"),
     "DeferredDecryptMixin": ("pydantic_encryption.integrations.sqlalchemy", "DeferredDecryptMixin"),
     "SQLAlchemyBlindIndexValue": ("pydantic_encryption.integrations.sqlalchemy", "SQLAlchemyBlindIndexValue"),
@@ -85,6 +87,7 @@ __all__ = [
     "BlindIndexValue",
     "make_blind_index",
     "EncryptionMethod",
+    "BoundValue",
     "EncryptedValue",
     "EncryptedValueAccessError",
     "FieldBinding",

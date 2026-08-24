@@ -201,7 +201,9 @@ class TestFlatDecryptNamesItsField:
 
         values = [encrypt_as_column(BindingPerson, "ssn", f"555-00-000{index}") for index in range(3)]
 
-        result = asyncio.run(decrypt_values(values, column_binding(BindingPerson, "ssn")))
+        binding = column_binding(BindingPerson, "ssn")
+
+        result = asyncio.run(decrypt_values((value, binding) for value in values))
 
         assert result == ["555-00-0000", "555-00-0001", "555-00-0002"]
 
@@ -209,9 +211,10 @@ class TestFlatDecryptNamesItsField:
         """Test that naming the wrong column fails rather than disclosing the value."""
 
         values = [encrypt_as_column(BindingPerson, "ssn", "555-00-1234")]
+        wrong_binding = column_binding(BindingPerson, "nickname")
 
         with pytest.raises(FieldBindingError):
-            asyncio.run(decrypt_values(values, column_binding(BindingPerson, "nickname")))
+            asyncio.run(decrypt_values((value, wrong_binding) for value in values))
 
 
 class TestEnvelopeCarriesTheBinding:

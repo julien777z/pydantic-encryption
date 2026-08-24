@@ -1,5 +1,6 @@
 from pydantic_encryption.integrations.sqlalchemy.blind_index import SQLAlchemyBlindIndexValue
 from pydantic_encryption.integrations.sqlalchemy.bulk import (
+    BoundValue,
     decrypt_pending_fields,
     decrypt_pending_fields_sync,
     decrypt_rows,
@@ -22,6 +23,7 @@ __all__ = [
     "decrypt_pending_fields",
     "decrypt_pending_fields_sync",
     "decrypt_rows",
+    "BoundValue",
     "decrypt_values",
     "finalize_sqlalchemy_session",
 ]

@@ -249,7 +249,7 @@ class TestDecryptValues:
     def test_decrypts_list_of_ciphertexts(self):
         values = [self.make_ciphertext(f"user-{i}") for i in range(3)]
 
-        result = asyncio.run(decrypt_values(values, None))
+        result = asyncio.run(decrypt_values((value, None) for value in values))
 
         assert result == ["user-0", "user-1", "user-2"]
 
@@ -261,16 +261,16 @@ class TestDecryptValues:
             None,
         ]
 
-        result = asyncio.run(decrypt_values(values, None))
+        result = asyncio.run(decrypt_values((value, None) for value in values))
 
         assert result == ["a", None, "b", None]
 
     def test_empty_input(self):
-        assert asyncio.run(decrypt_values([], None)) == []
+        assert asyncio.run(decrypt_values([])) == []
 
     def test_passes_through_non_bytes_cells(self):
         values = [self.make_ciphertext("a"), 42, "plain", None]
 
-        result = asyncio.run(decrypt_values(values, None))
+        result = asyncio.run(decrypt_values((value, None) for value in values))
 
         assert result == ["a", 42, "plain", None]

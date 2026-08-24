@@ -26,6 +26,9 @@ from pydantic_encryption.integrations.sqlalchemy.state import (
 )
 from pydantic_encryption.types import EncryptedValue, FieldBinding
 
+#: One stored value paired with the field binding it was encrypted under.
+BoundValue = tuple[Any, FieldBinding | None]
+
 
 class DecryptAssignment(TypedDict):
     """One encrypted cell, or one element of an encrypted array cell, awaiting decryption."""
@@ -189,30 +192,31 @@ async def decrypt_rows(rows: Iterable[Any], *columns: InstrumentedAttribute | st
     await decrypt_assignments(backend, assignments)
 
 
-async def decrypt_values(values: Iterable[Any], binding: FieldBinding | None) -> list[Any]:
-    """Decrypt a flat iterable of one field's ciphertexts, preserving non-encrypted positions as-is."""
+async def decrypt_values(values: Iterable[BoundValue]) -> list[Any]:
+    """Decrypt ciphertexts that each name the field they were written for, in one batch."""
 
     values_list = list(values)
     if not values_list:
         return []
 
-    backend = resolve_backend()
+    decrypted: list[Any] = [value for value, _ in values_list]
     indexes: list[int] = []
     encrypted_blobs: list[bytes] = []
-    for index, value in enumerate(values_list):
+
+    for index, (value, _) in enumerate(values_list):
         if isinstance(value, EncryptedValue):
             encrypted_blobs.append(bytes(value))
             indexes.append(index)
 
     if not encrypted_blobs:
-        return values_list
+        return decrypted
 
-    plaintexts = await decrypt_off_loop(backend, encrypted_blobs)
+    plaintexts = await decrypt_off_loop(resolve_backend(), encrypted_blobs)
 
     for index, plaintext in zip(indexes, plaintexts):
-        values_list[index] = decode_value(plaintext, binding)
+        decrypted[index] = decode_value(plaintext, values_list[index][1])
 
-    return values_list
+    return decrypted
 
 
 def collect_encrypted_cells(
@@ -323,6 +327,7 @@ async def finalize_sqlalchemy_session(session: AsyncSession) -> None:
 
 
 __all__ = [
+    "BoundValue",
     "bulk_decrypt_entities",
     "bulk_decrypt_entities_sync",
     "collect_encrypted_cells",
