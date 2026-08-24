@@ -25,7 +25,7 @@ class TestStripNonCharacters:
         assert normalize_value("hello123world!", {"strip_non_characters": True}) == "helloworld"
 
     def test_keeps_only_letters(self):
-        assert normalize_value("+1 (555) 123-4567", {"strip_non_characters": True}) == ""
+        assert normalize_value("12 (34) 56-78", {"strip_non_characters": True}) == ""
 
     def test_preserves_mixed_case(self):
         assert normalize_value("Hello World 123", {"strip_non_characters": True}) == "HelloWorld"
@@ -33,7 +33,7 @@ class TestStripNonCharacters:
 
 class TestStripNonDigits:
     def test_removes_non_digits(self):
-        assert normalize_value("+1 (555) 123-4567", {"strip_non_digits": True}) == "15551234567"
+        assert normalize_value("a1 (b2) c3-d4", {"strip_non_digits": True}) == "1234"
 
     def test_keeps_only_digits(self):
         assert normalize_value("abc123def456", {"strip_non_digits": True}) == "123456"
@@ -44,21 +44,16 @@ class TestStripNonDigits:
 
 class TestStripTrailingPunctuation:
     def test_removes_trailing_period(self):
-        assert normalize_value("123 Main St.", {"strip_trailing_punctuation": True}) == "123 Main St"
+        assert normalize_value("first second.", {"strip_trailing_punctuation": True}) == "first second"
 
     def test_removes_trailing_comma(self):
-        assert (
-            normalize_value("123 Main St, Apt 2", {"strip_trailing_punctuation": True}) == "123 Main St Apt 2"
-        )
+        assert normalize_value("first, second", {"strip_trailing_punctuation": True}) == "first second"
 
     def test_drops_punctuation_only_tokens(self):
-        assert (
-            normalize_value("123 Main St , Apt 2", {"strip_trailing_punctuation": True})
-            == "123 Main St Apt 2"
-        )
+        assert normalize_value("first , second", {"strip_trailing_punctuation": True}) == "first second"
 
     def test_keeps_interior_punctuation(self):
-        assert normalize_value("P.O. Box", {"strip_trailing_punctuation": True}) == "P.O Box"
+        assert normalize_value("a.b. c", {"strip_trailing_punctuation": True}) == "a.b c"
 
     def test_collapses_whitespace_between_tokens(self):
         assert normalize_value("a.   b.", {"strip_trailing_punctuation": True}) == "a b"
@@ -67,12 +62,12 @@ class TestStripTrailingPunctuation:
         assert normalize_value("", {"strip_trailing_punctuation": True}) == ""
 
     def test_noop_when_disabled(self):
-        assert normalize_value("123 Main St.", {}) == "123 Main St."
+        assert normalize_value("first second.", {}) == "first second."
 
 
 class TestNormalizeToLowercase:
     def test_lowercases(self):
-        assert normalize_value("Hello@Example.COM", {"normalize_to_lowercase": True}) == "hello@example.com"
+        assert normalize_value("AbC-123", {"normalize_to_lowercase": True}) == "abc-123"
 
     def test_already_lowercase(self):
         assert normalize_value("hello", {"normalize_to_lowercase": True}) == "hello"
@@ -80,7 +75,7 @@ class TestNormalizeToLowercase:
 
 class TestNormalizeToUppercase:
     def test_uppercases(self):
-        assert normalize_value("Hello@Example.com", {"normalize_to_uppercase": True}) == "HELLO@EXAMPLE.COM"
+        assert normalize_value("AbC-123", {"normalize_to_uppercase": True}) == "ABC-123"
 
 
 class TestCombined:
@@ -92,9 +87,9 @@ class TestCombined:
 
     def test_strip_non_digits_then_no_case_effect(self):
         result = normalize_value(
-            "Phone: +1-555-0100", {"strip_non_digits": True, "normalize_to_lowercase": True}
+            "Label: a1-b2-c3", {"strip_non_digits": True, "normalize_to_lowercase": True}
         )
-        assert result == "15550100"
+        assert result == "123"
 
     def test_all_strip_options(self):
         result = normalize_value(
