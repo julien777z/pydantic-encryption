@@ -2,7 +2,7 @@ import re
 from typing import Final, TypedDict
 
 TRAILING_PUNCTUATION_PATTERN: Final[re.Pattern[str]] = re.compile(
-    r"^(?:[.,]+(?:\s+|$))+|\s+[.,]+(?=\s|$)|[.,]+(?=\s|$)"
+    r"(?<!\s)\s++[.,]++(?=\s|$)|(?<![.,])[.,]++(?=\s|$)"
 )
 
 

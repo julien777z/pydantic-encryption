@@ -66,9 +66,28 @@ class TestStripTrailingPunctuation:
         assert normalize_value("first , second", {"strip_trailing_punctuation": True}) == "first second"
 
     def test_drops_a_leading_punctuation_token(self):
-        """Test that punctuation-only tokens at the start vanish with their separators."""
+        """Test that a leading token vanishes alone, having no leading separator to take."""
 
-        assert normalize_value(", . first", {"strip_trailing_punctuation": True}) == "first"
+        assert normalize_value(". first", {"strip_trailing_punctuation": True}) == " first"
+
+    def test_a_leading_token_drops_the_same_with_or_without_padding(self):
+        """Test that incidental whitespace before a leading token cannot change the result."""
+
+        padded = normalize_value(" . first", {"strip_trailing_punctuation": True})
+
+        assert padded == normalize_value(". first", {"strip_trailing_punctuation": True})
+
+    def test_a_dropped_token_takes_only_its_leading_separator(self):
+        """Test that the whitespace run after a dropped token survives untouched."""
+
+        assert normalize_value("first ,  second", {"strip_trailing_punctuation": True}) == "first  second"
+
+    def test_a_long_interior_run_stays_and_returns_quickly(self):
+        """Test that a huge punctuation run inside a token passes through unchanged."""
+
+        value = "a " + "." * 200_000 + "b"
+
+        assert normalize_value(value, {"strip_trailing_punctuation": True}) == value
 
     def test_keeps_interior_punctuation(self):
         """Test that punctuation inside a token is untouched."""
@@ -76,7 +95,7 @@ class TestStripTrailingPunctuation:
         assert normalize_value("a.b. c", {"strip_trailing_punctuation": True}) == "a.b c"
 
     def test_whitespace_is_preserved(self):
-        """Test that whitespace is left alone unless strip_whitespace is also set."""
+        """Test that whitespace around surviving tokens is left alone."""
 
         assert normalize_value("  a.   b. ", {"strip_trailing_punctuation": True}) == "  a   b "
 
@@ -126,6 +145,16 @@ class TestCombined:
         )
 
         assert combined == normalize_value("first, second.", {"strip_non_characters": True})
+
+    def test_strip_non_digits_then_trailing_punctuation(self):
+        """Test that stripping non-digits first leaves trailing punctuation nothing to do."""
+
+        combined = normalize_value(
+            "12, 34.",
+            {"strip_non_digits": True, "strip_trailing_punctuation": True},
+        )
+
+        assert combined == normalize_value("12, 34.", {"strip_non_digits": True})
 
     def test_all_strip_options(self):
         result = normalize_value(

@@ -329,7 +329,7 @@ Available options:
 | `normalize_to_lowercase` | Convert to lowercase |
 | `normalize_to_uppercase` | Convert to uppercase |
 
-Normalization determines the hashed value, so changing a field's flags changes the index computed for the same input. Recompute stored indexes when flags change.
+Normalization determines the hashed value, so changing a field's flags changes the indexes computed for the values those flags touch. Recompute stored indexes when flags change.
 
 ### Methods
 
