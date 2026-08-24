@@ -71,6 +71,7 @@ class BlindIndex:
         strip_whitespace: bool = False,
         strip_non_characters: bool = False,
         strip_non_digits: bool = False,
+        strip_trailing_punctuation: bool = False,
         normalize_to_lowercase: bool = False,
         normalize_to_uppercase: bool = False,
     ):
@@ -78,6 +79,7 @@ class BlindIndex:
         self.strip_whitespace = strip_whitespace
         self.strip_non_characters = strip_non_characters
         self.strip_non_digits = strip_non_digits
+        self.strip_trailing_punctuation = strip_trailing_punctuation
         self.normalize_to_lowercase = normalize_to_lowercase
         self.normalize_to_uppercase = normalize_to_uppercase
 
@@ -91,6 +93,7 @@ class BlindIndex:
             strip_whitespace=self.strip_whitespace,
             strip_non_characters=self.strip_non_characters,
             strip_non_digits=self.strip_non_digits,
+            strip_trailing_punctuation=self.strip_trailing_punctuation,
             normalize_to_lowercase=self.normalize_to_lowercase,
             normalize_to_uppercase=self.normalize_to_uppercase,
         )
