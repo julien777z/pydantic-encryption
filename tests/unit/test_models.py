@@ -17,7 +17,7 @@ class TestModelEncryption:
             field2: Annotated[bytes, Encrypted]
             field3: Annotated[bytes, Encrypted]
 
-        model = _MultiEncrypt(field1="secret1", field2="secret2", field3="secret3")
+        model = _MultiEncrypt(field1=b"secret1", field2=b"secret2", field3=b"secret3")
 
         assert isinstance(model.field1, EncryptedValue)
         assert isinstance(model.field2, EncryptedValue)
@@ -29,7 +29,7 @@ class TestModelEncryption:
         class _OptionalEncrypt(BaseModel):
             secret: Annotated[bytes, Encrypted] | None = None
 
-        model = _OptionalEncrypt(secret="my secret")
+        model = _OptionalEncrypt(secret=b"my secret")
 
         assert isinstance(model.secret, EncryptedValue)
 
@@ -47,7 +47,7 @@ class TestModelEncryption:
         """Test optional hashed field with explicit None."""
 
         class _OptionalHash(BaseModel):
-            password: Annotated[str, Hashed] | None
+            password: Annotated[bytes, Hashed] | None
 
         model = _OptionalHash(password=None)
 
@@ -59,9 +59,9 @@ class TestModelEncryption:
         class _MixedModel(BaseModel):
             username: str
             email: Annotated[bytes, Encrypted]
-            password: Annotated[str, Hashed]
+            password: Annotated[bytes, Hashed]
 
-        model = _MixedModel(username="test name", email="john@example.com", password="secret123")
+        model = _MixedModel(username="test name", email=b"john@example.com", password=b"secret123")
 
         assert model.username == "test name"
         assert isinstance(model.email, EncryptedValue)
@@ -74,10 +74,10 @@ class TestModelEncryption:
             username: str
 
         class _SecureUser(_BaseUser):
-            password: Annotated[str, Hashed]
+            password: Annotated[bytes, Hashed]
             secret: Annotated[bytes, Encrypted]
 
-        model = _SecureUser(username="test name", password="pass123", secret="my secret")
+        model = _SecureUser(username="test name", password=b"pass123", secret=b"my secret")
 
         assert model.username == "test name"
         assert isinstance(model.password, HashedValue)
@@ -94,7 +94,7 @@ class TestModelDecryption:
             data: Annotated[bytes, Encrypted]
 
         original = "secret data"
-        model = _Model(data=original)
+        model = _Model(data=original.encode())
 
         assert isinstance(model.data, EncryptedValue)
 
@@ -109,7 +109,7 @@ class TestModelDecryption:
             data1: Annotated[bytes, Encrypted]
             data2: Annotated[bytes, Encrypted]
 
-        model = _Model(data1="secret1", data2="secret2")
+        model = _Model(data1=b"secret1", data2=b"secret2")
         model.decrypt_data()
 
         assert model.data1 == "secret1"
@@ -121,7 +121,7 @@ class TestModelDecryption:
         class _Model(BaseModel):
             data: Annotated[bytes, Encrypted]
 
-        model = _Model(data="secret")
+        model = _Model(data=b"secret")
         result = model.decrypt_data()
 
         assert result is model
@@ -136,7 +136,7 @@ class TestModelSerialization:
         class _EncryptModel(BaseModel):
             secret: Annotated[bytes, Encrypted]
 
-        model = _EncryptModel(secret="plaintext")
+        model = _EncryptModel(secret=b"plaintext")
         dumped = model.model_dump()
 
         assert dumped["secret"] != b"plaintext"
@@ -146,9 +146,9 @@ class TestModelSerialization:
         """Test model_dump contains hashed values."""
 
         class _HashModel(BaseModel):
-            password: Annotated[str, Hashed]
+            password: Annotated[bytes, Hashed]
 
-        model = _HashModel(password="plaintext")
+        model = _HashModel(password=b"plaintext")
         dumped = model.model_dump()
 
         assert dumped["password"] != "plaintext"
@@ -164,7 +164,7 @@ class TestAnnotatedFieldLookup:
         class _EncryptModel(BaseModel):
             secret: Annotated[bytes, Encrypted]
 
-        model = _EncryptModel(secret="plaintext")
+        model = _EncryptModel(secret=b"plaintext")
         fields = model.get_annotated_fields(Encrypted)
 
         assert isinstance(fields["secret"], AnnotatedFieldInfo)
@@ -204,7 +204,7 @@ class TestEdgeCases:
         class _Model(BaseModel):
             data: Annotated[bytes, Encrypted]
 
-        model = _Model(data="")
+        model = _Model(data=b"")
 
         assert isinstance(model.data, EncryptedValue)
 
@@ -214,7 +214,7 @@ class TestEdgeCases:
         class _Model(BaseModel):
             data: Annotated[bytes, Encrypted]
 
-        model = _Model(data="   ")
+        model = _Model(data=b"   ")
 
         assert isinstance(model.data, EncryptedValue)
 
@@ -225,7 +225,7 @@ class TestEdgeCases:
             data: Annotated[bytes, Encrypted]
 
         original = "日本語 🔐 العربية"
-        model = _Model(data=original)
+        model = _Model(data=original.encode())
         model.decrypt_data()
 
         assert model.data == original
@@ -237,7 +237,7 @@ class TestEdgeCases:
             data: Annotated[bytes, Encrypted]
 
         original = "x" * 10000
-        model = _Model(data=original)
+        model = _Model(data=original.encode())
         model.decrypt_data()
 
         assert model.data == original

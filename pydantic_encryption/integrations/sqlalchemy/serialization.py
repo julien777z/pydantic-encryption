@@ -5,9 +5,20 @@ from enum import StrEnum
 from typing import Final
 from uuid import UUID
 
+from pydantic_encryption.types import FieldBinding, FieldBindingError
+
 EncryptableValue = str | bytes | bool | int | float | Decimal | UUID | date | datetime | time | timedelta
 
-VERSION_PREFIX: Final[str] = "v1"
+VERSION_PREFIX: Final[str] = "v2"
+
+#: What an unbound envelope stores where a bound one stores its table and column.
+UNBOUND_IDENTITY: Final[str] = ""
+
+
+def binding_identity(binding: FieldBinding | None) -> str:
+    """Return the identity an envelope carries for this binding, or the unbound marker."""
+
+    return binding.identity if binding is not None else UNBOUND_IDENTITY
 
 
 class TypePrefix(StrEnum):
@@ -26,8 +37,8 @@ class TypePrefix(StrEnum):
     TIMEDELTA = "timedelta"
 
 
-def encode_value(value: EncryptableValue) -> str:
-    """Serialize a Python value to a ``version:type:data`` string for encryption."""
+def encode_value(value: EncryptableValue, binding: FieldBinding | None) -> str:
+    """Serialize a Python value to a ``version:binding:type:data`` string for encryption."""
 
     match value:
         case datetime():
@@ -53,11 +64,11 @@ def encode_value(value: EncryptableValue) -> str:
         case _:
             type_data = f"{TypePrefix.STR}:{value}"
 
-    return f"{VERSION_PREFIX}:{type_data}"
+    return f"{VERSION_PREFIX}:{binding_identity(binding)}:{type_data}"
 
 
-def decode_value(value: str) -> EncryptableValue:
-    """Deserialize a decrypted ``version:type:data`` string back to its Python value."""
+def decode_value(value: str, binding: FieldBinding | None) -> EncryptableValue:
+    """Deserialize a decrypted envelope, refusing one written for a different field."""
 
     version, _, remainder = value.partition(":")
     if not version:
@@ -66,7 +77,16 @@ def decode_value(value: str) -> EncryptableValue:
     if version != VERSION_PREFIX:
         raise RuntimeError("Unknown version")
 
-    type_prefix, _, data = remainder.partition(":")
+    stored_identity, _, type_data = remainder.partition(":")
+    expected_identity = binding_identity(binding)
+
+    if stored_identity != expected_identity:
+        raise FieldBindingError(
+            f"Ciphertext is bound to {stored_identity or 'no field'} "
+            f"but was read as {expected_identity or 'no field'}."
+        )
+
+    type_prefix, _, data = type_data.partition(":")
 
     match type_prefix:
         case TypePrefix.DATETIME:

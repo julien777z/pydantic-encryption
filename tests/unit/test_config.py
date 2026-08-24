@@ -1,7 +1,19 @@
 import pytest
 from pydantic import ValidationError
+from pydantic_settings import SettingsConfigDict
 
 from pydantic_encryption.config import Settings
+from pydantic_encryption.types import EncryptionMethod
+
+
+class IsolatedSettings(Settings):
+    """Settings that read only what a test passes them, never a developer's env file."""
+
+    model_config = SettingsConfigDict(
+        env_file=None,
+        case_sensitive=False,
+        extra="ignore",
+    )
 
 
 class TestAWSKMSKeyValidation:
@@ -10,8 +22,7 @@ class TestAWSKMSKeyValidation:
     def test_global_key_only_valid(self):
         """Test that using only AWS_KMS_KEY_ARN is valid."""
 
-        settings = Settings(
-            _env_file=None,
+        settings = IsolatedSettings(
             AWS_KMS_KEY_ARN="arn:aws:kms:us-east-1:123456789:key/test-key",
             AWS_KMS_REGION="us-east-1",
         )
@@ -23,8 +34,7 @@ class TestAWSKMSKeyValidation:
     def test_separate_keys_valid(self):
         """Test that using both separate encrypt and decrypt keys is valid."""
 
-        settings = Settings(
-            _env_file=None,
+        settings = IsolatedSettings(
             AWS_KMS_ENCRYPT_KEY_ARN="arn:aws:kms:us-east-1:123456789:key/encrypt-key",
             AWS_KMS_DECRYPT_KEY_ARN="arn:aws:kms:us-east-1:123456789:key/decrypt-key",
             AWS_KMS_REGION="us-east-1",
@@ -37,8 +47,7 @@ class TestAWSKMSKeyValidation:
     def test_decrypt_key_only_valid(self):
         """Test that using only decrypt key is valid (read-only scenario)."""
 
-        settings = Settings(
-            _env_file=None,
+        settings = IsolatedSettings(
             AWS_KMS_DECRYPT_KEY_ARN="arn:aws:kms:us-east-1:123456789:key/decrypt-key",
             AWS_KMS_REGION="us-east-1",
         )
@@ -51,8 +60,7 @@ class TestAWSKMSKeyValidation:
         """Test that using only encrypt key without decrypt key is invalid."""
 
         with pytest.raises(ValidationError) as exc_info:
-            Settings(
-                _env_file=None,
+            IsolatedSettings(
                 AWS_KMS_ENCRYPT_KEY_ARN="arn:aws:kms:us-east-1:123456789:key/encrypt-key",
                 AWS_KMS_REGION="us-east-1",
             )
@@ -63,8 +71,7 @@ class TestAWSKMSKeyValidation:
         """Test that using global key with encrypt key is invalid."""
 
         with pytest.raises(ValidationError) as exc_info:
-            Settings(
-                _env_file=None,
+            IsolatedSettings(
                 AWS_KMS_KEY_ARN="arn:aws:kms:us-east-1:123456789:key/global-key",
                 AWS_KMS_ENCRYPT_KEY_ARN="arn:aws:kms:us-east-1:123456789:key/encrypt-key",
                 AWS_KMS_REGION="us-east-1",
@@ -75,8 +82,7 @@ class TestAWSKMSKeyValidation:
         """Test that using global key with decrypt key is invalid."""
 
         with pytest.raises(ValidationError) as exc_info:
-            Settings(
-                _env_file=None,
+            IsolatedSettings(
                 AWS_KMS_KEY_ARN="arn:aws:kms:us-east-1:123456789:key/global-key",
                 AWS_KMS_DECRYPT_KEY_ARN="arn:aws:kms:us-east-1:123456789:key/decrypt-key",
                 AWS_KMS_REGION="us-east-1",
@@ -87,8 +93,7 @@ class TestAWSKMSKeyValidation:
         """Test that using all three keys is invalid."""
 
         with pytest.raises(ValidationError) as exc_info:
-            Settings(
-                _env_file=None,
+            IsolatedSettings(
                 AWS_KMS_KEY_ARN="arn:aws:kms:us-east-1:123456789:key/global-key",
                 AWS_KMS_ENCRYPT_KEY_ARN="arn:aws:kms:us-east-1:123456789:key/encrypt-key",
                 AWS_KMS_DECRYPT_KEY_ARN="arn:aws:kms:us-east-1:123456789:key/decrypt-key",
@@ -99,7 +104,7 @@ class TestAWSKMSKeyValidation:
     def test_no_keys_valid(self):
         """Test that having no AWS keys is valid (might use different encryption method)."""
 
-        settings = Settings(_env_file=None)
+        settings = IsolatedSettings()
 
         assert settings.AWS_KMS_KEY_ARN is None
         assert settings.AWS_KMS_ENCRYPT_KEY_ARN is None
@@ -113,9 +118,8 @@ class TestEncryptionMethodValidation:
         """Test that selecting ENCRYPTION_METHOD=aws without creds raises a validation error."""
 
         with pytest.raises(ValidationError) as exc_info:
-            Settings(
-                _env_file=None,
-                ENCRYPTION_METHOD="aws",
+            IsolatedSettings(
+                ENCRYPTION_METHOD=EncryptionMethod.AWS,
                 AWS_KMS_KEY_ARN="arn:aws:kms:us-east-1:123456789:key/test",
             )
 
@@ -124,16 +128,15 @@ class TestEncryptionMethodValidation:
     def test_aws_method_with_full_aws_settings_valid(self):
         """Test that ENCRYPTION_METHOD=aws with all required env values constructs cleanly."""
 
-        settings = Settings(
-            _env_file=None,
-            ENCRYPTION_METHOD="aws",
+        settings = IsolatedSettings(
+            ENCRYPTION_METHOD=EncryptionMethod.AWS,
             AWS_KMS_KEY_ARN="arn:aws:kms:us-east-1:123456789:key/test",
             AWS_KMS_REGION="us-east-1",
             AWS_KMS_ACCESS_KEY_ID="test-access",
             AWS_KMS_SECRET_ACCESS_KEY="test-secret",
         )
 
-        assert settings.ENCRYPTION_METHOD.value == "aws"
+        assert settings.ENCRYPTION_METHOD is EncryptionMethod.AWS
 
     def test_fernet_method_requires_encryption_key(self, monkeypatch):
         """Test that selecting ENCRYPTION_METHOD=fernet without ENCRYPTION_KEY raises a validation error."""
@@ -141,17 +144,16 @@ class TestEncryptionMethodValidation:
         monkeypatch.delenv("ENCRYPTION_KEY", raising=False)
 
         with pytest.raises(ValidationError) as exc_info:
-            Settings(_env_file=None, ENCRYPTION_METHOD="fernet")
+            IsolatedSettings(ENCRYPTION_METHOD=EncryptionMethod.FERNET)
 
         assert "ENCRYPTION_KEY" in str(exc_info.value)
 
     def test_fernet_method_with_encryption_key_valid(self):
         """Test that ENCRYPTION_METHOD=fernet with ENCRYPTION_KEY constructs cleanly."""
 
-        settings = Settings(
-            _env_file=None,
-            ENCRYPTION_METHOD="fernet",
+        settings = IsolatedSettings(
+            ENCRYPTION_METHOD=EncryptionMethod.FERNET,
             ENCRYPTION_KEY="test-key",
         )
 
-        assert settings.ENCRYPTION_METHOD.value == "fernet"
+        assert settings.ENCRYPTION_METHOD is EncryptionMethod.FERNET

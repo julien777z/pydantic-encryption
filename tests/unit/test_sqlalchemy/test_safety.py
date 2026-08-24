@@ -56,7 +56,8 @@ class TestEncryptedValueStrRaises:
         value = EncryptedValue(b"secret")
 
         with pytest.raises(EncryptedValueAccessError):
-            "%s" % value
+            interpolated = "%s" % value
+            assert interpolated
 
     def test_error_message_points_at_decrypt_path(self):
         value = EncryptedValue(b"secret")

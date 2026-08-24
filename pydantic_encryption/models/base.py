@@ -1,7 +1,7 @@
 import asyncio
 import contextvars
-from collections.abc import Awaitable
-from typing import Any, ClassVar, Self
+from collections.abc import Coroutine
+from typing import TYPE_CHECKING, Any, ClassVar, Self
 
 from pydantic_super_model import AnnotatedFieldInfo, SuperModelPydanticMixin
 
@@ -21,6 +21,10 @@ defer_crypto_to_async: contextvars.ContextVar[bool] = contextvars.ContextVar(
 
 class SecureModel:
     """Base class for encryptable and hashable models."""
+
+    if TYPE_CHECKING:
+        # Supplied by the pydantic mixin this one is combined with, never by SecureModel itself.
+        def get_annotated_fields(self, *annotations: object) -> dict[str, AnnotatedFieldInfo]: ...
 
     _encryption_method: ClassVar[EncryptionMethod | None] = None
     _encryption_key: ClassVar[str | None] = None
@@ -151,7 +155,11 @@ class SecureModel:
             if value is None or isinstance(value, BlindIndexValue):
                 continue
 
-            annotation: BlindIndex = annotated_field.matched_metadata[0]
+            annotation = annotated_field.matched_metadata[0]
+
+            if not isinstance(annotation, BlindIndex):
+                continue
+
             normalized = self.normalize_blind_index_value(annotation, value)
 
             if key_bytes is None:
@@ -162,7 +170,7 @@ class SecureModel:
 
         return tasks or None
 
-    async def async_apply(self, items: list[tuple[str, Awaitable[Any]]]) -> None:
+    async def async_apply(self, items: list[tuple[str, Coroutine[Any, Any, Any]]]) -> None:
         """Await each coroutine under a TaskGroup and ``setattr`` its result onto ``self``."""
 
         if not items:

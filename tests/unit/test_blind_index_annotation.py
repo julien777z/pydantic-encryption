@@ -13,7 +13,7 @@ class TestBlindIndexAnnotationHMAC:
         class UserModel(BaseModel):
             email_index: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
 
-        user = UserModel(email_index="test@example.com")
+        user = UserModel(email_index=b"test@example.com")
 
         assert isinstance(user.email_index, BlindIndexValue)
 
@@ -21,8 +21,8 @@ class TestBlindIndexAnnotationHMAC:
         class UserModel(BaseModel):
             email_index: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
 
-        user1 = UserModel(email_index="test@example.com")
-        user2 = UserModel(email_index="test@example.com")
+        user1 = UserModel(email_index=b"test@example.com")
+        user2 = UserModel(email_index=b"test@example.com")
 
         assert user1.email_index == user2.email_index
 
@@ -30,8 +30,8 @@ class TestBlindIndexAnnotationHMAC:
         class UserModel(BaseModel):
             email_index: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
 
-        user1 = UserModel(email_index="alice@example.com")
-        user2 = UserModel(email_index="bob@example.com")
+        user1 = UserModel(email_index=b"alice@example.com")
+        user2 = UserModel(email_index=b"bob@example.com")
 
         assert user1.email_index != user2.email_index
 
@@ -39,7 +39,7 @@ class TestBlindIndexAnnotationHMAC:
         class UserModel(BaseModel):
             email_index: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
 
-        user = UserModel(email_index="test@example.com")
+        user = UserModel(email_index=b"test@example.com")
 
         assert len(user.email_index) == 32
 
@@ -51,7 +51,7 @@ class TestBlindIndexAnnotationArgon2:
         class UserModel(BaseModel):
             email_index: Annotated[bytes, BlindIndex(BlindIndexMethod.ARGON2)]
 
-        user = UserModel(email_index="test@example.com")
+        user = UserModel(email_index=b"test@example.com")
 
         assert isinstance(user.email_index, BlindIndexValue)
         assert len(user.email_index) == 32
@@ -60,8 +60,8 @@ class TestBlindIndexAnnotationArgon2:
         class UserModel(BaseModel):
             email_index: Annotated[bytes, BlindIndex(BlindIndexMethod.ARGON2)]
 
-        user1 = UserModel(email_index="test@example.com")
-        user2 = UserModel(email_index="test@example.com")
+        user1 = UserModel(email_index=b"test@example.com")
+        user2 = UserModel(email_index=b"test@example.com")
 
         assert user1.email_index == user2.email_index
 
@@ -75,8 +75,8 @@ class TestBlindIndexAnnotationNormalization:
                 bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256, normalize_to_lowercase=True)
             ]
 
-        user1 = UserModel(email_index="Hello@Example.COM")
-        user2 = UserModel(email_index="hello@example.com")
+        user1 = UserModel(email_index=b"Hello@Example.COM")
+        user2 = UserModel(email_index=b"hello@example.com")
 
         assert user1.email_index == user2.email_index
 
@@ -84,8 +84,8 @@ class TestBlindIndexAnnotationNormalization:
         class UserModel(BaseModel):
             name_index: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256, strip_whitespace=True)]
 
-        user1 = UserModel(name_index="  first   second  ")
-        user2 = UserModel(name_index="first second")
+        user1 = UserModel(name_index=b"  first   second  ")
+        user2 = UserModel(name_index=b"first second")
 
         assert user1.name_index == user2.name_index
 
@@ -97,8 +97,8 @@ class TestBlindIndexAnnotationNormalization:
                 bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256, strip_trailing_punctuation=True)
             ]
 
-        user1 = UserModel(name_index="first second.")
-        user2 = UserModel(name_index="first second")
+        user1 = UserModel(name_index=b"first second.")
+        user2 = UserModel(name_index=b"first second")
 
         assert user1.name_index == user2.name_index
 
@@ -106,8 +106,8 @@ class TestBlindIndexAnnotationNormalization:
         class UserModel(BaseModel):
             phone_index: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256, strip_non_digits=True)]
 
-        user1 = UserModel(phone_index="a1 (b2) c3-d4")
-        user2 = UserModel(phone_index="1234")
+        user1 = UserModel(phone_index=b"a1 (b2) c3-d4")
+        user2 = UserModel(phone_index=b"1234")
 
         assert user1.phone_index == user2.phone_index
 
@@ -126,7 +126,7 @@ class TestBlindIndexAnnotationConfig:
             email_index: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
 
         with pytest.raises(ValueError, match="BLIND_INDEX_SECRET_KEY must be set"):
-            UserModel(email_index="test@example.com")
+            UserModel(email_index=b"test@example.com")
 
     def test_none_value_stays_none(self):
         class UserModel(BaseModel):
@@ -150,7 +150,7 @@ class TestBlindIndexAnnotationConfig:
         class UserModel(BaseModel):
             email_index: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
 
-        user1 = UserModel(email_index="test@example.com")
+        user1 = UserModel(email_index=b"test@example.com")
         first_index = user1.email_index
 
         # Simulate re-processing by creating a new model with the already-indexed value
@@ -164,7 +164,7 @@ class TestBlindIndexAnnotationConfig:
         class UserModelArgon2(BaseModel):
             idx: Annotated[bytes, BlindIndex(BlindIndexMethod.ARGON2)]
 
-        hmac_user = UserModelHMAC(idx="test@example.com")
-        argon2_user = UserModelArgon2(idx="test@example.com")
+        hmac_user = UserModelHMAC(idx=b"test@example.com")
+        argon2_user = UserModelArgon2(idx=b"test@example.com")
 
         assert hmac_user.idx != argon2_user.idx

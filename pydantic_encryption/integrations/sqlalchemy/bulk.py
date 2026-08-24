@@ -1,6 +1,8 @@
 import asyncio
 from collections.abc import Iterable
-from typing import Any
+from concurrent.futures import ThreadPoolExecutor
+from functools import cache
+from typing import Any, Final, TypedDict
 
 from pydantic_encryption.lazy import require_optional_dependency
 
@@ -10,10 +12,9 @@ from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 
-from pydantic_encryption.adapters.registry import get_encryption_backend
-from pydantic_encryption.config import settings
 from pydantic_encryption.integrations.sqlalchemy.encryption import (
-    SQLAlchemyEncryptedValue,
+    DeferrableEncryptedType,
+    resolve_backend,
 )
 from pydantic_encryption.integrations.sqlalchemy.serialization import (
     decode_value,
@@ -23,7 +24,80 @@ from pydantic_encryption.integrations.sqlalchemy.state import (
     read_raw_cell,
     set_decrypted,
 )
-from pydantic_encryption.types import EncryptedValue
+from pydantic_encryption.types import EncryptedValue, FieldBinding
+
+#: One stored value paired with the field binding it was encrypted under.
+BoundValue = tuple[Any, FieldBinding | None]
+
+
+class DecryptAssignment(TypedDict):
+    """One encrypted cell, or one element of an encrypted array cell, awaiting decryption."""
+
+    row: Any
+    column_key: str
+    element_index: int | None
+    ciphertext: bytes
+    binding: FieldBinding | None
+
+
+def cell_assignments(
+    row: Any, column_key: str, value: Any, binding: FieldBinding | None
+) -> list[DecryptAssignment]:
+    """Return one assignment per ciphertext a loaded cell still holds, array elements included."""
+
+    if isinstance(value, EncryptedValue):
+        return [
+            DecryptAssignment(
+                row=row,
+                column_key=column_key,
+                element_index=None,
+                ciphertext=bytes(value),
+                binding=binding,
+            )
+        ]
+
+    if not isinstance(value, list):
+        return []
+
+    return [
+        DecryptAssignment(
+            row=row,
+            column_key=column_key,
+            element_index=index,
+            ciphertext=bytes(element),
+            binding=binding,
+        )
+        for index, element in enumerate(value)
+        if isinstance(element, EncryptedValue)
+    ]
+
+
+#: Sized for KMS round trips rather than for cores, since a thread waiting on one releases the GIL.
+CRYPTO_MAX_WORKERS: Final[int] = 64
+
+
+@cache
+def decryption_executor() -> ThreadPoolExecutor:
+    """Return the process-wide pool that keeps decryption off the event loop."""
+
+    return ThreadPoolExecutor(
+        max_workers=CRYPTO_MAX_WORKERS,
+        thread_name_prefix="pydantic-encryption-decrypt",
+    )
+
+
+def decrypt_batch(backend: Any, ciphertexts: list[bytes]) -> list[str]:
+    """Decrypt a whole batch of ciphertexts on one worker thread."""
+
+    return [backend.decrypt(ciphertext) for ciphertext in ciphertexts]
+
+
+async def decrypt_off_loop(backend: Any, ciphertexts: list[bytes]) -> list[str]:
+    """Decrypt a batch in one executor dispatch rather than one dispatch per value."""
+
+    loop = asyncio.get_running_loop()
+
+    return await loop.run_in_executor(decryption_executor(), decrypt_batch, backend, ciphertexts)
 
 
 def column_key(column: InstrumentedAttribute | str) -> str:
@@ -32,51 +106,82 @@ def column_key(column: InstrumentedAttribute | str) -> str:
     return column if isinstance(column, str) else column.key
 
 
-def resolve_backend() -> Any:
-    """Return the configured encryption backend, raising if ENCRYPTION_METHOD is unset."""
+def mapped_column_binding(row: Any, column_key: str) -> FieldBinding | None:
+    """Return the binding the mapped column stamps onto the ciphertexts it stores."""
 
-    method = settings.ENCRYPTION_METHOD
-    if method is None:
-        raise ValueError("ENCRYPTION_METHOD must be set to decrypt values.")
+    state = sa_inspect(row, raiseerr=False)
 
-    return get_encryption_backend(method)
+    if state is None or not hasattr(state, "mapper"):
+        return None
 
+    column = state.mapper.columns.get(column_key)
 
-def collect_row_assignments(rows: Iterable[Any], column_keys: Iterable[str]) -> list[tuple[Any, str, bytes]]:
-    """Build ``(row, key, ciphertext)`` triples for every encrypted cell across rows."""
+    if column is None or not isinstance(column.type, DeferrableEncryptedType):
+        return None
 
-    column_keys = list(column_keys)
-    assignments: list[tuple[Any, str, bytes]] = []
-    for row in rows:
-        for key in column_keys:
-            value = read_raw_cell(row, key)
-            if isinstance(value, EncryptedValue):
-                assignments.append((row, key, bytes(value)))
-
-    return assignments
+    return column.type.binding
 
 
-async def decrypt_assignments(backend: Any, assignments: list[tuple[Any, str, bytes]]) -> None:
-    """Decrypt every ``(row, key, ciphertext)`` triple under a TaskGroup and write results back.
+def collect_row_assignments(rows: Iterable[Any], column_keys: Iterable[str]) -> list[DecryptAssignment]:
+    """Build one assignment per encrypted cell, and one per element of an encrypted array cell."""
 
-    Concurrent KMS calls are bounded by the aiobotocore connection pool
-    (default ``max_pool_connections=10``), so an explicit per-call
-    semaphore here would just duplicate the transport's natural backpressure.
-    Failures surface as a ``BaseExceptionGroup`` of per-cell errors.
-    """
+    keys = list(column_keys)
+
+    return [
+        assignment
+        for row in rows
+        for key in keys
+        for assignment in cell_assignments(row, key, read_raw_cell(row, key), mapped_column_binding(row, key))
+    ]
+
+
+def apply_plaintexts(assignments: list[DecryptAssignment], plaintexts: list[str]) -> None:
+    """Write a batch's decrypted values back onto the rows they came from."""
+
+    arrays: dict[tuple[int, str], tuple[Any, list[Any]]] = {}
+
+    for assignment, plaintext in zip(assignments, plaintexts):
+        row = assignment["row"]
+        column_key = assignment["column_key"]
+        element_index = assignment["element_index"]
+        value = decode_value(plaintext, assignment["binding"])
+
+        if element_index is None:
+            set_decrypted(row, column_key, value)
+
+            continue
+
+        _, elements = arrays.setdefault((id(row), column_key), (row, list(read_raw_cell(row, column_key))))
+        elements[element_index] = value
+
+    for (_, column_key), (row, elements) in arrays.items():
+        set_decrypted(row, column_key, elements)
+
+
+async def decrypt_assignments(backend: Any, assignments: list[DecryptAssignment]) -> None:
+    """Decrypt every assignment in one batch, keeping the work off the event loop."""
 
     if not assignments:
         return
 
-    async with asyncio.TaskGroup() as tg:
-        tasks = [tg.create_task(backend.async_decrypt(ciphertext)) for _, _, ciphertext in assignments]
+    ciphertexts = [assignment["ciphertext"] for assignment in assignments]
 
-    for (row, key, _), task in zip(assignments, tasks):
-        set_decrypted(row, key, decode_value(task.result()))
+    apply_plaintexts(assignments, await decrypt_off_loop(backend, ciphertexts))
+
+
+def decrypt_assignments_sync(backend: Any, assignments: list[DecryptAssignment]) -> None:
+    """Decrypt every assignment in one batch on the calling thread."""
+
+    if not assignments:
+        return
+
+    ciphertexts = [assignment["ciphertext"] for assignment in assignments]
+
+    apply_plaintexts(assignments, decrypt_batch(backend, ciphertexts))
 
 
 async def decrypt_rows(rows: Iterable[Any], *columns: InstrumentedAttribute | str) -> None:
-    """Decrypt the given columns across every row in one TaskGroup."""
+    """Decrypt the given columns across every row in one batch."""
 
     if not columns:
         return
@@ -87,50 +192,39 @@ async def decrypt_rows(rows: Iterable[Any], *columns: InstrumentedAttribute | st
     await decrypt_assignments(backend, assignments)
 
 
-def decrypt_rows_sync(rows: Iterable[Any], *columns: InstrumentedAttribute | str) -> None:
-    """Sync decrypt fallback for descriptor reads outside an async-session greenlet."""
-
-    if not columns:
-        return
-
-    backend = resolve_backend()
-    for row, key, ciphertext in collect_row_assignments(rows, (column_key(c) for c in columns)):
-        set_decrypted(row, key, decode_value(backend.decrypt(ciphertext)))
-
-
-async def decrypt_values(values: Iterable[Any]) -> list[Any]:
-    """Decrypt a flat iterable of ciphertexts, preserving non-encrypted positions as-is."""
+async def decrypt_values(values: Iterable[BoundValue]) -> list[Any]:
+    """Decrypt ciphertexts that each name the field they were written for, in one batch."""
 
     values_list = list(values)
     if not values_list:
         return []
 
-    backend = resolve_backend()
+    decrypted: list[Any] = [value for value, _ in values_list]
     indexes: list[int] = []
     encrypted_blobs: list[bytes] = []
-    for index, value in enumerate(values_list):
+
+    for index, (value, _) in enumerate(values_list):
         if isinstance(value, EncryptedValue):
             encrypted_blobs.append(bytes(value))
             indexes.append(index)
 
     if not encrypted_blobs:
-        return values_list
+        return decrypted
 
-    async with asyncio.TaskGroup() as tg:
-        tasks = [tg.create_task(backend.async_decrypt(blob)) for blob in encrypted_blobs]
+    plaintexts = await decrypt_off_loop(resolve_backend(), encrypted_blobs)
 
-    for index, task in zip(indexes, tasks):
-        values_list[index] = decode_value(task.result())
+    for index, plaintext in zip(indexes, plaintexts):
+        decrypted[index] = decode_value(plaintext, values_list[index][1])
 
-    return values_list
+    return decrypted
 
 
 def collect_encrypted_cells(
     entities: Any | Iterable[Any] | None,
-    collected: dict[tuple[type, str], list[Any]],
+    assignments: list[DecryptAssignment],
     visited: set[int],
 ) -> None:
-    """Group deferred-encrypted cells by ``(class, column)``, walking loaded relationships."""
+    """Append an assignment per deferred-encrypted cell, walking loaded relationships."""
 
     if entities is None:
         return
@@ -154,12 +248,12 @@ def collect_encrypted_cells(
             continue
 
         for column in state.mapper.columns:
-            if not isinstance(column.type, SQLAlchemyEncryptedValue):
+            if not isinstance(column.type, DeferrableEncryptedType) or not column.type.deferred:
                 continue
-            if not column.type._deferred:
-                continue
-            if isinstance(state.dict.get(column.key), EncryptedValue):
-                collected.setdefault((type(entity), column.key), []).append(entity)
+
+            assignments.extend(
+                cell_assignments(entity, column.key, state.dict.get(column.key), column.type.binding)
+            )
 
         unloaded = state.unloaded
         for relationship in state.mapper.relationships:
@@ -169,25 +263,36 @@ def collect_encrypted_cells(
             if related is None:
                 continue
             if relationship.uselist:
-                collect_encrypted_cells(list(related), collected, visited)
+                collect_encrypted_cells(list(related), assignments, visited)
             else:
-                collect_encrypted_cells(related, collected, visited)
+                collect_encrypted_cells(related, assignments, visited)
+
+
+def collect_entity_assignments(entities: Any | Iterable[Any] | None) -> list[DecryptAssignment]:
+    """Build the assignments for every deferred cell on these entities and loaded relationships."""
+
+    assignments: list[DecryptAssignment] = []
+    collect_encrypted_cells(entities, assignments, set())
+
+    return assignments
 
 
 async def bulk_decrypt_entities(entities: Any | Iterable[Any] | None) -> None:
     """Decrypt every deferred encrypted column on the given entities and loaded relationships."""
 
-    collected: dict[tuple[type, str], list[Any]] = {}
-    collect_encrypted_cells(entities, collected, set())
-    if not collected:
-        return
+    assignments = collect_entity_assignments(entities)
 
-    backend = resolve_backend()
-    assignments: list[tuple[Any, str, bytes]] = []
-    for (_, column_key), rows in collected.items():
-        assignments.extend(collect_row_assignments(rows, (column_key,)))
+    if assignments:
+        await decrypt_assignments(resolve_backend(), assignments)
 
-    await decrypt_assignments(backend, assignments)
+
+def bulk_decrypt_entities_sync(entities: Any | Iterable[Any] | None) -> None:
+    """Decrypt every deferred encrypted column for a consumer on a synchronous session."""
+
+    assignments = collect_entity_assignments(entities)
+
+    if assignments:
+        decrypt_assignments_sync(resolve_backend(), assignments)
 
 
 def pop_pending_rows(session: AsyncSession) -> list[Any]:
@@ -204,6 +309,12 @@ async def decrypt_pending_fields(session: AsyncSession) -> None:
     await bulk_decrypt_entities(pop_pending_rows(session))
 
 
+def decrypt_pending_fields_sync(session: Any) -> None:
+    """Force-decrypt this session's bucketed instances for a consumer on a synchronous session."""
+
+    bulk_decrypt_entities_sync(pop_pending_rows(session))
+
+
 async def finalize_sqlalchemy_session(session: AsyncSession) -> None:
     """Commit to release the pooled connection, then run the captured pending decrypt batch."""
 
@@ -216,11 +327,13 @@ async def finalize_sqlalchemy_session(session: AsyncSession) -> None:
 
 
 __all__ = [
+    "BoundValue",
     "bulk_decrypt_entities",
+    "bulk_decrypt_entities_sync",
     "collect_encrypted_cells",
     "decrypt_pending_fields",
+    "decrypt_pending_fields_sync",
     "decrypt_rows",
-    "decrypt_rows_sync",
     "decrypt_values",
     "finalize_sqlalchemy_session",
 ]

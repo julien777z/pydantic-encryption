@@ -1,12 +1,12 @@
 import asyncio
 import importlib
 from collections import defaultdict
-from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 from weakref import WeakSet
 
 from sqlalchemy import inspect as sa_inspect
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import DeclarativeBase, Mapped, configure_mappers, mapped_column
 
 import pydantic_encryption
@@ -14,6 +14,7 @@ from pydantic_encryption.integrations.sqlalchemy import DeferredDecryptMixin, fi
 from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue
 from pydantic_encryption.integrations.sqlalchemy.state import PENDING_DECRYPT_KEY
 from pydantic_encryption.types import EncryptedValue
+from tests.mapped_columns import encrypt_as_column
 
 
 class FinalizeBase(DeclarativeBase):
@@ -24,7 +25,7 @@ class FinalizeUser(FinalizeBase, DeferredDecryptMixin):
     """Mapped class with one deferred encrypted column.
 
     Inherits DeferredDecryptMixin so the mapper_configured listener flips
-    the encrypted column's ``_deferred`` flag; without it, the drain path
+    the encrypted column's ``deferred`` flag; without it, the drain path
     in collect_encrypted_cells short-circuits and pending values stay
     encrypted.
     """
@@ -36,23 +37,28 @@ class FinalizeUser(FinalizeBase, DeferredDecryptMixin):
 
 
 def wrap_encrypted(value: Any) -> EncryptedValue:
-    """Wrap ciphertext in EncryptedValue the way process_result_value does on read."""
+    """Encrypt a value as its own column stores it, the way a deferred read hands it back."""
 
-    return EncryptedValue(SQLAlchemyEncryptedValue().process_bind_param(value, None))
+    return encrypt_as_column(FinalizeUser, "email", value)
 
 
-class FakeAsyncSession(SimpleNamespace):
-    """Minimal AsyncSession stand-in exposing the surface finalize_sqlalchemy_session uses."""
+class FakeAsyncSession(AsyncSession):
+    """AsyncSession that records commits and reports a fixed transaction state, without a bind."""
+
+    commit_calls: int
+    open_transaction: bool
 
     def __init__(self, in_transaction: bool) -> None:
-        super().__init__(info={}, commit_calls=0, _in_tx=in_transaction)
+        super().__init__()
+        self.commit_calls = 0
+        self.open_transaction = in_transaction
 
     def in_transaction(self) -> bool:
-        return self._in_tx
+        return self.open_transaction
 
     async def commit(self) -> None:
         self.commit_calls += 1
-        self._in_tx = False
+        self.open_transaction = False
 
 
 class TestFinalizeSession:
@@ -103,7 +109,9 @@ class TestFinalizeSession:
         events: list[str] = []
 
         class _RecordingSession(FakeAsyncSession):
-            async def commit(self_inner) -> None:
+            """FakeAsyncSession that records the commit against the decrypt ordering."""
+
+            async def commit(self) -> None:
                 events.append("commit")
                 await super().commit()
 

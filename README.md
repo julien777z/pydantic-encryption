@@ -24,7 +24,11 @@ Mix `DeferredDecryptMixin` into any model with encrypted columns. The first time
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from pydantic_encryption import DeferredDecryptMixin, SQLAlchemyEncryptedValue
+from pydantic_encryption import (
+    DeferredDecryptMixin,
+    SQLAlchemyEncryptedValue,
+    decrypt_pending_fields,
+)
 
 
 class Base(DeclarativeBase):
@@ -119,12 +123,9 @@ Each element is individually encrypted. Requires PostgreSQL.
 
 ### Async Decryption
 
-`TypeDecorator` is sync by contract, so slow backends (AWS KMS) can block the event loop. Two paths:
+`TypeDecorator` is sync by contract, so a slow backend would block the event loop if every cell decrypted during result processing. `DeferredDecryptMixin` defers every encrypted column instead: a loaded row holds ciphertext until the session's pending batch is drained, and the drain decrypts the whole batch in one dispatch to a worker thread rather than one per cell.
 
-- **Default.** Under `AsyncSession`, decryption uses SQLAlchemy's greenlet bridge so each call yields the event loop. Argon2 hashing and blind-indexing use the same bridge.
-- **On-access batch decrypt.** `DeferredDecryptMixin` defers each encrypted column until the first read, then batch-decrypts that column across every sibling instance loaded into the same session via a single `asyncio.gather`. Columns the caller never reads stay encrypted and cost nothing.
-
-Mix the helper into any model with encrypted columns and read as usual:
+Mix the helper into any model with encrypted columns:
 
 ```python
 from pydantic_encryption import DeferredDecryptMixin, SQLAlchemyEncryptedValue
@@ -142,12 +143,14 @@ async with Session() as session:
     result = await session.execute(select(User))
     users = result.scalars().all()
 
-    # First read of `email` batch-decrypts it across every user in the session.
+    # Decrypt every encrypted column on every row loaded so far.
+    await decrypt_pending_fields(session)
+
     for user in users:
         print(user.email)
 ```
 
-`decrypt_pending_fields(session)` is an optional escape hatch when you need to pre-warm every encrypted column on every loaded row before leaving the session context (e.g. serializing outside a greenlet spawn):
+`decrypt_pending_fields(session)` drains every encrypted column on every row loaded so far. `decrypt_pending_fields_sync(session)` is its counterpart for a synchronous `Session`:
 
 ```python
 from pydantic_encryption import decrypt_pending_fields
@@ -161,7 +164,7 @@ async with Session() as session:
     payload = [{"id": u.id, "email": u.email} for u in users]
 ```
 
-`finalize_sqlalchemy_session(session)` combines the above with a `commit()`, returning the pooled connection before response construction. Handy on read endpoints that would otherwise hold a DB connection through descriptor-driven KMS decryption:
+`finalize_sqlalchemy_session(session)` combines the above with a `commit()`, returning the pooled connection before response construction. Handy on read endpoints that would otherwise hold a DB connection through the decrypt batch:
 
 ```python
 from pydantic_encryption import finalize_sqlalchemy_session
@@ -185,14 +188,56 @@ async with AsyncSession(engine) as session:
     await users[0].decrypt()                              # one mixin instance
     await User.decrypt_many(users)                        # batch of one class
     await decrypt_rows(users, User.email)                 # InstrumentedAttribute or column names
-    await decrypt_values(ciphertexts)                     # flat ciphertexts; preserves None positions
+    await decrypt_values(bound_ciphertexts)               # (value, binding) pairs; preserves None positions
 ```
 
 ### Safety: Catching Accidental Ciphertext Access
 
-Reads go through the on-access descriptor. When the underlying cell is still an `EncryptedValue`, the descriptor prefers an async batch decrypt over the session's pending siblings (via SQLAlchemy's greenlet bridge), and transparently falls back to a synchronous decrypt either when the read happens outside a greenlet or when the instance is detached from any session.
+Loaded rows hold an `EncryptedValue` until the session's pending batch is drained, so a read path that never drains is caught rather than silently paying a per-cell decrypt. Drain with `await decrypt_pending_fields(session)`, or `decrypt_pending_fields_sync(session)` on a synchronous session.
 
-An `EncryptedValue` only reaches user code if something bypasses the descriptor entirely (raw `state.dict[col]`, a logged row). Coercing it via `str(value)` / `f"{value}"` / `"%s" % value` raises `EncryptedValueAccessError`. `repr(value)` is a safe `<EncryptedValue: N bytes>` marker, and `bytes(value)` returns the raw ciphertext. Use `is_encrypted(value)` to guard at a boundary.
+Coercing an undrained value via `str(value)` / `f"{value}"` / `"%s" % value` raises `EncryptedValueAccessError`. `repr(value)` is a safe `<EncryptedValue: N bytes>` marker, and `bytes(value)` returns the raw ciphertext. Use `is_encrypted(value)` to guard at a boundary.
+
+## Field Binding
+
+Every value a mapped column encrypts is bound to that column's own schema-qualified table and name, so a
+ciphertext moved to another column, another table, or a path that names no column is refused on read
+rather than decrypted.
+
+```python
+from pydantic_encryption import FieldBindingError
+
+# `ssn` and `nickname` are both encrypted columns on the same table.
+person.nickname = stored_ssn_ciphertext
+
+await person.decrypt()  # raises FieldBindingError
+```
+
+Columns bind themselves when they attach to their table, so nothing has to be declared. The batched drain
+reads each cell's binding from the column it was loaded from; `decrypt_values` takes a flat list with no
+column of its own, so name the field its ciphertexts were written for:
+
+```python
+from pydantic_encryption import FieldBinding
+
+binding = FieldBinding(table="secure.people", column="ssn")
+
+await decrypt_values((ciphertext, binding) for ciphertext in ciphertexts)
+```
+
+Values encrypted outside a column — a Pydantic `Encrypted` field, or a standalone column type — carry no
+binding, and decrypt only where no binding is named.
+
+### Renaming a Bound Column
+
+A column's name is part of its binding, so renaming one leaves its stored values bound to the old name.
+Pin `binding_name` to keep reading them:
+
+```python
+full_name: Mapped[bytes] = mapped_column(SQLAlchemyEncryptedValue(binding_name="legal_full_name"))
+```
+
+The check still holds — the column reads only what was written for the pinned name. Without it, values
+written before the rename have to be re-encrypted under the new name.
 
 ## Manual Encryption or Hashing
 
@@ -205,7 +250,7 @@ from pydantic_encryption import BaseModel, Encrypted, Hashed
 class User(BaseModel):
     name: str
     address: Annotated[bytes, Encrypted]
-    password: Annotated[str, Hashed]
+    password: Annotated[bytes, Hashed]
 
 user = User(name="John Doe", address="123 Main St", password="secret123")
 

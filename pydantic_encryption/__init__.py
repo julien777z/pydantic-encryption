@@ -14,6 +14,8 @@ from pydantic_encryption.types import (
     EncryptedValue,
     EncryptedValueAccessError,
     EncryptionMethod,
+    FieldBinding,
+    FieldBindingError,
     Hashed,
     HashedValue,
     is_encrypted,
@@ -22,12 +24,14 @@ from pydantic_encryption.types import (
 if TYPE_CHECKING:
     from pydantic_encryption.adapters.encryption.aws import AWSAdapter
     from pydantic_encryption.integrations.sqlalchemy import (
+        BoundValue,
         DeferredDecryptMixin,
         SQLAlchemyBlindIndexValue,
         SQLAlchemyEncryptedValue,
         SQLAlchemyHashedValue,
         SQLAlchemyPGEncryptedArray,
         decrypt_pending_fields,
+        decrypt_pending_fields_sync,
         decrypt_rows,
         decrypt_values,
         finalize_sqlalchemy_session,
@@ -35,6 +39,7 @@ if TYPE_CHECKING:
 
 
 LAZY_EXPORTS: dict[str, tuple[str, str]] = {
+    "BoundValue": ("pydantic_encryption.integrations.sqlalchemy", "BoundValue"),
     "AWSAdapter": ("pydantic_encryption.adapters.encryption.aws", "AWSAdapter"),
     "DeferredDecryptMixin": ("pydantic_encryption.integrations.sqlalchemy", "DeferredDecryptMixin"),
     "SQLAlchemyBlindIndexValue": ("pydantic_encryption.integrations.sqlalchemy", "SQLAlchemyBlindIndexValue"),
@@ -45,6 +50,10 @@ LAZY_EXPORTS: dict[str, tuple[str, str]] = {
         "SQLAlchemyPGEncryptedArray",
     ),
     "decrypt_pending_fields": ("pydantic_encryption.integrations.sqlalchemy", "decrypt_pending_fields"),
+    "decrypt_pending_fields_sync": (
+        "pydantic_encryption.integrations.sqlalchemy",
+        "decrypt_pending_fields_sync",
+    ),
     "decrypt_rows": ("pydantic_encryption.integrations.sqlalchemy", "decrypt_rows"),
     "decrypt_values": ("pydantic_encryption.integrations.sqlalchemy", "decrypt_values"),
     "finalize_sqlalchemy_session": (
@@ -78,8 +87,11 @@ __all__ = [
     "BlindIndexValue",
     "make_blind_index",
     "EncryptionMethod",
+    "BoundValue",
     "EncryptedValue",
     "EncryptedValueAccessError",
+    "FieldBinding",
+    "FieldBindingError",
     "HashedValue",
     "is_encrypted",
     "FernetAdapter",
@@ -94,6 +106,7 @@ __all__ = [
     "SQLAlchemyHashedValue",
     "DeferredDecryptMixin",
     "decrypt_pending_fields",
+    "decrypt_pending_fields_sync",
     "decrypt_rows",
     "decrypt_values",
     "finalize_sqlalchemy_session",

@@ -5,6 +5,7 @@ from typing import Final
 
 from sqlalchemy.orm import Session
 
+from pydantic_encryption import decrypt_pending_fields_sync
 from pydantic_encryption.types import BlindIndexValue, HashedValue
 
 from tests.integration.database import User
@@ -67,7 +68,13 @@ class TestIntegrationSQLAlchemy:
         db_session.add(user)
         db_session.commit()
 
-        return db_session.query(User).filter_by(username=username).first()
+        loaded = db_session.query(User).filter_by(username=username).first()
+
+        assert loaded is not None
+
+        decrypt_pending_fields_sync(db_session)
+
+        return loaded
 
     def test_secure_fields(self, db_session: Session):
         """Test encrypting and hashing fields with the SQLAlchemyEncryptedValue and SQLAlchemyHashedValue types."""
@@ -107,6 +114,7 @@ class TestIntegrationSQLAlchemy:
             db_session, username="user4", password=TEST_PASSWORD, last_login=test_datetime
         )
 
+        assert isinstance(user.last_login, datetime)
         assert user.last_login == test_datetime
         assert user.last_login.tzinfo is not None
 
@@ -228,6 +236,7 @@ class TestIntegrationSQLAlchemy:
 
         user = self.create_user(db_session, username="user18", password=TEST_PASSWORD, login_time=tz_time)
 
+        assert isinstance(user.login_time, time)
         assert user.login_time == tz_time
         assert user.login_time.tzinfo is not None
 

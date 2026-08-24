@@ -1,7 +1,6 @@
 import asyncio
 from types import SimpleNamespace
 
-import pytest
 from sqlalchemy import ForeignKey
 from sqlalchemy.orm import (
     DeclarativeBase,
@@ -20,6 +19,8 @@ from pydantic_encryption.integrations.sqlalchemy.encryption import (
     SQLAlchemyEncryptedValue,
 )
 from pydantic_encryption.types import EncryptedValue
+from tests.dialects import TEST_DIALECT
+from tests.mapped_columns import encrypt_as_column
 
 
 class DeferBase(DeclarativeBase):
@@ -53,33 +54,43 @@ class TestDeferDecrypt:
 
     def test_mixin_column_returns_encrypted_value(self):
         column_type = DeferMixed.__table__.c.secret.type
-        assert column_type._deferred is True
 
-        ciphertext = column_type.process_bind_param("hello", None)
+        assert isinstance(column_type, SQLAlchemyEncryptedValue)
+        assert column_type.deferred is True
+
+        ciphertext = column_type.process_bind_param("hello", TEST_DIALECT)
         assert ciphertext is not None
 
-        result = column_type.process_result_value(ciphertext, None)
+        result = column_type.process_result_value(ciphertext, TEST_DIALECT)
         assert isinstance(result, EncryptedValue)
         assert result != "hello"
 
     def test_mixin_column_none_passthrough(self):
         column_type = DeferMixed.__table__.c.secret.type
-        assert column_type.process_result_value(None, None) is None
+
+        assert isinstance(column_type, SQLAlchemyEncryptedValue)
+        assert column_type.process_result_value(None, TEST_DIALECT) is None
 
     def test_plain_column_returns_plaintext(self):
         column_type = DeferPlain.__table__.c.secret.type
-        assert column_type._deferred is False
 
-        ciphertext = column_type.process_bind_param("hello", None)
-        result = column_type.process_result_value(ciphertext, None)
+        assert isinstance(column_type, SQLAlchemyEncryptedValue)
+        assert column_type.deferred is False
+
+        ciphertext = column_type.process_bind_param("hello", TEST_DIALECT)
+        result = column_type.process_result_value(ciphertext, TEST_DIALECT)
         assert result == "hello"
 
 
 class TestDecryptRows:
     """Test the decrypt_rows bulk helper."""
 
-    def make_ciphertext(self, value):
-        return SQLAlchemyEncryptedValue().process_bind_param(value, None)
+    def make_ciphertext(self, value: str) -> bytes:
+        ciphertext = SQLAlchemyEncryptedValue().process_bind_param(value, TEST_DIALECT)
+
+        assert ciphertext is not None
+
+        return ciphertext
 
     def test_decrypt_rows_fernet(self):
         # Build 3 fake rows with 2 encrypted columns each.
@@ -141,10 +152,10 @@ class BulkContractor(BulkBase, DeferredDecryptMixin):
     org: Mapped["BulkOrg | None"] = relationship(back_populates="contractors")
 
 
-def encrypt_deferred(value: str) -> bytes:
-    """Encrypt a value using SQLAlchemyEncryptedValue on the write path."""
+def encrypt_deferred(column_key: str, value: str) -> bytes:
+    """Encrypt a value as the contractor column that stores it writes it, binding included."""
 
-    return SQLAlchemyEncryptedValue().process_bind_param(value, None)
+    return encrypt_as_column(BulkContractor, column_key, value)
 
 
 class TestDeferredDecryptMixin:
@@ -157,8 +168,8 @@ class TestDeferredDecryptMixin:
     def test_instance_decrypt(self):
         contractor = BulkContractor(
             id=1,
-            first_name=encrypt_deferred("first"),
-            last_name=encrypt_deferred("last"),
+            first_name=encrypt_deferred("first_name", "first"),
+            last_name=encrypt_deferred("last_name", "last"),
         )
 
         returned = asyncio.run(contractor.decrypt())
@@ -171,8 +182,8 @@ class TestDeferredDecryptMixin:
         contractors = [
             BulkContractor(
                 id=i,
-                first_name=encrypt_deferred(f"First{i}"),
-                last_name=encrypt_deferred(f"Last{i}"),
+                first_name=encrypt_deferred("first_name", f"First{i}"),
+                last_name=encrypt_deferred("last_name", f"Last{i}"),
             )
             for i in range(3)
         ]
@@ -187,8 +198,8 @@ class TestDeferredDecryptMixin:
         contractors = [
             BulkContractor(
                 id=i,
-                first_name=encrypt_deferred(f"Gen{i}"),
-                last_name=encrypt_deferred(f"Last{i}"),
+                first_name=encrypt_deferred("first_name", f"Gen{i}"),
+                last_name=encrypt_deferred("last_name", f"Last{i}"),
             )
             for i in range(3)
         ]
@@ -200,7 +211,9 @@ class TestDeferredDecryptMixin:
             assert contractor.last_name == f"Last{i}"
 
     def test_none_column_values_skipped(self):
-        contractor = BulkContractor(id=1, first_name=encrypt_deferred("first"), last_name=None)
+        contractor = BulkContractor(
+            id=1, first_name=encrypt_deferred("first_name", "first"), last_name=None
+        )
 
         asyncio.run(contractor.decrypt())
 
@@ -209,7 +222,9 @@ class TestDeferredDecryptMixin:
 
     def test_walks_loaded_relationships(self):
         org = BulkOrg(id=1, name="Acme")
-        contractor = BulkContractor(id=1, first_name=encrypt_deferred("first"), last_name=None)
+        contractor = BulkContractor(
+            id=1, first_name=encrypt_deferred("first_name", "first"), last_name=None
+        )
         org.contractors = [contractor]
 
         asyncio.run(org.decrypt())
@@ -229,12 +244,16 @@ class TestDecryptValues:
     """Test the decrypt_values bulk helper for flat ciphertext iterables."""
 
     def make_ciphertext(self, value: str) -> bytes:
-        return SQLAlchemyEncryptedValue().process_bind_param(value, None)
+        ciphertext = SQLAlchemyEncryptedValue().process_bind_param(value, TEST_DIALECT)
+
+        assert ciphertext is not None
+
+        return ciphertext
 
     def test_decrypts_list_of_ciphertexts(self):
         values = [self.make_ciphertext(f"user-{i}") for i in range(3)]
 
-        result = asyncio.run(decrypt_values(values))
+        result = asyncio.run(decrypt_values((value, None) for value in values))
 
         assert result == ["user-0", "user-1", "user-2"]
 
@@ -246,7 +265,7 @@ class TestDecryptValues:
             None,
         ]
 
-        result = asyncio.run(decrypt_values(values))
+        result = asyncio.run(decrypt_values((value, None) for value in values))
 
         assert result == ["a", None, "b", None]
 
@@ -256,6 +275,6 @@ class TestDecryptValues:
     def test_passes_through_non_bytes_cells(self):
         values = [self.make_ciphertext("a"), 42, "plain", None]
 
-        result = asyncio.run(decrypt_values(values))
+        result = asyncio.run(decrypt_values((value, None) for value in values))
 
         assert result == ["a", 42, "plain", None]

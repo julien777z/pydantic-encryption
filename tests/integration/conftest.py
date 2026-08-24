@@ -1,19 +1,21 @@
 import asyncio
 import time
 from typing import Final
+
 import pytest
 import pytest_asyncio
-from sqlalchemy_utils import database_exists, create_database
-from sqlalchemy.orm import sessionmaker
 from sqlalchemy import Engine
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
+from sqlalchemy_utils import create_database, database_exists
+
 from tests.integration.database.tables import Base
 
 DATABASE_CONNECTION_MAX_TRIES: Final[int] = 10
 
 
-@pytest_asyncio.fixture(scope="session")
+@pytest.fixture(scope="session")
 def event_loop(request):
     """Create an instance of the default event loop for each test case."""
 
@@ -22,7 +24,7 @@ def event_loop(request):
     loop.close()
 
 
-@pytest_asyncio.fixture(scope="session")
+@pytest.fixture(scope="session")
 def start_docker_services(docker_services):
     """Start the Docker services."""
 
