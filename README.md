@@ -325,9 +325,11 @@ Available options:
 | `strip_whitespace` | Strip leading/trailing whitespace, collapse internal whitespace |
 | `strip_non_characters` | Remove all non-letter characters (keep only a-zA-Z) |
 | `strip_non_digits` | Remove all non-digit characters (keep only 0-9) |
-| `strip_trailing_punctuation` | Remove a trailing period or comma from each whitespace-separated token |
+| `strip_trailing_punctuation` | Remove trailing periods and commas from each whitespace-separated token, dropping any token left empty |
 | `normalize_to_lowercase` | Convert to lowercase |
 | `normalize_to_uppercase` | Convert to uppercase |
+
+Normalization determines the hashed value, so changing a field's flags changes the index computed for the same input. Recompute stored indexes when flags change.
 
 ### Methods
 
