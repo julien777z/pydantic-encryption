@@ -25,15 +25,18 @@ aws = [
 ]
 sqlalchemy = [
     "sqlalchemy>=2.0.51",
+    "greenlet>=3.0.0",
 ]
 all = [
     "boto3>=1.40.46",
     "aioboto3>=15.5.0",
     "sqlalchemy>=2.0.51",
+    "greenlet>=3.0.0",
 ]
 dev = [
     "black>=26.5.1,<27",
     "sqlalchemy>=2.0.51",
+    "greenlet>=3.0.0",
     "pytest>=9.1.1",
     "coverage>=7.15.0",
     "pytest-env>=1.1.5",
