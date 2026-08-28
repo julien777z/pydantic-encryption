@@ -18,12 +18,7 @@ from pydantic_encryption.types import EncryptedValue
 
 
 class SQLAlchemyEncryptedValue(TypeDecorator):
-    """SQLAlchemy column type that encrypts on write and decrypts on read.
-
-    ``context`` names the column these ciphertexts belong to and is authenticated into every one of
-    them, so a value lifted out of this column fails to open anywhere else. It is required: a column
-    that named no context would produce ciphertexts interchangeable with every other column's.
-    """
+    """SQLAlchemy column type that encrypts on write and decrypts on read, binding cells to ``context``."""
 
     impl = LargeBinary
     cache_ok = True
@@ -95,11 +90,7 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
 
 
 class SQLAlchemyPGEncryptedArray(TypeDecorator):
-    """SQLAlchemy column type that encrypts each element of a PostgreSQL array.
-
-    ``context`` names the column these ciphertexts belong to and is authenticated into every
-    element, exactly as it is for a single encrypted value.
-    """
+    """SQLAlchemy column type that encrypts each element of a PostgreSQL array under ``context``."""
 
     impl = ARRAY(LargeBinary)
     cache_ok = True

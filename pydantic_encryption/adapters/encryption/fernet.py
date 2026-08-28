@@ -27,12 +27,7 @@ def derive_context_key(root_key: str, associated_data: bytes) -> bytes:
 
 
 class FernetAdapter(EncryptionAdapter):
-    """Adapter for Fernet encryption.
-
-    A Fernet token has no field that authenticates associated data, so the context is bound by key
-    separation instead: every context gets its own key derived from the configured root key, and a
-    ciphertext carried into another context fails its authentication check there.
-    """
+    """Adapter for Fernet encryption, sealing every context under its own derived key."""
 
     _clients: ClassVar[dict[tuple[str, bytes], Fernet]] = {}
 

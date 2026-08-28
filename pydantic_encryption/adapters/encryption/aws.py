@@ -62,11 +62,7 @@ def seal(
     plaintext: bytes,
     associated_data: bytes,
 ) -> EncryptedValue:
-    """Wrap plaintext under a fresh AES-GCM nonce and pack ``[magic][ver][wrapped][nonce][sealed]``.
-
-    Associated data is authenticated by the tag but never written into the envelope, so opening it
-    requires the caller to supply the same bytes again.
-    """
+    """Wrap plaintext under a fresh AES-GCM nonce and pack ``[magic][ver][wrapped][nonce][sealed]``."""
 
     nonce = secrets.token_bytes(NONCE_LENGTH)
     sealed = AESGCM(plaintext_data_key).encrypt(nonce, plaintext, associated_data)

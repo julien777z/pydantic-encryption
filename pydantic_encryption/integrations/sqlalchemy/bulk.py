@@ -72,13 +72,7 @@ def collect_row_assignments(
 
 
 async def decrypt_assignments(backend: Any, assignments: list[tuple[Any, str, bytes, bytes]]) -> None:
-    """Decrypt every ``(row, key, ciphertext, context)`` tuple under a TaskGroup and write results back.
-
-    Concurrent KMS calls are bounded by the aiobotocore connection pool
-    (default ``max_pool_connections=10``), so an explicit per-call
-    semaphore here would just duplicate the transport's natural backpressure.
-    Failures surface as a ``BaseExceptionGroup`` of per-cell errors.
-    """
+    """Decrypt every ``(row, key, ciphertext, context)`` tuple under a TaskGroup and write results back."""
 
     if not assignments:
         return
