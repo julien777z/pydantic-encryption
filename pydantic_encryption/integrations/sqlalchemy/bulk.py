@@ -48,9 +48,9 @@ def column_context(row: Any, key: str) -> bytes:
 
     column_type = sa_inspect(type(row)).columns[key].type
     if isinstance(column_type, SQLAlchemyPGEncryptedArray):
-        return column_type._element_type.context
+        return column_type._element_type.bound_context()
     if isinstance(column_type, SQLAlchemyEncryptedValue):
-        return column_type.context
+        return column_type.bound_context()
 
     raise ValueError(f"Column {key!r} does not encrypt its values, so it binds no context.")
 

@@ -34,7 +34,7 @@ class Base(DeclarativeBase):
 class User(Base, DeferredDecryptMixin):
     __tablename__ = "users"
     id: Mapped[int] = mapped_column(primary_key=True)
-    email: Mapped[bytes] = mapped_column(SQLAlchemyEncryptedValue("users.email"))
+    email: Mapped[bytes] = mapped_column(SQLAlchemyEncryptedValue())
 
 
 engine = create_async_engine("sqlite+aiosqlite:///:memory:")
@@ -51,13 +51,21 @@ async with Session() as session:
 
 ## Context Binding
 
-Every ciphertext is bound to the context it belongs to. Encrypt and decrypt both take that context as authenticated associated data, so a value lifted out of one column fails to open anywhere else. A column type names its own context; a model field binds to its model and field name.
+Every ciphertext is bound to the context it belongs to. Encrypt and decrypt both take that context as authenticated associated data, so a value lifted out of one column fails to open anywhere else.
+
+A column derives its own context from the schema it is attached to — `users.email` below — including a column inherited from a mixin, which binds separately for each table that inherits it. A model field binds to its model and field name.
 
 ```python
-email: Mapped[bytes] = mapped_column(SQLAlchemyEncryptedValue("users.email"))
+email: Mapped[bytes] = mapped_column(SQLAlchemyEncryptedValue())
 ```
 
-The context is authenticated but never written into the ciphertext, so it is part of the column's contract: values already stored under one context do not decrypt under another.
+Pass a context explicitly only where nothing can be derived, such as a value that never reaches a column:
+
+```python
+draft = SQLAlchemyEncryptedValue("onboarding.draft").encrypt_cell(payload)
+```
+
+The context is authenticated but never written into the ciphertext, so it is part of the column's contract: values already stored under one context do not decrypt under another, and renaming a table or column re-binds what it writes from then on.
 
 Both backends bind. AWS KMS authenticates the context in the AES-GCM tag. A Fernet token has no field for it, so Fernet binds by key separation instead: each context gets its own key derived from `ENCRYPTION_KEY`, and a token carried into another context fails its authentication check there.
 
@@ -86,7 +94,7 @@ class User(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     username: Mapped[str]
-    email: Mapped[bytes] = mapped_column(SQLAlchemyEncryptedValue("users.email"))
+    email: Mapped[bytes] = mapped_column(SQLAlchemyEncryptedValue())
     password: Mapped[bytes] = mapped_column(SQLAlchemyHashedValue())
     blind_index_email: Mapped[bytes] = mapped_column(
         SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256)
@@ -124,9 +132,7 @@ with Session(engine) as session:
 ```python
 from pydantic_encryption import SQLAlchemyPGEncryptedArray
 
-tags: Mapped[list[str] | None] = mapped_column(
-    SQLAlchemyPGEncryptedArray("users.tags"), nullable=True
-)
+tags: Mapped[list[str] | None] = mapped_column(SQLAlchemyPGEncryptedArray(), nullable=True)
 ```
 
 Each element is individually encrypted. Requires PostgreSQL.
@@ -147,7 +153,7 @@ from pydantic_encryption import DeferredDecryptMixin, SQLAlchemyEncryptedValue
 class User(Base, DeferredDecryptMixin):
     __tablename__ = "users"
     id: Mapped[int] = mapped_column(primary_key=True)
-    email: Mapped[bytes] = mapped_column(SQLAlchemyEncryptedValue("users.email"))
+    email: Mapped[bytes] = mapped_column(SQLAlchemyEncryptedValue())
 
 
 Session = async_sessionmaker(engine, expire_on_commit=False)

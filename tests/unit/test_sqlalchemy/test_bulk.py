@@ -35,9 +35,7 @@ class DeferMixed(DeferBase, DeferredDecryptMixin):
     __tablename__ = "_defer_mixed"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    secret: Mapped[str | None] = mapped_column(
-        SQLAlchemyEncryptedValue("_defer_mixed.secret"), nullable=True, default=None
-    )
+    secret: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
 
 
 class DeferPlain(DeferBase):
@@ -46,9 +44,7 @@ class DeferPlain(DeferBase):
     __tablename__ = "_defer_plain"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    secret: Mapped[str | None] = mapped_column(
-        SQLAlchemyEncryptedValue("_defer_plain.secret"), nullable=True, default=None
-    )
+    secret: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
 
 
 class DeferPair(DeferBase, DeferredDecryptMixin):
@@ -57,12 +53,8 @@ class DeferPair(DeferBase, DeferredDecryptMixin):
     __tablename__ = "_defer_pair"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    email: Mapped[str | None] = mapped_column(
-        SQLAlchemyEncryptedValue("_defer_pair.email"), nullable=True, default=None
-    )
-    secret: Mapped[str | None] = mapped_column(
-        SQLAlchemyEncryptedValue("_defer_pair.secret"), nullable=True, default=None
-    )
+    email: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
+    secret: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
 
 
 class TestDeferDecrypt:
@@ -137,9 +129,7 @@ class ArrayRow(DeferBase):
     __tablename__ = "_array_row"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    tags: Mapped[list[str] | None] = mapped_column(
-        SQLAlchemyPGEncryptedArray("_array_row.tags"), nullable=True, default=None
-    )
+    tags: Mapped[list[str] | None] = mapped_column(SQLAlchemyPGEncryptedArray(), nullable=True, default=None)
 
 
 class BulkBase(DeclarativeBase):
@@ -163,12 +153,8 @@ class BulkContractor(BulkBase, DeferredDecryptMixin):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     org_id: Mapped[int | None] = mapped_column(ForeignKey("_bulk_test_org.id"), nullable=True, default=None)
-    first_name: Mapped[str | None] = mapped_column(
-        SQLAlchemyEncryptedValue("_bulk_test_contractor.first_name"), nullable=True, default=None
-    )
-    last_name: Mapped[str | None] = mapped_column(
-        SQLAlchemyEncryptedValue("_bulk_test_contractor.last_name"), nullable=True, default=None
-    )
+    first_name: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
+    last_name: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
     org: Mapped["BulkOrg | None"] = relationship(back_populates="contractors")
 
 

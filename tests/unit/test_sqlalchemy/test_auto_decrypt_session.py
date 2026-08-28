@@ -28,9 +28,7 @@ class AutoDecryptUser(AutoDecryptBase, DeferredDecryptMixin):
     __tablename__ = "_auto_decrypt_user"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    email: Mapped[str | None] = mapped_column(
-        SQLAlchemyEncryptedValue("_auto_decrypt_user.email"), nullable=True, default=None
-    )
+    email: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
 
 
 class AutoDecryptBlob(AutoDecryptBase, DeferredDecryptMixin):
@@ -39,9 +37,7 @@ class AutoDecryptBlob(AutoDecryptBase, DeferredDecryptMixin):
     __tablename__ = "_auto_decrypt_blob"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    payload: Mapped[bytes | None] = mapped_column(
-        SQLAlchemyEncryptedValue("_auto_decrypt_blob.payload"), nullable=True, default=None
-    )
+    payload: Mapped[bytes | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
 
 
 class TestOnOrmLoadListener:

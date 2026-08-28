@@ -27,9 +27,7 @@ class FinalizeUser(FinalizeBase, DeferredDecryptMixin):
     __tablename__ = "_finalize_user"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    email: Mapped[str | None] = mapped_column(
-        SQLAlchemyEncryptedValue("_finalize_user.email"), nullable=True, default=None
-    )
+    email: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
 
 
 class FakeAsyncSession(SimpleNamespace):

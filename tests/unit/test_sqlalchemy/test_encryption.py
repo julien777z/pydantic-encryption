@@ -4,6 +4,7 @@ from decimal import Decimal
 from uuid import UUID
 
 import pytest
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
 from pydantic_encryption.config import settings
@@ -400,3 +401,79 @@ class TestPGEncryptedArrayLiteralParam:
         assert len(result) == 2
         assert result[0] != "hello"
         assert result[1] != "world"
+
+
+class ContextBase(DeclarativeBase):
+    """Isolated declarative base for the context-derivation tests."""
+
+
+class TaxIdMixin:
+    """Mixin whose encrypted columns are inherited by more than one table."""
+
+    tax_id: Mapped[bytes | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
+    aliases: Mapped[list[str] | None] = mapped_column(
+        SQLAlchemyPGEncryptedArray(), nullable=True, default=None
+    )
+
+
+class ContextUser(ContextBase, TaxIdMixin):
+    """Table carrying the mixin column plus columns of its own."""
+
+    __tablename__ = "context_users"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[bytes | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
+    tags: Mapped[list[str] | None] = mapped_column(SQLAlchemyPGEncryptedArray(), nullable=True, default=None)
+    envelope: Mapped[bytes | None] = mapped_column(
+        SQLAlchemyEncryptedValue("onboarding.draft"), nullable=True, default=None
+    )
+
+
+class ContextContractor(ContextBase, TaxIdMixin):
+    """Second table carrying the same mixin column."""
+
+    __tablename__ = "context_contractors"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+
+
+class TestDerivedColumnContext:
+    """Test that an encrypted column binds its cells to the table and column it is attached to."""
+
+    def test_column_derives_its_table_and_column(self):
+        """Test that a column with no declared context names the schema it is attached to."""
+
+        assert ContextUser.__table__.c.email.type.context == b"context_users.email"
+
+    def test_array_column_derives_its_table_and_column(self):
+        """Test that an encrypted array derives the context every element is bound to."""
+
+        assert ContextUser.__table__.c.tags.type.context == b"context_users.tags"
+        assert ContextUser.__table__.c.tags.type._element_type.context == b"context_users.tags"
+
+    def test_one_mixin_column_binds_each_table_separately(self):
+        """Test that a column inherited from a mixin binds to each inheriting table's own name."""
+
+        assert ContextUser.__table__.c.tax_id.type.context == b"context_users.tax_id"
+        assert ContextContractor.__table__.c.tax_id.type.context == b"context_contractors.tax_id"
+
+    def test_one_mixin_array_column_binds_each_table_separately(self):
+        """Test that an inherited array column gives each table its own element type and context."""
+
+        user_type = ContextUser.__table__.c.aliases.type
+        contractor_type = ContextContractor.__table__.c.aliases.type
+
+        assert user_type._element_type.context == b"context_users.aliases"
+        assert contractor_type._element_type.context == b"context_contractors.aliases"
+        assert user_type._element_type is not contractor_type._element_type
+
+    def test_declared_context_survives_attachment(self):
+        """Test that a column given a context keeps it rather than deriving one."""
+
+        assert ContextUser.__table__.c.envelope.type.context == b"onboarding.draft"
+
+    def test_detached_type_without_a_context_raises(self):
+        """Test that a type attached to no column refuses to encrypt rather than binding nothing."""
+
+        with pytest.raises(ValueError, match="attached to no column"):
+            SQLAlchemyEncryptedValue().encrypt_cell("secret")

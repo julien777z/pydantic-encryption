@@ -4,6 +4,7 @@ from pydantic_encryption.lazy import require_optional_dependency
 
 require_optional_dependency("sqlalchemy", "sqlalchemy")
 
+from sqlalchemy import util
 from sqlalchemy.types import ARRAY, LargeBinary, TypeDecorator
 
 from pydantic_encryption.adapters.registry import get_encryption_backend
@@ -17,16 +18,46 @@ from pydantic_encryption.integrations.sqlalchemy.serialization import (
 from pydantic_encryption.types import EncryptedValue
 
 
+def encode_context(context: str | bytes | None) -> bytes | None:
+    """Return UTF-8 bytes for a declared context, or ``None`` when one is to be derived."""
+
+    return context.encode("utf-8") if isinstance(context, str) else context
+
+
 class SQLAlchemyEncryptedValue(TypeDecorator):
     """SQLAlchemy column type that encrypts on write and decrypts on read, binding cells to ``context``."""
 
     impl = LargeBinary
     cache_ok = True
 
-    def __init__(self, context: str | bytes, *args, **kwargs) -> None:
+    def __init__(self, context: str | bytes | None = None, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.context = context.encode("utf-8") if isinstance(context, str) else context
+        self.declared_context = encode_context(context)
+        self.context = self.declared_context
         self._deferred = False
+
+    def _set_parent(self, parent: Any, outer: bool = False, **kw: Any) -> None:
+        """Wait for the column this type is attached to to join its table."""
+
+        super()._set_parent(parent, outer=outer, **kw)
+        parent._on_table_attach(util.portable_instancemethod(self._set_table))
+
+    def _set_table(self, column, table) -> None:
+        """Derive the context from the column this type is attached to, unless one was declared."""
+
+        if self.declared_context is None:
+            self.context = f"{table.name}.{column.name}".encode("utf-8")
+
+    def bound_context(self) -> bytes:
+        """Return the context this column's ciphertexts are bound to."""
+
+        if self.context is None:
+            raise ValueError(
+                "This encrypted type is attached to no column, so it can derive no context. "
+                "Pass one explicitly to bind its ciphertexts."
+            )
+
+        return self.context
 
     @staticmethod
     def backend() -> Any:
@@ -48,7 +79,7 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
         backend = self.backend()
 
         return run_async_or_sync(
-            backend.async_encrypt, backend.encrypt, encode_value(value), associated_data=self.context
+            backend.async_encrypt, backend.encrypt, encode_value(value), associated_data=self.bound_context()
         )
 
     def decrypt_cell(self, value: str | bytes | None) -> str | bytes | None:
@@ -59,7 +90,9 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
 
         backend = self.backend()
 
-        return run_async_or_sync(backend.async_decrypt, backend.decrypt, value, associated_data=self.context)
+        return run_async_or_sync(
+            backend.async_decrypt, backend.decrypt, value, associated_data=self.bound_context()
+        )
 
     def process_bind_param(self, value: EncryptableValue | None, dialect) -> bytes | None:
         """Encrypt a value before binding it to the database."""
@@ -95,10 +128,30 @@ class SQLAlchemyPGEncryptedArray(TypeDecorator):
     impl = ARRAY(LargeBinary)
     cache_ok = True
 
-    def __init__(self, context: str | bytes, *args, **kwargs) -> None:
+    def __init__(self, context: str | bytes | None = None, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._element_type = SQLAlchemyEncryptedValue(context)
         self.context = self._element_type.context
+
+    def _set_parent(self, parent: Any, outer: bool = False, **kw: Any) -> None:
+        """Wait for the column this type is attached to to join its table."""
+
+        super()._set_parent(parent, outer=outer, **kw)
+        parent._on_table_attach(util.portable_instancemethod(self._set_table))
+
+    def _set_table(self, column, table) -> None:
+        """Derive every element's context from the column this array is attached to."""
+
+        self._element_type._set_table(column, table)
+        self.context = self._element_type.context
+
+    def copy(self, **kw) -> "SQLAlchemyPGEncryptedArray":
+        """Copy this type with an element type of its own, so each column derives its own context."""
+
+        duplicate = super().copy(**kw)
+        duplicate._element_type = self._element_type.copy()
+
+        return duplicate
 
     def process_bind_param(self, value: list[EncryptableValue] | None, dialect) -> list[bytes] | None:
         """Encrypt each element before binding to the database."""

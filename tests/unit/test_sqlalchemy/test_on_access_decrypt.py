@@ -30,12 +30,8 @@ class OnAccessRow(OnAccessBase, DeferredDecryptMixin):
     __tablename__ = "_on_access_row"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    first_name: Mapped[str | None] = mapped_column(
-        SQLAlchemyEncryptedValue("_on_access_row.first_name"), nullable=True, default=None
-    )
-    last_name: Mapped[str | None] = mapped_column(
-        SQLAlchemyEncryptedValue("_on_access_row.last_name"), nullable=True, default=None
-    )
+    first_name: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
+    last_name: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
 
 
 class OnAccessBytesRow(OnAccessBase, DeferredDecryptMixin):
@@ -44,9 +40,7 @@ class OnAccessBytesRow(OnAccessBase, DeferredDecryptMixin):
     __tablename__ = "_on_access_bytes_row"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    payload: Mapped[bytes | None] = mapped_column(
-        SQLAlchemyEncryptedValue("_on_access_bytes_row.payload"), nullable=True, default=None
-    )
+    payload: Mapped[bytes | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
 
 
 def build_row(user: User) -> OnAccessRow:
