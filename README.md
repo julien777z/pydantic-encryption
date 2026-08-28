@@ -34,7 +34,7 @@ class Base(DeclarativeBase):
 class User(Base, DeferredDecryptMixin):
     __tablename__ = "users"
     id: Mapped[int] = mapped_column(primary_key=True)
-    email: Mapped[bytes] = mapped_column(SQLAlchemyEncryptedValue())
+    email: Mapped[bytes] = mapped_column(SQLAlchemyEncryptedValue("users.email"))
 
 
 engine = create_async_engine("sqlite+aiosqlite:///:memory:")
@@ -48,6 +48,18 @@ async with Session() as session:
     user = result.scalar_one()
     print(user.email)  # "john@example.com" — decrypted on first read
 ```
+
+## Context Binding
+
+Every ciphertext is bound to the context it belongs to. Encrypt and decrypt both take that context as authenticated associated data, so a value lifted out of one column fails to open anywhere else. A column type names its own context; a model field binds to its model and field name.
+
+```python
+email: Mapped[bytes] = mapped_column(SQLAlchemyEncryptedValue("users.email"))
+```
+
+The context is authenticated but never written into the ciphertext, so it is part of the column's contract: values already stored under one context do not decrypt under another.
+
+Binding requires an AEAD backend. AWS KMS authenticates the context in the AES-GCM tag; Fernet's token format has no field for it, so the Fernet backend raises instead of promising a binding it cannot provide.
 
 ## SQLAlchemy Integration
 
@@ -74,7 +86,7 @@ class User(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     username: Mapped[str]
-    email: Mapped[bytes] = mapped_column(SQLAlchemyEncryptedValue())
+    email: Mapped[bytes] = mapped_column(SQLAlchemyEncryptedValue("users.email"))
     password: Mapped[bytes] = mapped_column(SQLAlchemyHashedValue())
     blind_index_email: Mapped[bytes] = mapped_column(
         SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256)
@@ -112,7 +124,9 @@ with Session(engine) as session:
 ```python
 from pydantic_encryption import SQLAlchemyPGEncryptedArray
 
-tags: Mapped[list[str] | None] = mapped_column(SQLAlchemyPGEncryptedArray(), nullable=True)
+tags: Mapped[list[str] | None] = mapped_column(
+    SQLAlchemyPGEncryptedArray("users.tags"), nullable=True
+)
 ```
 
 Each element is individually encrypted. Requires PostgreSQL.
@@ -133,7 +147,7 @@ from pydantic_encryption import DeferredDecryptMixin, SQLAlchemyEncryptedValue
 class User(Base, DeferredDecryptMixin):
     __tablename__ = "users"
     id: Mapped[int] = mapped_column(primary_key=True)
-    email: Mapped[bytes] = mapped_column(SQLAlchemyEncryptedValue())
+    email: Mapped[bytes] = mapped_column(SQLAlchemyEncryptedValue("users.email"))
 
 
 Session = async_sessionmaker(engine, expire_on_commit=False)
@@ -185,7 +199,7 @@ async with AsyncSession(engine) as session:
     await users[0].decrypt()                              # one mixin instance
     await User.decrypt_many(users)                        # batch of one class
     await decrypt_rows(users, User.email)                 # InstrumentedAttribute or column names
-    await decrypt_values(ciphertexts)                     # flat ciphertexts; preserves None positions
+    await decrypt_values(ciphertexts, context="users.email")  # flat ciphertexts; preserves None positions
 ```
 
 ### Safety: Catching Accidental Ciphertext Access
@@ -240,22 +254,15 @@ All phases (encrypt, hash, blind-index) run concurrently via `asyncio.gather`, a
 Set the encryption method via environment variable:
 
 ```bash
-ENCRYPTION_METHOD=fernet   # Fernet symmetric encryption (requires ENCRYPTION_KEY)
 ENCRYPTION_METHOD=aws      # AWS KMS (requires AWS_KMS_KEY_ARN, AWS_KMS_REGION, etc.)
+ENCRYPTION_METHOD=fernet   # Fernet symmetric encryption (requires ENCRYPTION_KEY)
 ```
 
 There is no default — you must explicitly set `ENCRYPTION_METHOD` if using `Encrypted` fields.
 
-### Fernet Setup
+### Fernet
 
-```bash
-# Generate a key
-python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-
-# Set environment variables
-ENCRYPTION_METHOD=fernet
-ENCRYPTION_KEY=your_generated_key
-```
+Fernet tokens carry no field that authenticates associated data, so the Fernet backend raises on both encrypt and decrypt rather than leaving a value bound to no context. Use an AEAD backend such as AWS KMS.
 
 ### AWS KMS Setup
 

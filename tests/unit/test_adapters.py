@@ -3,74 +3,25 @@ import pytest
 from pydantic_encryption.adapters.blind_index.hmac_sha256 import HMACSHA256Adapter
 from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
 from pydantic_encryption.adapters.hashing.argon2 import Argon2Adapter
-from pydantic_encryption.types import BlindIndexValue, EncryptedValue, HashedValue
+from pydantic_encryption.types import BlindIndexValue, HashedValue
 
 
 class TestFernetAdapter:
-    """Test FernetAdapter encryption and decryption."""
+    """Test that Fernet refuses a binding its token format cannot authenticate."""
 
-    def test_encrypt_string(self):
-        """Test encrypting a string."""
-        plaintext = "secret data"
-        encrypted = FernetAdapter.encrypt(plaintext)
+    CONTEXT = b"tests.adapters.fernet"
 
-        assert isinstance(encrypted, EncryptedValue)
-        assert encrypted != plaintext.encode("utf-8")
+    def test_encrypt_rejects_associated_data(self):
+        """Test that encrypt raises rather than sealing a value it cannot bind."""
 
-    def test_encrypt_bytes(self):
-        """Test encrypting bytes."""
-        plaintext = b"secret bytes"
-        encrypted = FernetAdapter.encrypt(plaintext)
+        with pytest.raises(ValueError, match="cannot bind a ciphertext to associated data"):
+            FernetAdapter.encrypt("secret data", associated_data=self.CONTEXT)
 
-        assert isinstance(encrypted, EncryptedValue)
+    def test_decrypt_rejects_associated_data(self):
+        """Test that decrypt raises rather than opening a value it cannot verify a binding for."""
 
-    def test_decrypt_returns_string(self):
-        """Test decrypting returns plain string."""
-        plaintext = "secret data"
-        encrypted = FernetAdapter.encrypt(plaintext)
-        decrypted = FernetAdapter.decrypt(encrypted)
-
-        assert isinstance(decrypted, str)
-        assert decrypted == plaintext
-
-    def test_encrypt_decrypt_roundtrip(self):
-        """Test encrypt/decrypt roundtrip preserves data."""
-        plaintext = "Hello, World! 🔐"
-        encrypted = FernetAdapter.encrypt(plaintext)
-        decrypted = FernetAdapter.decrypt(encrypted)
-
-        assert decrypted == plaintext
-
-    def test_encrypt_already_encrypted_returns_same(self):
-        """Test encrypting already encrypted value returns same value."""
-        plaintext = "secret"
-        encrypted = FernetAdapter.encrypt(plaintext)
-        double_encrypted = FernetAdapter.encrypt(encrypted)
-
-        assert encrypted == double_encrypted
-
-    def test_encrypt_empty_string(self):
-        """Test encrypting empty string."""
-        encrypted = FernetAdapter.encrypt("")
-        decrypted = FernetAdapter.decrypt(encrypted)
-
-        assert decrypted == ""
-
-    def test_encrypt_special_characters(self):
-        """Test encrypting special characters."""
-        plaintext = '!@#$%^&*()_+-={}[]|\\:";<>?,./~`'
-        encrypted = FernetAdapter.encrypt(plaintext)
-        decrypted = FernetAdapter.decrypt(encrypted)
-
-        assert decrypted == plaintext
-
-    def test_encrypt_unicode(self):
-        """Test encrypting unicode characters."""
-        plaintext = "日本語 한국어 العربية 🎉🔒"
-        encrypted = FernetAdapter.encrypt(plaintext)
-        decrypted = FernetAdapter.decrypt(encrypted)
-
-        assert decrypted == plaintext
+        with pytest.raises(ValueError, match="cannot bind a ciphertext to associated data"):
+            FernetAdapter.decrypt(b"any-token", associated_data=self.CONTEXT)
 
 
 class TestArgon2Adapter:

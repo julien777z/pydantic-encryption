@@ -1,4 +1,4 @@
-from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
+from pydantic_encryption.adapters.encryption.aws import AWSAdapter
 from pydantic_encryption.types import EncryptedValue
 from tests.factories import User
 
@@ -17,7 +17,7 @@ class TestUnitEncryptionModel:
 
         old_address = user.address
 
-        user.address = FernetAdapter.encrypt(user.address)
+        user.address = AWSAdapter.encrypt(user.address, associated_data=user.field_context("address"))
 
         assert user.address == old_address
 

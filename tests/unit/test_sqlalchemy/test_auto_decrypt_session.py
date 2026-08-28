@@ -8,13 +8,14 @@ from weakref import WeakSet
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import DeclarativeBase, Mapped, configure_mappers, mapped_column
 
-from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
+from pydantic_encryption.adapters.encryption.aws import AWSAdapter
 from pydantic_encryption.integrations.sqlalchemy import DeferredDecryptMixin, decrypt_pending_fields
 from pydantic_encryption.integrations.sqlalchemy.state import PENDING_DECRYPT_KEY
 from pydantic_encryption.integrations.sqlalchemy.bulk import collect_encrypted_cells
 from pydantic_encryption.integrations.sqlalchemy.deferred import on_orm_load
 from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue
 from pydantic_encryption.types import EncryptedValue
+from tests.unit.test_sqlalchemy.utils import encrypt_through_column
 
 
 class AutoDecryptBase(DeclarativeBase):
@@ -27,7 +28,9 @@ class AutoDecryptUser(AutoDecryptBase, DeferredDecryptMixin):
     __tablename__ = "_auto_decrypt_user"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    email: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
+    email: Mapped[str | None] = mapped_column(
+        SQLAlchemyEncryptedValue("_auto_decrypt_user.email"), nullable=True, default=None
+    )
 
 
 class AutoDecryptBlob(AutoDecryptBase, DeferredDecryptMixin):
@@ -36,19 +39,9 @@ class AutoDecryptBlob(AutoDecryptBase, DeferredDecryptMixin):
     __tablename__ = "_auto_decrypt_blob"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    payload: Mapped[bytes | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
-
-
-def encrypt_value(value: Any) -> bytes:
-    """Encrypt a value via the SQLAlchemyEncryptedValue write path."""
-
-    return SQLAlchemyEncryptedValue().process_bind_param(value, None)
-
-
-def wrap_encrypted(value: Any) -> EncryptedValue:
-    """Wrap ciphertext in EncryptedValue the way process_result_value does on read."""
-
-    return EncryptedValue(encrypt_value(value))
+    payload: Mapped[bytes | None] = mapped_column(
+        SQLAlchemyEncryptedValue("_auto_decrypt_blob.payload"), nullable=True, default=None
+    )
 
 
 class TestOnOrmLoadListener:
@@ -109,8 +102,12 @@ class TestDecryptPendingFields:
 
     def test_drain_decrypts_every_pending_class(self):
         session = SimpleNamespace(info={})
-        user = AutoDecryptUser(id=1, email=wrap_encrypted("a@x.com"))
-        blob = AutoDecryptBlob(id=1, payload=wrap_encrypted(b"shh"))
+        user = AutoDecryptUser(
+            id=1, email=encrypt_through_column(AutoDecryptUser.__table__.c.email, "a@x.com")
+        )
+        blob = AutoDecryptBlob(
+            id=1, payload=encrypt_through_column(AutoDecryptBlob.__table__.c.payload, b"shh")
+        )
 
         bucket: dict[type, WeakSet] = defaultdict(WeakSet)
         bucket[AutoDecryptUser].add(user)
@@ -139,7 +136,9 @@ class TestBytesColumnIdempotency:
         configure_mappers()
 
     def test_collect_skips_already_decrypted_bytes_plaintext(self):
-        blob = AutoDecryptBlob(id=1, payload=wrap_encrypted(b"shh"))
+        blob = AutoDecryptBlob(
+            id=1, payload=encrypt_through_column(AutoDecryptBlob.__table__.c.payload, b"shh")
+        )
 
         asyncio.run(AutoDecryptBlob.decrypt_many([blob]))
 
@@ -162,8 +161,12 @@ class TestDrainParallelism:
 
     def test_drain_dispatches_cells_across_classes_in_parallel(self):
         session = SimpleNamespace(info={})
-        user = AutoDecryptUser(id=1, email=wrap_encrypted("a@x.com"))
-        blob = AutoDecryptBlob(id=1, payload=wrap_encrypted(b"shh"))
+        user = AutoDecryptUser(
+            id=1, email=encrypt_through_column(AutoDecryptUser.__table__.c.email, "a@x.com")
+        )
+        blob = AutoDecryptBlob(
+            id=1, payload=encrypt_through_column(AutoDecryptBlob.__table__.c.payload, b"shh")
+        )
 
         bucket: dict[type, WeakSet] = defaultdict(WeakSet)
         bucket[AutoDecryptUser].add(user)
@@ -172,19 +175,19 @@ class TestDrainParallelism:
 
         live_overlap = 0
         peak_overlap = 0
-        original_decrypt = FernetAdapter.decrypt
+        original_decrypt = AWSAdapter.decrypt
 
-        async def overlapping_async_decrypt(ciphertext, *, key=None):
+        async def overlapping_async_decrypt(ciphertext, *, key=None, associated_data):
             nonlocal live_overlap, peak_overlap
             live_overlap += 1
             peak_overlap = max(peak_overlap, live_overlap)
             try:
                 await asyncio.sleep(0)
-                return original_decrypt(ciphertext, key=key)
+                return original_decrypt(ciphertext, key=key, associated_data=associated_data)
             finally:
                 live_overlap -= 1
 
-        with patch.object(FernetAdapter, "async_decrypt", side_effect=overlapping_async_decrypt):
+        with patch.object(AWSAdapter, "async_decrypt", side_effect=overlapping_async_decrypt):
             asyncio.run(decrypt_pending_fields(session))
 
         assert sa_inspect(user).dict["email"] == "a@x.com"
@@ -203,7 +206,9 @@ class TestNoDirtyAfterDecrypt:
         configure_mappers()
 
     def test_decrypt_many_does_not_mark_column_dirty(self):
-        user = AutoDecryptUser(id=1, email=wrap_encrypted("a@x.com"))
+        user = AutoDecryptUser(
+            id=1, email=encrypt_through_column(AutoDecryptUser.__table__.c.email, "a@x.com")
+        )
         state = sa_inspect(user)
         state._commit_all(state.dict)
 

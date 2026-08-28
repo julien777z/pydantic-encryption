@@ -205,7 +205,7 @@ async def bulk_decrypt_entities(entities: Any | Iterable[Any] | None) -> None:
         return
 
     backend = resolve_backend()
-    assignments: list[tuple[Any, str, bytes]] = []
+    assignments: list[tuple[Any, str, bytes, bytes]] = []
     for (_, column_key), rows in collected.items():
         assignments.extend(collect_row_assignments(rows, (column_key,)))
 

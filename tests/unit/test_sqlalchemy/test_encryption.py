@@ -5,7 +5,7 @@ from uuid import UUID
 
 import pytest
 
-from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
+from pydantic_encryption.adapters.encryption.aws import AWSAdapter
 from pydantic_encryption.config import settings
 from pydantic_encryption.integrations.sqlalchemy.encryption import (
     SQLAlchemyEncryptedValue,
@@ -319,7 +319,7 @@ class TestEncryptionIdempotency:
     """Test that already-encrypted values are not re-encrypted."""
 
     def setup_method(self):
-        self.type_adapter = SQLAlchemyEncryptedValue()
+        self.type_adapter = SQLAlchemyEncryptedValue("tests.encrypted_column.value")
 
     def test_encrypt_cell_already_encrypted_returns_same(self):
         encrypted = self.type_adapter.encrypt_cell("hello")
@@ -347,7 +347,7 @@ class TestBackendResolution:
     def test_backend_returns_configured_adapter(self):
         """Test that backend returns the adapter configured by ENCRYPTION_METHOD."""
 
-        assert SQLAlchemyEncryptedValue.backend() is FernetAdapter
+        assert SQLAlchemyEncryptedValue.backend() is AWSAdapter
 
     def test_backend_raises_when_encryption_method_unset(self, monkeypatch):
         """Test that backend raises a ValueError when ENCRYPTION_METHOD is unset."""
@@ -362,7 +362,7 @@ class TestEncryptedValueNoneHandling:
     """Test ``SQLAlchemyEncryptedValue`` None handling and metadata."""
 
     def setup_method(self):
-        self.type_adapter = SQLAlchemyEncryptedValue()
+        self.type_adapter = SQLAlchemyEncryptedValue("tests.encrypted_column.value")
 
     def test_encrypt_cell_none_returns_none(self):
         """Test that encrypting None returns None without invoking the backend."""
@@ -384,7 +384,7 @@ class TestPGEncryptedArrayLiteralParam:
     """Test ``SQLAlchemyPGEncryptedArray.process_literal_param`` element encryption."""
 
     def setup_method(self):
-        self.type_adapter = SQLAlchemyPGEncryptedArray()
+        self.type_adapter = SQLAlchemyPGEncryptedArray("tests.encrypted_column.value")
 
     def test_literal_param_none_returns_none(self):
         """Test that a None array literal returns None."""

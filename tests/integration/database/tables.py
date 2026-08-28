@@ -36,19 +36,31 @@ class User(Base, DeferredDecryptMixin):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     username: Mapped[str | None] = mapped_column(String, default=None)
-    email: Mapped[bytes | None] = mapped_column(SQLAlchemyEncryptedValue(), default=None)
+    email: Mapped[bytes | None] = mapped_column(SQLAlchemyEncryptedValue("users.email"), default=None)
     password: Mapped[bytes] = mapped_column(SQLAlchemyHashedValue(), nullable=False)
-    birth_date: Mapped[date | None] = mapped_column(SQLAlchemyEncryptedValue(), default=None)
-    last_login: Mapped[datetime | None] = mapped_column(SQLAlchemyEncryptedValue(), default=None)
-    age: Mapped[int | None] = mapped_column(SQLAlchemyEncryptedValue(), default=None)
-    secret_data: Mapped[bytes | None] = mapped_column(SQLAlchemyEncryptedValue(), default=None)
-    is_active: Mapped[bool | None] = mapped_column(SQLAlchemyEncryptedValue(), default=None)
-    balance: Mapped[float | None] = mapped_column(SQLAlchemyEncryptedValue(), default=None)
-    salary: Mapped[Decimal | None] = mapped_column(SQLAlchemyEncryptedValue(), default=None)
-    external_id: Mapped[uuid.UUID | None] = mapped_column(SQLAlchemyEncryptedValue(), default=None)
-    login_time: Mapped[time | None] = mapped_column(SQLAlchemyEncryptedValue(), default=None)
-    session_duration: Mapped[timedelta | None] = mapped_column(SQLAlchemyEncryptedValue(), default=None)
-    tags: Mapped[list[str] | None] = mapped_column(SQLAlchemyPGEncryptedArray(), default=None)
+    birth_date: Mapped[date | None] = mapped_column(
+        SQLAlchemyEncryptedValue("users.birth_date"), default=None
+    )
+    last_login: Mapped[datetime | None] = mapped_column(
+        SQLAlchemyEncryptedValue("users.last_login"), default=None
+    )
+    age: Mapped[int | None] = mapped_column(SQLAlchemyEncryptedValue("users.age"), default=None)
+    secret_data: Mapped[bytes | None] = mapped_column(
+        SQLAlchemyEncryptedValue("users.secret_data"), default=None
+    )
+    is_active: Mapped[bool | None] = mapped_column(SQLAlchemyEncryptedValue("users.is_active"), default=None)
+    balance: Mapped[float | None] = mapped_column(SQLAlchemyEncryptedValue("users.balance"), default=None)
+    salary: Mapped[Decimal | None] = mapped_column(SQLAlchemyEncryptedValue("users.salary"), default=None)
+    external_id: Mapped[uuid.UUID | None] = mapped_column(
+        SQLAlchemyEncryptedValue("users.external_id"), default=None
+    )
+    login_time: Mapped[time | None] = mapped_column(
+        SQLAlchemyEncryptedValue("users.login_time"), default=None
+    )
+    session_duration: Mapped[timedelta | None] = mapped_column(
+        SQLAlchemyEncryptedValue("users.session_duration"), default=None
+    )
+    tags: Mapped[list[str] | None] = mapped_column(SQLAlchemyPGEncryptedArray("users.tags"), default=None)
     blind_index_email: Mapped[bytes | None] = mapped_column(
         SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256), default=None
     )

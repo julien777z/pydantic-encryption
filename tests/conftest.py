@@ -3,26 +3,24 @@ import pytest
 from pydantic_encryption.config import settings
 from pydantic_encryption.types import EncryptionMethod
 from tests.factories import User, UserFactory
+from tests.kms import install_fake_kms, reset_adapter_state
 
 
 @pytest.fixture(autouse=True)
 def set_default_encryption_method(monkeypatch):
-    """Seed encryption + blind-index config for every test so individual tests can opt out."""
+    """Point every test at the AWS backend over fake KMS clients so ciphertexts bind a context."""
 
-    monkeypatch.setattr(settings, "ENCRYPTION_METHOD", EncryptionMethod.FERNET)
+    reset_adapter_state()
 
-    # Also ensure ENCRYPTION_KEY is set for Fernet tests if not already provided
-    if settings.ENCRYPTION_KEY is None:
-        from cryptography.fernet import Fernet
-
-        monkeypatch.setattr(settings, "ENCRYPTION_KEY", Fernet.generate_key().decode())
-        # Reset cached Fernet client so it picks up new key
-        from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
-
-        FernetAdapter._clients.clear()
+    monkeypatch.setattr(settings, "ENCRYPTION_METHOD", EncryptionMethod.AWS)
+    install_fake_kms(monkeypatch)
 
     if settings.BLIND_INDEX_SECRET_KEY is None:
         monkeypatch.setattr(settings, "BLIND_INDEX_SECRET_KEY", "test-blind-index-secret-key")
+
+    yield
+
+    reset_adapter_state()
 
 
 @pytest.fixture

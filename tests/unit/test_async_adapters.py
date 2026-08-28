@@ -3,87 +3,23 @@ import pytest
 from pydantic_encryption.adapters.blind_index.hmac_sha256 import HMACSHA256Adapter
 from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
 from pydantic_encryption.adapters.hashing.argon2 import Argon2Adapter
-from pydantic_encryption.types import BlindIndexValue, EncryptedValue, HashedValue
+from pydantic_encryption.types import BlindIndexValue, HashedValue
 
 
 class TestAsyncFernetAdapter:
-    """Test FernetAdapter async encryption and decryption."""
+    """Test that Fernet refuses a binding its token format cannot authenticate on the async path."""
+
+    CONTEXT = b"tests.async_adapters.fernet"
 
     @pytest.mark.asyncio
-    async def test_async_encrypt_string(self):
-        plaintext = "secret data"
-        encrypted = await FernetAdapter.async_encrypt(plaintext)
-
-        assert isinstance(encrypted, EncryptedValue)
-        assert encrypted != plaintext.encode("utf-8")
+    async def test_async_encrypt_rejects_associated_data(self):
+        with pytest.raises(ValueError, match="cannot bind a ciphertext to associated data"):
+            await FernetAdapter.async_encrypt("secret data", associated_data=self.CONTEXT)
 
     @pytest.mark.asyncio
-    async def test_async_encrypt_bytes(self):
-        plaintext = b"secret bytes"
-        encrypted = await FernetAdapter.async_encrypt(plaintext)
-
-        assert isinstance(encrypted, EncryptedValue)
-
-    @pytest.mark.asyncio
-    async def test_async_decrypt_returns_string(self):
-        plaintext = "secret data"
-        encrypted = await FernetAdapter.async_encrypt(plaintext)
-        decrypted = await FernetAdapter.async_decrypt(encrypted)
-
-        assert isinstance(decrypted, str)
-        assert decrypted == plaintext
-
-    @pytest.mark.asyncio
-    async def test_async_encrypt_decrypt_roundtrip(self):
-        plaintext = "Hello, World! 🔐"
-        encrypted = await FernetAdapter.async_encrypt(plaintext)
-        decrypted = await FernetAdapter.async_decrypt(encrypted)
-
-        assert decrypted == plaintext
-
-    @pytest.mark.asyncio
-    async def test_async_encrypt_already_encrypted_returns_same(self):
-        plaintext = "secret"
-        encrypted = await FernetAdapter.async_encrypt(plaintext)
-        double_encrypted = await FernetAdapter.async_encrypt(encrypted)
-
-        assert encrypted == double_encrypted
-
-    @pytest.mark.asyncio
-    async def test_async_encrypt_empty_string(self):
-        encrypted = await FernetAdapter.async_encrypt("")
-        decrypted = await FernetAdapter.async_decrypt(encrypted)
-
-        assert decrypted == ""
-
-    @pytest.mark.asyncio
-    async def test_async_encrypt_special_characters(self):
-        plaintext = '!@#$%^&*()_+-={}[]|\\:";<>?,./~`'
-        encrypted = await FernetAdapter.async_encrypt(plaintext)
-        decrypted = await FernetAdapter.async_decrypt(encrypted)
-
-        assert decrypted == plaintext
-
-    @pytest.mark.asyncio
-    async def test_async_encrypt_unicode(self):
-        plaintext = "日本語 한국어 العربية 🎉🔒"
-        encrypted = await FernetAdapter.async_encrypt(plaintext)
-        decrypted = await FernetAdapter.async_decrypt(encrypted)
-
-        assert decrypted == plaintext
-
-    @pytest.mark.asyncio
-    async def test_async_matches_sync(self):
-        """Async encrypt produces ciphertext that sync decrypt can read, and vice versa."""
-        plaintext = "cross-compat test"
-
-        encrypted_async = await FernetAdapter.async_encrypt(plaintext)
-        decrypted_sync = FernetAdapter.decrypt(encrypted_async)
-        assert decrypted_sync == plaintext
-
-        encrypted_sync = FernetAdapter.encrypt(plaintext)
-        decrypted_async = await FernetAdapter.async_decrypt(encrypted_sync)
-        assert decrypted_async == plaintext
+    async def test_async_decrypt_rejects_associated_data(self):
+        with pytest.raises(ValueError, match="cannot bind a ciphertext to associated data"):
+            await FernetAdapter.async_decrypt(b"any-token", associated_data=self.CONTEXT)
 
 
 class TestAsyncArgon2Adapter:

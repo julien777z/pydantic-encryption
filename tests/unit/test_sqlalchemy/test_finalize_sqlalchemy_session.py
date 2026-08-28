@@ -14,6 +14,7 @@ from pydantic_encryption.integrations.sqlalchemy import DeferredDecryptMixin, fi
 from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue
 from pydantic_encryption.integrations.sqlalchemy.state import PENDING_DECRYPT_KEY
 from pydantic_encryption.types import EncryptedValue
+from tests.unit.test_sqlalchemy.utils import encrypt_through_column
 
 
 class FinalizeBase(DeclarativeBase):
@@ -32,13 +33,9 @@ class FinalizeUser(FinalizeBase, DeferredDecryptMixin):
     __tablename__ = "_finalize_user"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    email: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
-
-
-def wrap_encrypted(value: Any) -> EncryptedValue:
-    """Wrap ciphertext in EncryptedValue the way process_result_value does on read."""
-
-    return EncryptedValue(SQLAlchemyEncryptedValue().process_bind_param(value, None))
+    email: Mapped[str | None] = mapped_column(
+        SQLAlchemyEncryptedValue("_finalize_user.email"), nullable=True, default=None
+    )
 
 
 class FakeAsyncSession(SimpleNamespace):
@@ -64,7 +61,7 @@ class TestFinalizeSession:
 
     def test_drains_pending_and_commits_when_in_transaction(self):
         session = FakeAsyncSession(in_transaction=True)
-        user = FinalizeUser(id=1, email=wrap_encrypted("a@x.com"))
+        user = FinalizeUser(id=1, email=encrypt_through_column(FinalizeUser.__table__.c.email, "a@x.com"))
 
         bucket: dict[type, WeakSet] = defaultdict(WeakSet)
         bucket[FinalizeUser].add(user)
@@ -85,7 +82,7 @@ class TestFinalizeSession:
 
     def test_drains_pending_without_commit_when_not_in_transaction(self):
         session = FakeAsyncSession(in_transaction=False)
-        user = FinalizeUser(id=1, email=wrap_encrypted("b@x.com"))
+        user = FinalizeUser(id=1, email=encrypt_through_column(FinalizeUser.__table__.c.email, "b@x.com"))
 
         bucket: dict[type, WeakSet] = defaultdict(WeakSet)
         bucket[FinalizeUser].add(user)
@@ -111,7 +108,7 @@ class TestFinalizeSession:
             events.append("bulk_decrypt")
 
         session = _RecordingSession(in_transaction=True)
-        user = FinalizeUser(id=1, email=wrap_encrypted("c@x.com"))
+        user = FinalizeUser(id=1, email=encrypt_through_column(FinalizeUser.__table__.c.email, "c@x.com"))
 
         bucket: dict[type, WeakSet] = defaultdict(WeakSet)
         bucket[FinalizeUser].add(user)

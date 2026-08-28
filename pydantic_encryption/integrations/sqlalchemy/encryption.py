@@ -95,7 +95,11 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
 
 
 class SQLAlchemyPGEncryptedArray(TypeDecorator):
-    """SQLAlchemy column type that encrypts each element of a PostgreSQL array."""
+    """SQLAlchemy column type that encrypts each element of a PostgreSQL array.
+
+    ``context`` names the column these ciphertexts belong to and is authenticated into every
+    element, exactly as it is for a single encrypted value.
+    """
 
     impl = ARRAY(LargeBinary)
     cache_ok = True
@@ -103,6 +107,7 @@ class SQLAlchemyPGEncryptedArray(TypeDecorator):
     def __init__(self, context: str | bytes, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._element_type = SQLAlchemyEncryptedValue(context)
+        self.context = self._element_type.context
 
     def process_bind_param(self, value: list[EncryptableValue] | None, dialect) -> list[bytes] | None:
         """Encrypt each element before binding to the database."""

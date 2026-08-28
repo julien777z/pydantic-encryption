@@ -10,12 +10,14 @@ import pytest
 from sqlalchemy import inspect as sa_inspect, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, configure_mappers, mapped_column
 
+from pydantic_encryption.adapters.encryption.aws import AWSAdapter
 from pydantic_encryption.integrations.sqlalchemy import DeferredDecryptMixin, decrypt_rows
 from pydantic_encryption.integrations.sqlalchemy.state import PENDING_DECRYPT_KEY, pending_siblings
 from pydantic_encryption.integrations.sqlalchemy.descriptor import DecryptOnAccessDescriptor
 from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue
 from pydantic_encryption.types import EncryptedValue
 from tests.factories import User, UserFactory
+from tests.unit.test_sqlalchemy.utils import encrypt_through_column
 
 
 class OnAccessBase(DeclarativeBase):
@@ -28,8 +30,12 @@ class OnAccessRow(OnAccessBase, DeferredDecryptMixin):
     __tablename__ = "_on_access_row"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    first_name: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
-    last_name: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
+    first_name: Mapped[str | None] = mapped_column(
+        SQLAlchemyEncryptedValue("_on_access_row.first_name"), nullable=True, default=None
+    )
+    last_name: Mapped[str | None] = mapped_column(
+        SQLAlchemyEncryptedValue("_on_access_row.last_name"), nullable=True, default=None
+    )
 
 
 class OnAccessBytesRow(OnAccessBase, DeferredDecryptMixin):
@@ -38,19 +44,9 @@ class OnAccessBytesRow(OnAccessBase, DeferredDecryptMixin):
     __tablename__ = "_on_access_bytes_row"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    payload: Mapped[bytes | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
-
-
-def encrypt_value(value: Any) -> bytes:
-    """Encrypt a value via the SQLAlchemyEncryptedValue write path."""
-
-    return SQLAlchemyEncryptedValue().process_bind_param(value, None)
-
-
-def wrap_encrypted(value: Any) -> EncryptedValue:
-    """Wrap ciphertext in EncryptedValue the way process_result_value does on read."""
-
-    return EncryptedValue(encrypt_value(value))
+    payload: Mapped[bytes | None] = mapped_column(
+        SQLAlchemyEncryptedValue("_on_access_bytes_row.payload"), nullable=True, default=None
+    )
 
 
 def build_row(user: User) -> OnAccessRow:
@@ -58,15 +54,17 @@ def build_row(user: User) -> OnAccessRow:
 
     return OnAccessRow(
         id=user.id,
-        first_name=wrap_encrypted(user.first_name),
-        last_name=wrap_encrypted(user.last_name),
+        first_name=encrypt_through_column(OnAccessRow.__table__.c.first_name, user.first_name),
+        last_name=encrypt_through_column(OnAccessRow.__table__.c.last_name, user.last_name),
     )
 
 
 def build_bytes_row(user: User) -> OnAccessBytesRow:
     """Build an OnAccessBytesRow with an encrypted bytes payload from a User."""
 
-    return OnAccessBytesRow(id=user.id, payload=wrap_encrypted(user.payload))
+    return OnAccessBytesRow(
+        id=user.id, payload=encrypt_through_column(OnAccessBytesRow.__table__.c.payload, user.payload)
+    )
 
 
 @pytest.fixture
@@ -199,15 +197,14 @@ class TestBatchAcrossSiblings:
 
         call_count = {"n": 0}
 
-        from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
+        original_decrypt = AWSAdapter.async_decrypt
 
-        original_decrypt = FernetAdapter.decrypt
-
-        def counting_decrypt(ciphertext, *, key=None):
+        async def counting_decrypt(ciphertext, *, key=None, associated_data):
             call_count["n"] += 1
-            return original_decrypt(ciphertext, key=key)
 
-        with patch.object(FernetAdapter, "decrypt", side_effect=counting_decrypt):
+            return await original_decrypt(ciphertext, key=key, associated_data=associated_data)
+
+        with patch.object(AWSAdapter, "async_decrypt", side_effect=counting_decrypt):
             asyncio.run(decrypt_rows(rows, "first_name"))
 
         assert call_count["n"] == 2

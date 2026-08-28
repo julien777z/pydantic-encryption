@@ -1,6 +1,7 @@
 import asyncio
+import struct
 from collections.abc import AsyncIterator, Iterator
-from typing import Any
+from typing import Any, Final
 
 import pytest
 import pytest_asyncio
@@ -12,74 +13,21 @@ from pydantic_encryption.adapters.encryption.aws import (
     CIPHERTEXT_MAGIC,
     CIPHERTEXT_VERSION,
     HEADER_LENGTH,
+    HEADER_PACK_FORMAT,
     NONCE_LENGTH,
     AWSAdapter,
 )
+from pydantic_encryption.config import settings
 from pydantic_encryption.types import EncryptedValue
+from tests.kms import (
+    DATA_KEY,
+    FakeAsyncKMSClient,
+    FakeSyncKMSClient,
+    configure_kms_settings,
+    reset_adapter_state,
+)
 
-
-def reset_adapter_state() -> None:
-    """Clear lazily-initialized KMS clients so each test starts fresh."""
-
-    AWSAdapter._sync_client = None
-    AWSAdapter._async_client = None
-    AWSAdapter._async_client_ctx = None
-    AWSAdapter._async_loop = None
-    AWSAdapter._async_init_lock = None
-
-
-class FakeSyncKMSClient:
-    """Stand-in for the sync boto3 KMS client; records calls and returns deterministic blobs."""
-
-    def __init__(self, plaintext_data_key: bytes) -> None:
-        self.plaintext_data_key = plaintext_data_key
-        self.generate_calls: list[dict[str, Any]] = []
-        self.decrypt_calls: list[dict[str, Any]] = []
-        self.next_wrapped_key: bytes = b"wrapped-key"
-
-    def generate_data_key(self, **kwargs: Any) -> dict[str, bytes]:
-        """Return a fixed plaintext key and a unique wrapped key per call."""
-
-        self.generate_calls.append(kwargs)
-
-        return {
-            "Plaintext": self.plaintext_data_key,
-            "CiphertextBlob": self.next_wrapped_key,
-        }
-
-    def decrypt(self, **kwargs: Any) -> dict[str, bytes]:
-        """Return the fixed plaintext key for any wrapped key."""
-
-        self.decrypt_calls.append(kwargs)
-
-        return {"Plaintext": self.plaintext_data_key}
-
-
-class FakeAsyncKMSClient:
-    """Stand-in for the aioboto3 KMS client; records calls and returns deterministic blobs."""
-
-    def __init__(self, plaintext_data_key: bytes) -> None:
-        self.plaintext_data_key = plaintext_data_key
-        self.generate_calls: list[dict[str, Any]] = []
-        self.decrypt_calls: list[dict[str, Any]] = []
-        self.next_wrapped_key: bytes = b"wrapped-key"
-
-    async def generate_data_key(self, **kwargs: Any) -> dict[str, bytes]:
-        """Return a fixed plaintext key and a unique wrapped key per call."""
-
-        self.generate_calls.append(kwargs)
-
-        return {
-            "Plaintext": self.plaintext_data_key,
-            "CiphertextBlob": self.next_wrapped_key,
-        }
-
-    async def decrypt(self, **kwargs: Any) -> dict[str, bytes]:
-        """Return the fixed plaintext key for any wrapped key."""
-
-        self.decrypt_calls.append(kwargs)
-
-        return {"Plaintext": self.plaintext_data_key}
+CONTEXT: Final[bytes] = b"tests.aws_adapter.payload"
 
 
 @pytest.fixture
@@ -88,16 +36,9 @@ def fake_sync_kms(monkeypatch: pytest.MonkeyPatch) -> Iterator[FakeSyncKMSClient
 
     reset_adapter_state()
 
-    from pydantic_encryption.config import settings
+    configure_kms_settings(monkeypatch)
 
-    monkeypatch.setattr(settings, "AWS_KMS_KEY_ARN", "arn:aws:kms:us-east-1:000:key/test")
-    monkeypatch.setattr(settings, "AWS_KMS_ENCRYPT_KEY_ARN", None)
-    monkeypatch.setattr(settings, "AWS_KMS_DECRYPT_KEY_ARN", None)
-    monkeypatch.setattr(settings, "AWS_KMS_REGION", "us-east-1")
-    monkeypatch.setattr(settings, "AWS_KMS_ACCESS_KEY_ID", "test-access-key")
-    monkeypatch.setattr(settings, "AWS_KMS_SECRET_ACCESS_KEY", "test-secret-key")
-
-    client = FakeSyncKMSClient(plaintext_data_key=b"\x00" * 32)
+    client = FakeSyncKMSClient(plaintext_data_key=DATA_KEY)
     AWSAdapter._sync_client = client
 
     yield client
@@ -111,16 +52,9 @@ async def fake_async_kms(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[FakeA
 
     reset_adapter_state()
 
-    from pydantic_encryption.config import settings
+    configure_kms_settings(monkeypatch)
 
-    monkeypatch.setattr(settings, "AWS_KMS_KEY_ARN", "arn:aws:kms:us-east-1:000:key/test")
-    monkeypatch.setattr(settings, "AWS_KMS_ENCRYPT_KEY_ARN", None)
-    monkeypatch.setattr(settings, "AWS_KMS_DECRYPT_KEY_ARN", None)
-    monkeypatch.setattr(settings, "AWS_KMS_REGION", "us-east-1")
-    monkeypatch.setattr(settings, "AWS_KMS_ACCESS_KEY_ID", "test-access-key")
-    monkeypatch.setattr(settings, "AWS_KMS_SECRET_ACCESS_KEY", "test-secret-key")
-
-    client = FakeAsyncKMSClient(plaintext_data_key=b"\x00" * 32)
+    client = FakeAsyncKMSClient(plaintext_data_key=DATA_KEY)
     AWSAdapter._async_client = client
     AWSAdapter._async_loop = asyncio.get_running_loop()
 
@@ -137,7 +71,7 @@ class TestAWSAdapterEncrypt:
     ) -> None:
         """Test that encrypt() emits an EncryptedValue starting with the format magic + version."""
 
-        result = AWSAdapter.encrypt(b"plaintext-payload")
+        result = AWSAdapter.encrypt(b"plaintext-payload", associated_data=CONTEXT)
 
         assert isinstance(result, EncryptedValue)
 
@@ -148,8 +82,8 @@ class TestAWSAdapterEncrypt:
     def test_encrypt_calls_generate_data_key_once_per_call(self, fake_sync_kms: FakeSyncKMSClient) -> None:
         """Test that every sync encrypt() call requests a fresh KMS data key."""
 
-        AWSAdapter.encrypt(b"payload-1")
-        AWSAdapter.encrypt(b"payload-2")
+        AWSAdapter.encrypt(b"payload-1", associated_data=CONTEXT)
+        AWSAdapter.encrypt(b"payload-2", associated_data=CONTEXT)
 
         assert len(fake_sync_kms.generate_calls) == 2
         for call in fake_sync_kms.generate_calls:
@@ -158,7 +92,7 @@ class TestAWSAdapterEncrypt:
     def test_encrypt_encodes_str_input(self, fake_sync_kms: FakeSyncKMSClient) -> None:
         """Test that encrypt() encodes a str plaintext to utf-8 before sealing."""
 
-        AWSAdapter.encrypt("plain-str")
+        AWSAdapter.encrypt("plain-str", associated_data=CONTEXT)
 
         assert len(fake_sync_kms.generate_calls) == 1
 
@@ -167,7 +101,7 @@ class TestAWSAdapterEncrypt:
 
         already_encrypted = EncryptedValue(b"already-sealed")
 
-        result = AWSAdapter.encrypt(already_encrypted)
+        result = AWSAdapter.encrypt(already_encrypted, associated_data=CONTEXT)
 
         assert result is already_encrypted
         assert fake_sync_kms.generate_calls == []
@@ -179,9 +113,9 @@ class TestAWSAdapterDecrypt:
     def test_encrypt_then_decrypt_round_trips(self, fake_sync_kms: FakeSyncKMSClient) -> None:
         """Test that decrypt(encrypt(x)) returns x as a str."""
 
-        sealed = AWSAdapter.encrypt("hello world")
+        sealed = AWSAdapter.encrypt("hello world", associated_data=CONTEXT)
 
-        result = AWSAdapter.decrypt(sealed)
+        result = AWSAdapter.decrypt(sealed, associated_data=CONTEXT)
 
         assert result == "hello world"
         assert len(fake_sync_kms.decrypt_calls) == 1
@@ -189,13 +123,13 @@ class TestAWSAdapterDecrypt:
     def test_decrypt_each_call_invokes_kms(self, fake_sync_kms: FakeSyncKMSClient) -> None:
         """Test that every decrypt() call routes through the KMS client (no plaintext cache)."""
 
-        sealed_one = AWSAdapter.encrypt("first")
+        sealed_one = AWSAdapter.encrypt("first", associated_data=CONTEXT)
         fake_sync_kms.next_wrapped_key = b"wrapped-key-2"
-        sealed_two = AWSAdapter.encrypt("second")
+        sealed_two = AWSAdapter.encrypt("second", associated_data=CONTEXT)
 
-        AWSAdapter.decrypt(sealed_one)
-        AWSAdapter.decrypt(sealed_one)
-        AWSAdapter.decrypt(sealed_two)
+        AWSAdapter.decrypt(sealed_one, associated_data=CONTEXT)
+        AWSAdapter.decrypt(sealed_one, associated_data=CONTEXT)
+        AWSAdapter.decrypt(sealed_two, associated_data=CONTEXT)
 
         assert len(fake_sync_kms.decrypt_calls) == 3
 
@@ -205,7 +139,7 @@ class TestAWSAdapterDecrypt:
         bogus = b"\x01" + b"\x00" * 32
 
         with pytest.raises(ValueError, match="Unrecognized ciphertext format"):
-            AWSAdapter.decrypt(bogus)
+            AWSAdapter.decrypt(bogus, associated_data=CONTEXT)
 
     def test_decrypt_rejects_unsupported_version(self, fake_sync_kms: FakeSyncKMSClient) -> None:
         """Test that decrypt() raises ValueError when the version byte is not supported."""
@@ -213,7 +147,7 @@ class TestAWSAdapterDecrypt:
         unsupported = bytes([CIPHERTEXT_MAGIC, 0x99]) + b"\x00" * (HEADER_LENGTH + NONCE_LENGTH)
 
         with pytest.raises(ValueError, match="Unsupported"):
-            AWSAdapter.decrypt(unsupported)
+            AWSAdapter.decrypt(unsupported, associated_data=CONTEXT)
 
     def test_decrypt_passes_decrypt_arn_to_kms_when_configured(
         self,
@@ -222,12 +156,10 @@ class TestAWSAdapterDecrypt:
     ) -> None:
         """Test that decrypt() includes the configured KeyId when AWS_KMS_DECRYPT_KEY_ARN is set."""
 
-        from pydantic_encryption.config import settings
-
-        sealed = AWSAdapter.encrypt("payload")
+        sealed = AWSAdapter.encrypt("payload", associated_data=CONTEXT)
         monkeypatch.setattr(settings, "AWS_KMS_DECRYPT_KEY_ARN", "arn:aws:kms:us-east-1:000:key/dec")
 
-        AWSAdapter.decrypt(sealed)
+        AWSAdapter.decrypt(sealed, associated_data=CONTEXT)
 
         assert fake_sync_kms.decrypt_calls[-1]["KeyId"] == "arn:aws:kms:us-east-1:000:key/dec"
 
@@ -241,9 +173,9 @@ class TestAWSAdapterAsync:
     ) -> None:
         """Test that async_decrypt(async_encrypt(x)) returns x as a str via the async client."""
 
-        sealed = await AWSAdapter.async_encrypt("hello async")
+        sealed = await AWSAdapter.async_encrypt("hello async", associated_data=CONTEXT)
 
-        result = await AWSAdapter.async_decrypt(sealed)
+        result = await AWSAdapter.async_decrypt(sealed, associated_data=CONTEXT)
 
         assert result == "hello async"
         assert len(fake_async_kms.generate_calls) == 1
@@ -257,7 +189,7 @@ class TestAWSAdapterAsync:
 
         already_encrypted = EncryptedValue(b"already-sealed")
 
-        result = await AWSAdapter.async_encrypt(already_encrypted)
+        result = await AWSAdapter.async_encrypt(already_encrypted, associated_data=CONTEXT)
 
         assert result is already_encrypted
         assert fake_async_kms.generate_calls == []
@@ -270,12 +202,10 @@ class TestAWSAdapterAsync:
     ) -> None:
         """Test that async_decrypt() includes the configured KeyId when AWS_KMS_DECRYPT_KEY_ARN is set."""
 
-        from pydantic_encryption.config import settings
-
-        sealed = await AWSAdapter.async_encrypt("payload")
+        sealed = await AWSAdapter.async_encrypt("payload", associated_data=CONTEXT)
         monkeypatch.setattr(settings, "AWS_KMS_DECRYPT_KEY_ARN", "arn:aws:kms:us-east-1:000:key/dec")
 
-        await AWSAdapter.async_decrypt(sealed)
+        await AWSAdapter.async_decrypt(sealed, associated_data=CONTEXT)
 
         assert fake_async_kms.decrypt_calls[-1]["KeyId"] == "arn:aws:kms:us-east-1:000:key/dec"
 
@@ -288,8 +218,6 @@ class TestAWSAdapterValidation:
 
         reset_adapter_state()
 
-        from pydantic_encryption.config import settings
-
         for attr in (
             "AWS_KMS_KEY_ARN",
             "AWS_KMS_ENCRYPT_KEY_ARN",
@@ -301,16 +229,16 @@ class TestAWSAdapterValidation:
             monkeypatch.setattr(settings, attr, None)
 
         with pytest.raises(ValueError, match="AWS_KMS_REGION"):
-            AWSAdapter.encrypt(b"payload")
+            AWSAdapter.encrypt(b"payload", associated_data=CONTEXT)
 
     def test_decrypt_accepts_str_ciphertext_via_latin1(self, fake_sync_kms: FakeSyncKMSClient) -> None:
         """Test that decrypt() coerces a str ciphertext to bytes 1:1 (latin-1) for the EncryptionAdapter contract."""
 
-        sealed = AWSAdapter.encrypt("hello world")
+        sealed = AWSAdapter.encrypt("hello world", associated_data=CONTEXT)
 
         as_str = bytes(sealed).decode("latin-1")
 
-        result = AWSAdapter.decrypt(as_str)
+        result = AWSAdapter.decrypt(as_str, associated_data=CONTEXT)
 
         assert result == "hello world"
 
@@ -318,24 +246,16 @@ class TestAWSAdapterValidation:
         """Test that decrypt() raises when the input is shorter than the envelope header."""
 
         with pytest.raises(ValueError, match="too short"):
-            AWSAdapter.decrypt(b"\xc0\x01")
+            AWSAdapter.decrypt(b"\xc0\x01", associated_data=CONTEXT)
 
     def test_decrypt_rejects_truncated_payload(self, fake_sync_kms: FakeSyncKMSClient) -> None:
         """Test that decrypt() raises when the header announces more bytes than the blob carries."""
-
-        import struct
-
-        from pydantic_encryption.adapters.encryption.aws import (
-            CIPHERTEXT_MAGIC,
-            CIPHERTEXT_VERSION,
-            HEADER_PACK_FORMAT,
-        )
 
         # Header claims a 1024-byte wrapped key but the blob has no payload.
         truncated = struct.pack(HEADER_PACK_FORMAT, CIPHERTEXT_MAGIC, CIPHERTEXT_VERSION, 1024)
 
         with pytest.raises(ValueError, match="truncated"):
-            AWSAdapter.decrypt(truncated)
+            AWSAdapter.decrypt(truncated, associated_data=CONTEXT)
 
 
 class TestAWSAdapterLazyInit:
@@ -346,31 +266,24 @@ class TestAWSAdapterLazyInit:
 
         reset_adapter_state()
 
-        from pydantic_encryption.config import settings
-
-        monkeypatch.setattr(settings, "AWS_KMS_KEY_ARN", "arn:aws:kms:us-east-1:000:key/test")
-        monkeypatch.setattr(settings, "AWS_KMS_ENCRYPT_KEY_ARN", None)
-        monkeypatch.setattr(settings, "AWS_KMS_DECRYPT_KEY_ARN", None)
-        monkeypatch.setattr(settings, "AWS_KMS_REGION", "us-east-1")
-        monkeypatch.setattr(settings, "AWS_KMS_ACCESS_KEY_ID", "test-access")
-        monkeypatch.setattr(settings, "AWS_KMS_SECRET_ACCESS_KEY", "test-secret")
+        configure_kms_settings(monkeypatch)
 
         captured_kwargs: list[dict[str, Any]] = []
 
         def fake_boto3_client(service: str, **kwargs: Any) -> Any:
             captured_kwargs.append({"service": service, **kwargs})
-            return FakeSyncKMSClient(plaintext_data_key=b"\x00" * 32)
+            return FakeSyncKMSClient(plaintext_data_key=DATA_KEY)
 
         monkeypatch.setattr("pydantic_encryption.adapters.encryption.aws.boto3.client", fake_boto3_client)
 
-        AWSAdapter.encrypt(b"payload")
+        AWSAdapter.encrypt(b"payload", associated_data=CONTEXT)
 
         assert len(captured_kwargs) == 1
         assert captured_kwargs[0]["service"] == "kms"
         assert captured_kwargs[0]["region_name"] == "us-east-1"
         assert AWSAdapter._sync_client is not None
 
-        AWSAdapter.encrypt(b"payload-2")
+        AWSAdapter.encrypt(b"payload-2", associated_data=CONTEXT)
 
         assert len(captured_kwargs) == 1
 
@@ -384,14 +297,7 @@ class TestAWSAdapterLazyInit:
 
         reset_adapter_state()
 
-        from pydantic_encryption.config import settings
-
-        monkeypatch.setattr(settings, "AWS_KMS_KEY_ARN", "arn:aws:kms:us-east-1:000:key/test")
-        monkeypatch.setattr(settings, "AWS_KMS_ENCRYPT_KEY_ARN", None)
-        monkeypatch.setattr(settings, "AWS_KMS_DECRYPT_KEY_ARN", None)
-        monkeypatch.setattr(settings, "AWS_KMS_REGION", "us-east-1")
-        monkeypatch.setattr(settings, "AWS_KMS_ACCESS_KEY_ID", "test-access")
-        monkeypatch.setattr(settings, "AWS_KMS_SECRET_ACCESS_KEY", "test-secret")
+        configure_kms_settings(monkeypatch)
 
         opened_clients: list[FakeAsyncKMSClient] = []
         session_kwargs: list[dict[str, Any]] = []
@@ -413,18 +319,18 @@ class TestAWSAdapterLazyInit:
 
             def client(self, service: str, **client_kwargs: Any) -> _FakeClientCtx:
                 assert service == "kms"
-                return _FakeClientCtx(FakeAsyncKMSClient(plaintext_data_key=b"\x00" * 32))
+                return _FakeClientCtx(FakeAsyncKMSClient(plaintext_data_key=DATA_KEY))
 
         monkeypatch.setattr("pydantic_encryption.adapters.encryption.aws.aioboto3.Session", _FakeAioSession)
 
-        await AWSAdapter.async_encrypt(b"payload")
+        await AWSAdapter.async_encrypt(b"payload", associated_data=CONTEXT)
 
         assert len(opened_clients) == 1
         assert session_kwargs[0]["region_name"] == "us-east-1"
         assert AWSAdapter._async_client is opened_clients[0]
         assert AWSAdapter._async_loop is asyncio.get_running_loop()
 
-        await AWSAdapter.async_encrypt(b"payload-2")
+        await AWSAdapter.async_encrypt(b"payload-2", associated_data=CONTEXT)
 
         assert len(opened_clients) == 1
 
@@ -438,14 +344,7 @@ class TestAWSAdapterLazyInit:
 
         reset_adapter_state()
 
-        from pydantic_encryption.config import settings
-
-        monkeypatch.setattr(settings, "AWS_KMS_KEY_ARN", "arn:aws:kms:us-east-1:000:key/test")
-        monkeypatch.setattr(settings, "AWS_KMS_ENCRYPT_KEY_ARN", None)
-        monkeypatch.setattr(settings, "AWS_KMS_DECRYPT_KEY_ARN", None)
-        monkeypatch.setattr(settings, "AWS_KMS_REGION", "us-east-1")
-        monkeypatch.setattr(settings, "AWS_KMS_ACCESS_KEY_ID", "test-access")
-        monkeypatch.setattr(settings, "AWS_KMS_SECRET_ACCESS_KEY", "test-secret")
+        configure_kms_settings(monkeypatch)
 
         opened_clients: list[FakeAsyncKMSClient] = []
 
@@ -466,14 +365,14 @@ class TestAWSAdapterLazyInit:
                 pass
 
             def client(self, service: str, **client_kwargs: Any) -> _FakeClientCtx:
-                return _FakeClientCtx(FakeAsyncKMSClient(plaintext_data_key=b"\x00" * 32))
+                return _FakeClientCtx(FakeAsyncKMSClient(plaintext_data_key=DATA_KEY))
 
         monkeypatch.setattr("pydantic_encryption.adapters.encryption.aws.aioboto3.Session", _FakeAioSession)
 
         await asyncio.gather(
-            AWSAdapter.async_encrypt(b"a"),
-            AWSAdapter.async_encrypt(b"b"),
-            AWSAdapter.async_encrypt(b"c"),
+            AWSAdapter.async_encrypt(b"a", associated_data=CONTEXT),
+            AWSAdapter.async_encrypt(b"b", associated_data=CONTEXT),
+            AWSAdapter.async_encrypt(b"c", associated_data=CONTEXT),
         )
 
         assert len(opened_clients) == 1
@@ -486,14 +385,7 @@ class TestAWSAdapterLazyInit:
 
         reset_adapter_state()
 
-        from pydantic_encryption.config import settings
-
-        monkeypatch.setattr(settings, "AWS_KMS_KEY_ARN", "arn:aws:kms:us-east-1:000:key/test")
-        monkeypatch.setattr(settings, "AWS_KMS_ENCRYPT_KEY_ARN", None)
-        monkeypatch.setattr(settings, "AWS_KMS_DECRYPT_KEY_ARN", None)
-        monkeypatch.setattr(settings, "AWS_KMS_REGION", "us-east-1")
-        monkeypatch.setattr(settings, "AWS_KMS_ACCESS_KEY_ID", "test-access")
-        monkeypatch.setattr(settings, "AWS_KMS_SECRET_ACCESS_KEY", "test-secret")
+        configure_kms_settings(monkeypatch)
 
         exit_calls: list[tuple[Any, ...]] = []
 
@@ -512,11 +404,11 @@ class TestAWSAdapterLazyInit:
                 pass
 
             def client(self, service: str, **client_kwargs: Any) -> _FakeClientCtx:
-                return _FakeClientCtx(FakeAsyncKMSClient(plaintext_data_key=b"\x00" * 32))
+                return _FakeClientCtx(FakeAsyncKMSClient(plaintext_data_key=DATA_KEY))
 
         monkeypatch.setattr("pydantic_encryption.adapters.encryption.aws.aioboto3.Session", _FakeAioSession)
 
-        await AWSAdapter.async_encrypt(b"warm")
+        await AWSAdapter.async_encrypt(b"warm", associated_data=CONTEXT)
 
         assert AWSAdapter._async_client is not None
 
