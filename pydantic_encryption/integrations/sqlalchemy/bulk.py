@@ -13,17 +13,15 @@ from sqlalchemy.orm.attributes import InstrumentedAttribute
 from pydantic_encryption.adapters.registry import get_encryption_backend
 from pydantic_encryption.config import settings
 from pydantic_encryption.integrations.sqlalchemy.encryption import (
+    ContextBoundType,
     SQLAlchemyEncryptedValue,
-    SQLAlchemyPGEncryptedArray,
-)
-from pydantic_encryption.integrations.sqlalchemy.serialization import (
-    decode_value,
 )
 from pydantic_encryption.integrations.sqlalchemy.state import (
     PENDING_DECRYPT_KEY,
     read_raw_cell,
     set_decrypted,
 )
+from pydantic_encryption.serialization import decode_value
 from pydantic_encryption.types import EncryptedValue
 
 
@@ -47,9 +45,7 @@ def column_context(row: Any, key: str) -> bytes:
     """Return the associated data the column's own type binds its ciphertexts to."""
 
     column_type = sa_inspect(type(row)).columns[key].type
-    if isinstance(column_type, SQLAlchemyPGEncryptedArray):
-        return column_type._element_type.bound_context()
-    if isinstance(column_type, SQLAlchemyEncryptedValue):
+    if isinstance(column_type, ContextBoundType):
         return column_type.bound_context()
 
     raise ValueError(f"Column {key!r} does not encrypt its values, so it binds no context.")

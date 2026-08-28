@@ -123,7 +123,7 @@ with Session(engine) as session:
 
 ### Supported Types
 
-`SQLAlchemyEncryptedValue` preserves the Python type of your data:
+Encrypted columns and `Encrypted` model fields alike preserve the Python type of your data:
 
 `str`, `bytes`, `bool`, `int`, `float`, `Decimal`, `UUID`, `date`, `datetime`, `time`, `timedelta`
 
@@ -219,29 +219,34 @@ An `EncryptedValue` only reaches user code if something bypasses the descriptor 
 Fields annotated with `Encrypted` are encrypted and fields annotated with `Hashed` are hashed during model initialization:
 
 ```python
+from datetime import date
 from typing import Annotated
 from pydantic_encryption import BaseModel, Encrypted, Hashed
 
 class User(BaseModel):
     name: str
-    address: Annotated[bytes, Encrypted]
+    address: Annotated[str, Encrypted]
+    joined_on: Annotated[date, Encrypted]
     password: Annotated[str, Hashed]
 
-user = User(name="John Doe", address="123 Main St", password="secret123")
+user = User(name="John Doe", address="123 Main St", joined_on=date(2026, 1, 2), password="secret123")
 
 print(user.name)      # "John Doe"
 print(user.address)   # encrypted bytes
 print(user.password)  # argon2 hash bytes
 ```
 
+A field comes back as the type it declares, so `joined_on` decrypts to a `date` rather than to the string it was serialized as.
+
 ### Decrypting
 
 Call `decrypt_data()` to decrypt all `Encrypted` fields in-place. It returns `self`, so it can be chained:
 
 ```python
-user = User(name="John", address="123 Main St", password="secret")
+user = User(name="John", address="123 Main St", joined_on=date(2026, 1, 2), password="secret")
 user.decrypt_data()
-print(user.address)  # "123 Main St"
+print(user.address)    # "123 Main St"
+print(user.joined_on)  # datetime.date(2026, 1, 2)
 ```
 
 ### Async Support
@@ -249,7 +254,9 @@ print(user.address)  # "123 Main St"
 Use `async_init()` to construct models with async encryption, hashing, and blind indexing, and `async_decrypt_data()` for async decryption:
 
 ```python
-user = await User.async_init(name="John", address="123 Main St", password="secret")
+user = await User.async_init(
+    name="John", address="123 Main St", joined_on=date(2026, 1, 2), password="secret"
+)
 await user.async_decrypt_data()
 ```
 

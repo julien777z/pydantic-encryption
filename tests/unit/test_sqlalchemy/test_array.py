@@ -6,7 +6,7 @@ from pydantic_encryption.integrations.sqlalchemy.encryption import (
     SQLAlchemyEncryptedValue,
     SQLAlchemyPGEncryptedArray,
 )
-from pydantic_encryption.integrations.sqlalchemy.serialization import decode_value, encode_value
+from pydantic_encryption.serialization import decode_value, encode_value
 
 
 class TestSQLAlchemyPGEncryptedArray:

@@ -12,7 +12,7 @@ from pydantic_encryption.integrations.sqlalchemy.encryption import (
     SQLAlchemyEncryptedValue,
     SQLAlchemyPGEncryptedArray,
 )
-from pydantic_encryption.integrations.sqlalchemy.serialization import (
+from pydantic_encryption.serialization import (
     TypePrefix,
     decode_value,
     encode_value,
