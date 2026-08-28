@@ -1,25 +1,62 @@
 import pytest
+from cryptography.fernet import InvalidToken
 
 from pydantic_encryption.adapters.blind_index.hmac_sha256 import HMACSHA256Adapter
 from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
 from pydantic_encryption.adapters.hashing.argon2 import Argon2Adapter
-from pydantic_encryption.types import BlindIndexValue, HashedValue
+from pydantic_encryption.types import BlindIndexValue, EncryptedValue, HashedValue
 
 
 class TestAsyncFernetAdapter:
-    """Test that Fernet refuses a binding its token format cannot authenticate on the async path."""
+    """Test FernetAdapter async encryption and decryption under a bound context."""
 
-    CONTEXT = b"tests.async_adapters.fernet"
-
-    @pytest.mark.asyncio
-    async def test_async_encrypt_rejects_associated_data(self):
-        with pytest.raises(ValueError, match="cannot bind a ciphertext to associated data"):
-            await FernetAdapter.async_encrypt("secret data", associated_data=self.CONTEXT)
+    CONTEXT = b"tests.async_adapters.first_column"
+    OTHER_CONTEXT = b"tests.async_adapters.second_column"
 
     @pytest.mark.asyncio
-    async def test_async_decrypt_rejects_associated_data(self):
-        with pytest.raises(ValueError, match="cannot bind a ciphertext to associated data"):
-            await FernetAdapter.async_decrypt(b"any-token", associated_data=self.CONTEXT)
+    async def test_async_round_trip_under_the_matching_context(self, fernet_key: str):
+        """Test that the async path round trips under one context."""
+
+        plaintext = "Hello, World! 🔐"
+        encrypted = await FernetAdapter.async_encrypt(plaintext, key=fernet_key, associated_data=self.CONTEXT)
+
+        assert isinstance(encrypted, EncryptedValue)
+
+        decrypted = await FernetAdapter.async_decrypt(encrypted, key=fernet_key, associated_data=self.CONTEXT)
+
+        assert decrypted == plaintext
+
+    @pytest.mark.asyncio
+    async def test_async_decrypt_under_a_different_context_fails(self, fernet_key: str):
+        """Test that the async path rejects a ciphertext from another context too."""
+
+        encrypted = await FernetAdapter.async_encrypt(
+            "secret data", key=fernet_key, associated_data=self.CONTEXT
+        )
+
+        with pytest.raises(InvalidToken):
+            await FernetAdapter.async_decrypt(encrypted, key=fernet_key, associated_data=self.OTHER_CONTEXT)
+
+    @pytest.mark.asyncio
+    async def test_async_matches_sync(self, fernet_key: str):
+        """Test that async ciphertext opens under the sync path and the other way round."""
+
+        plaintext = "cross-compat test"
+
+        encrypted_async = await FernetAdapter.async_encrypt(
+            plaintext, key=fernet_key, associated_data=self.CONTEXT
+        )
+
+        assert (
+            FernetAdapter.decrypt(encrypted_async, key=fernet_key, associated_data=self.CONTEXT) == plaintext
+        )
+
+        encrypted_sync = FernetAdapter.encrypt(plaintext, key=fernet_key, associated_data=self.CONTEXT)
+        decrypted_async = await FernetAdapter.async_decrypt(
+            encrypted_sync, key=fernet_key, associated_data=self.CONTEXT
+        )
+
+        assert decrypted_async == plaintext
 
 
 class TestAsyncArgon2Adapter:

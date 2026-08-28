@@ -1,27 +1,78 @@
 import pytest
+from cryptography.fernet import InvalidToken
 
 from pydantic_encryption.adapters.blind_index.hmac_sha256 import HMACSHA256Adapter
-from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
+from pydantic_encryption.adapters.encryption.fernet import FernetAdapter, derive_context_key
 from pydantic_encryption.adapters.hashing.argon2 import Argon2Adapter
-from pydantic_encryption.types import BlindIndexValue, HashedValue
+from pydantic_encryption.config import settings
+from pydantic_encryption.types import BlindIndexValue, EncryptedValue, HashedValue
 
 
 class TestFernetAdapter:
-    """Test that Fernet refuses a binding its token format cannot authenticate."""
+    """Test FernetAdapter encryption and decryption under a bound context."""
 
-    CONTEXT = b"tests.adapters.fernet"
+    CONTEXT = b"tests.adapters.first_column"
+    OTHER_CONTEXT = b"tests.adapters.second_column"
 
-    def test_encrypt_rejects_associated_data(self):
-        """Test that encrypt raises rather than sealing a value it cannot bind."""
+    @pytest.mark.parametrize(
+        "plaintext",
+        [
+            "",
+            "secret data",
+            "Hello, World! 🔐",
+            "日本語 한국어 العربية 🎉🔒",
+            '!@#$%^&*()_+-={}[]|\\:";<>?,./~`',
+        ],
+        ids=["empty", "ascii", "mixed", "unicode", "punctuation"],
+    )
+    def test_round_trip_under_the_matching_context(self, fernet_key: str, plaintext: str):
+        """Test that decrypt returns the plaintext when handed the context encrypt was given."""
 
-        with pytest.raises(ValueError, match="cannot bind a ciphertext to associated data"):
+        encrypted = FernetAdapter.encrypt(plaintext, key=fernet_key, associated_data=self.CONTEXT)
+
+        assert isinstance(encrypted, EncryptedValue)
+        assert encrypted != plaintext.encode("utf-8")
+        assert FernetAdapter.decrypt(encrypted, key=fernet_key, associated_data=self.CONTEXT) == plaintext
+
+    def test_encrypt_bytes(self, fernet_key: str):
+        """Test that bytes plaintext seals the same way a str does."""
+
+        encrypted = FernetAdapter.encrypt(b"secret bytes", key=fernet_key, associated_data=self.CONTEXT)
+
+        assert isinstance(encrypted, EncryptedValue)
+
+    def test_decrypt_under_a_different_context_fails(self, fernet_key: str):
+        """Test that a value lifted into another context fails to open there."""
+
+        encrypted = FernetAdapter.encrypt("secret data", key=fernet_key, associated_data=self.CONTEXT)
+
+        with pytest.raises(InvalidToken):
+            FernetAdapter.decrypt(encrypted, key=fernet_key, associated_data=self.OTHER_CONTEXT)
+
+    def test_each_context_derives_its_own_key(self, fernet_key: str):
+        """Test that two contexts under one root key seal under different derived keys."""
+
+        first = derive_context_key(fernet_key, self.CONTEXT)
+        second = derive_context_key(fernet_key, self.OTHER_CONTEXT)
+
+        assert first != second
+        assert first == derive_context_key(fernet_key, self.CONTEXT)
+
+    def test_encrypt_already_encrypted_returns_same(self, fernet_key: str):
+        """Test that encrypting an already encrypted value returns it unchanged."""
+
+        encrypted = FernetAdapter.encrypt("secret", key=fernet_key, associated_data=self.CONTEXT)
+        double_encrypted = FernetAdapter.encrypt(encrypted, key=fernet_key, associated_data=self.CONTEXT)
+
+        assert encrypted == double_encrypted
+
+    def test_encrypt_raises_without_a_root_key(self, monkeypatch: pytest.MonkeyPatch):
+        """Test that encrypt raises when neither an explicit key nor ENCRYPTION_KEY is set."""
+
+        monkeypatch.setattr(settings, "ENCRYPTION_KEY", None)
+
+        with pytest.raises(ValueError, match="ENCRYPTION_KEY"):
             FernetAdapter.encrypt("secret data", associated_data=self.CONTEXT)
-
-    def test_decrypt_rejects_associated_data(self):
-        """Test that decrypt raises rather than opening a value it cannot verify a binding for."""
-
-        with pytest.raises(ValueError, match="cannot bind a ciphertext to associated data"):
-            FernetAdapter.decrypt(b"any-token", associated_data=self.CONTEXT)
 
 
 class TestArgon2Adapter:

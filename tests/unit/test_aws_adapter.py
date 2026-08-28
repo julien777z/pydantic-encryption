@@ -1,10 +1,8 @@
 import asyncio
 import struct
-from collections.abc import AsyncIterator, Iterator
 from typing import Any, Final
 
 import pytest
-import pytest_asyncio
 
 pytest.importorskip("boto3")
 pytest.importorskip("aioboto3")
@@ -28,39 +26,6 @@ from tests.kms import (
 )
 
 CONTEXT: Final[bytes] = b"tests.aws_adapter.payload"
-
-
-@pytest.fixture
-def fake_sync_kms(monkeypatch: pytest.MonkeyPatch) -> Iterator[FakeSyncKMSClient]:
-    """Install a fake sync KMS client and seed AWS settings for the test process."""
-
-    reset_adapter_state()
-
-    configure_kms_settings(monkeypatch)
-
-    client = FakeSyncKMSClient(plaintext_data_key=DATA_KEY)
-    AWSAdapter._sync_client = client
-
-    yield client
-
-    reset_adapter_state()
-
-
-@pytest_asyncio.fixture
-async def fake_async_kms(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[FakeAsyncKMSClient]:
-    """Install a fake async KMS client and seed AWS settings for the test process."""
-
-    reset_adapter_state()
-
-    configure_kms_settings(monkeypatch)
-
-    client = FakeAsyncKMSClient(plaintext_data_key=DATA_KEY)
-    AWSAdapter._async_client = client
-    AWSAdapter._async_loop = asyncio.get_running_loop()
-
-    yield client
-
-    reset_adapter_state()
 
 
 class TestAWSAdapterEncrypt:

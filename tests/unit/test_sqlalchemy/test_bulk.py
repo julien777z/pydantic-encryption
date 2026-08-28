@@ -1,7 +1,7 @@
 import asyncio
 
 import pytest
-from cryptography.exceptions import InvalidTag
+from cryptography.fernet import InvalidToken
 from sqlalchemy import ForeignKey
 from sqlalchemy.orm import (
     DeclarativeBase,
@@ -347,4 +347,4 @@ class TestCrossColumnCiphertext:
         with pytest.raises(BaseExceptionGroup) as raised:
             asyncio.run(decrypt_rows([row], "secret"))
 
-        assert raised.group_contains(InvalidTag)
+        assert raised.group_contains(InvalidToken)

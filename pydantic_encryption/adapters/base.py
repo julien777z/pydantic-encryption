@@ -26,8 +26,8 @@ class EncryptionAdapter(ABC):
     tenant -- and is required, so no caller can leave a value interchangeable with every other by
     omission. It is authenticated but never stored, so decrypt must be given the same bytes
     encrypt was; a ciphertext moved to another context fails to open rather than decrypting into
-    it. A backend whose primitive cannot authenticate it raises rather than accepting the argument
-    and ignoring it.
+    it. A backend whose primitive cannot authenticate associated data binds the context some other
+    way -- never by accepting the argument and ignoring it.
     """
 
     @classmethod

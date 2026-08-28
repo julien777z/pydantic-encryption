@@ -59,7 +59,7 @@ email: Mapped[bytes] = mapped_column(SQLAlchemyEncryptedValue("users.email"))
 
 The context is authenticated but never written into the ciphertext, so it is part of the column's contract: values already stored under one context do not decrypt under another.
 
-Binding requires an AEAD backend. AWS KMS authenticates the context in the AES-GCM tag; Fernet's token format has no field for it, so the Fernet backend raises instead of promising a binding it cannot provide.
+Both backends bind. AWS KMS authenticates the context in the AES-GCM tag. A Fernet token has no field for it, so Fernet binds by key separation instead: each context gets its own key derived from `ENCRYPTION_KEY`, and a token carried into another context fails its authentication check there.
 
 ## SQLAlchemy Integration
 
@@ -260,9 +260,18 @@ ENCRYPTION_METHOD=fernet   # Fernet symmetric encryption (requires ENCRYPTION_KE
 
 There is no default — you must explicitly set `ENCRYPTION_METHOD` if using `Encrypted` fields.
 
-### Fernet
+### Fernet Setup
 
-Fernet tokens carry no field that authenticates associated data, so the Fernet backend raises on both encrypt and decrypt rather than leaving a value bound to no context. Use an AEAD backend such as AWS KMS.
+```bash
+# Generate a key
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+
+# Set environment variables
+ENCRYPTION_METHOD=fernet
+ENCRYPTION_KEY=your_generated_key
+```
+
+`ENCRYPTION_KEY` is the root key. Each context's key is derived from it with HKDF-SHA256, so one key covers every column and a token still only opens under the context it was sealed for.
 
 ### AWS KMS Setup
 

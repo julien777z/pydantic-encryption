@@ -8,7 +8,7 @@ from weakref import WeakSet
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import DeclarativeBase, Mapped, configure_mappers, mapped_column
 
-from pydantic_encryption.adapters.encryption.aws import AWSAdapter
+from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
 from pydantic_encryption.integrations.sqlalchemy import DeferredDecryptMixin, decrypt_pending_fields
 from pydantic_encryption.integrations.sqlalchemy.state import PENDING_DECRYPT_KEY
 from pydantic_encryption.integrations.sqlalchemy.bulk import collect_encrypted_cells
@@ -175,7 +175,7 @@ class TestDrainParallelism:
 
         live_overlap = 0
         peak_overlap = 0
-        original_decrypt = AWSAdapter.decrypt
+        original_decrypt = FernetAdapter.decrypt
 
         async def overlapping_async_decrypt(ciphertext, *, key=None, associated_data):
             nonlocal live_overlap, peak_overlap
@@ -187,7 +187,7 @@ class TestDrainParallelism:
             finally:
                 live_overlap -= 1
 
-        with patch.object(AWSAdapter, "async_decrypt", side_effect=overlapping_async_decrypt):
+        with patch.object(FernetAdapter, "async_decrypt", side_effect=overlapping_async_decrypt):
             asyncio.run(decrypt_pending_fields(session))
 
         assert sa_inspect(user).dict["email"] == "a@x.com"

@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy import inspect as sa_inspect, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, configure_mappers, mapped_column
 
-from pydantic_encryption.adapters.encryption.aws import AWSAdapter
+from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
 from pydantic_encryption.integrations.sqlalchemy import DeferredDecryptMixin, decrypt_rows
 from pydantic_encryption.integrations.sqlalchemy.state import PENDING_DECRYPT_KEY, pending_siblings
 from pydantic_encryption.integrations.sqlalchemy.descriptor import DecryptOnAccessDescriptor
@@ -197,14 +197,14 @@ class TestBatchAcrossSiblings:
 
         call_count = {"n": 0}
 
-        original_decrypt = AWSAdapter.async_decrypt
+        original_decrypt = FernetAdapter.async_decrypt
 
         async def counting_decrypt(ciphertext, *, key=None, associated_data):
             call_count["n"] += 1
 
             return await original_decrypt(ciphertext, key=key, associated_data=associated_data)
 
-        with patch.object(AWSAdapter, "async_decrypt", side_effect=counting_decrypt):
+        with patch.object(FernetAdapter, "async_decrypt", side_effect=counting_decrypt):
             asyncio.run(decrypt_rows(rows, "first_name"))
 
         assert call_count["n"] == 2
