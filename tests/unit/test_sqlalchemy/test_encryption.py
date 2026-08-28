@@ -8,6 +8,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
 from pydantic_encryption.config import settings
+from pydantic_encryption.context import derive_column_context
 from pydantic_encryption.integrations.sqlalchemy.encryption import (
     SQLAlchemyEncryptedValue,
     SQLAlchemyPGEncryptedArray,
@@ -437,6 +438,31 @@ class ContextContractor(ContextBase, TaxIdMixin):
     id: Mapped[int] = mapped_column(primary_key=True)
 
 
+class SecureAuditLog(ContextBase):
+    """Table whose name is shared with another table in a different schema."""
+
+    __tablename__ = "context_audit_log"
+    __table_args__ = {"schema": "secure"}
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    field_value_before: Mapped[bytes | None] = mapped_column(
+        SQLAlchemyEncryptedValue(), nullable=True, default=None
+    )
+    tags: Mapped[list[str] | None] = mapped_column(SQLAlchemyPGEncryptedArray(), nullable=True, default=None)
+
+
+class PublicAuditLog(ContextBase):
+    """Same table name in a second schema, whose columns must bind separately."""
+
+    __tablename__ = "context_audit_log"
+    __table_args__ = {"schema": "vaultgig"}
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    field_value_before: Mapped[bytes | None] = mapped_column(
+        SQLAlchemyEncryptedValue(), nullable=True, default=None
+    )
+
+
 class TestDerivedColumnContext:
     """Test that an encrypted column binds its cells to the table and column it is attached to."""
 
@@ -471,6 +497,50 @@ class TestDerivedColumnContext:
         """Test that a column given a context keeps it rather than deriving one."""
 
         assert ContextUser.__table__.c.envelope.type.context == b"onboarding.draft"
+
+    def test_column_in_a_schema_derives_the_qualified_table(self):
+        """Test that a column in a named schema binds to the schema-qualified table."""
+
+        column_type = SecureAuditLog.__table__.c.field_value_before.type
+
+        assert column_type.context == b"secure.context_audit_log.field_value_before"
+
+    def test_one_table_name_in_two_schemas_binds_separately(self):
+        """Test that same-named columns in two schemas do not share one context."""
+
+        secure_type = SecureAuditLog.__table__.c.field_value_before.type
+        public_type = PublicAuditLog.__table__.c.field_value_before.type
+
+        assert secure_type.context != public_type.context
+
+    def test_array_elements_follow_the_column_context_exactly(self):
+        """Test that an array's elements bind to the same context the array column binds to."""
+
+        column_type = SecureAuditLog.__table__.c.tags.type
+
+        assert column_type._element_type.context == column_type.context
+        assert column_type.context == b"secure.context_audit_log.tags"
+
+    @pytest.mark.parametrize(
+        "mapped_class, schema",
+        [(SecureAuditLog, "secure"), (PublicAuditLog, "vaultgig")],
+        ids=["secure", "vaultgig"],
+    )
+    def test_derive_column_context_matches_what_a_column_derives(self, mapped_class: type, schema: str):
+        """Test that the documented helper names the same context the column itself resolves."""
+
+        column_type = mapped_class.__table__.c.field_value_before.type
+
+        assert column_type.context == derive_column_context(
+            "context_audit_log", "field_value_before", schema=schema
+        )
+
+    def test_derive_column_context_matches_an_unqualified_column(self):
+        """Test that the helper names an unqualified column's context too."""
+
+        column_type = ContextUser.__table__.c.email.type
+
+        assert column_type.context == derive_column_context("context_users", "email")
 
     def test_detached_type_without_a_context_raises(self):
         """Test that a type attached to no column refuses to encrypt rather than binding nothing."""

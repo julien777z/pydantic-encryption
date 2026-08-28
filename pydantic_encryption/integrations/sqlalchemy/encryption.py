@@ -9,6 +9,7 @@ from sqlalchemy.types import ARRAY, LargeBinary, TypeDecorator
 
 from pydantic_encryption.adapters.registry import get_encryption_backend
 from pydantic_encryption.config import settings
+from pydantic_encryption.context import derive_column_context, encode_context
 from pydantic_encryption.integrations.sqlalchemy.async_bridge import run_async_or_sync
 from pydantic_encryption.serialization import (
     EncryptableValue,
@@ -16,12 +17,6 @@ from pydantic_encryption.serialization import (
     encode_value,
 )
 from pydantic_encryption.types import EncryptedValue
-
-
-def encode_context(context: str | bytes | None) -> bytes | None:
-    """Return UTF-8 bytes for a declared context, or ``None`` when one is to be derived."""
-
-    return context.encode("utf-8") if isinstance(context, str) else context
 
 
 class ContextBoundType(TypeDecorator):
@@ -42,7 +37,7 @@ class ContextBoundType(TypeDecorator):
         """Derive the context from the column this type is attached to, unless one was declared."""
 
         if self.declared_context is None:
-            self.context = f"{table.name}.{column.name}".encode("utf-8")
+            self.context = derive_column_context(table.name, column.name, schema=table.schema)
 
     def bound_context(self) -> bytes:
         """Return the context this column's ciphertexts are bound to."""

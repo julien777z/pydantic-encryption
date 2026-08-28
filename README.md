@@ -53,10 +53,19 @@ async with Session() as session:
 
 Every ciphertext is bound to the context it belongs to. Encrypt and decrypt both take that context as authenticated associated data, so a value lifted out of one column fails to open anywhere else.
 
-A column derives its own context from the schema it is attached to — `users.email` below — including a column inherited from a mixin, which binds separately for each table that inherits it. A model field binds to its model and field name.
+A column derives its own context from the table it is attached to — `users.email` below — including a column inherited from a mixin, which binds separately for each table that inherits it. A model field binds to its model and field name.
 
 ```python
 email: Mapped[bytes] = mapped_column(SQLAlchemyEncryptedValue())
+```
+
+The derived context is `table.column`, or `schema.table.column` where the table names a schema, so one table name in two schemas binds separately. Every element of an encrypted array binds to the context of the array column itself. `derive_column_context` applies that rule, so a migration can name the value a column binds to without reimplementing it:
+
+```python
+from pydantic_encryption import derive_column_context
+
+derive_column_context("users", "email")                    # b"users.email"
+derive_column_context("users", "email", schema="secure")   # b"secure.users.email"
 ```
 
 Pass a context explicitly only where nothing can be derived, such as a value that never reaches a column:
