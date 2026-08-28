@@ -20,27 +20,57 @@ def fold_salt(message: bytes, salt: bytes | None) -> bytes:
 
 
 class EncryptionAdapter(ABC):
-    """Abstract base class for encryption adapters."""
+    """Abstract base class for encryption adapters.
+
+    ``associated_data`` binds a ciphertext to the context it belongs to -- a column, a row, a
+    tenant -- and is required, so no caller can leave a value interchangeable with every other by
+    omission. It is authenticated but never stored, so decrypt must be given the same bytes
+    encrypt was; a ciphertext moved to another context fails to open rather than decrypting into
+    it. A backend whose primitive cannot authenticate it raises rather than accepting the argument
+    and ignoring it.
+    """
 
     @classmethod
     @abstractmethod
-    def encrypt(cls, plaintext: bytes | str | EncryptedValue, *, key: str | None = None) -> EncryptedValue:
-        """Encrypt plaintext data."""
+    def encrypt(
+        cls,
+        plaintext: bytes | str | EncryptedValue,
+        *,
+        key: str | None = None,
+        associated_data: bytes,
+    ) -> EncryptedValue:
+        """Encrypt plaintext data, binding it to associated data when given."""
 
     @classmethod
     @abstractmethod
-    def decrypt(cls, ciphertext: bytes | str | EncryptedValue, *, key: str | None = None) -> str:
-        """Decrypt ciphertext data."""
+    def decrypt(
+        cls,
+        ciphertext: bytes | str | EncryptedValue,
+        *,
+        key: str | None = None,
+        associated_data: bytes,
+    ) -> str:
+        """Decrypt ciphertext data, requiring the associated data it was bound to."""
 
     @classmethod
     async def async_encrypt(
-        cls, plaintext: bytes | str | EncryptedValue, *, key: str | None = None
+        cls,
+        plaintext: bytes | str | EncryptedValue,
+        *,
+        key: str | None = None,
+        associated_data: bytes,
     ) -> EncryptedValue:
-        return await asyncio.to_thread(cls.encrypt, plaintext, key=key)
+        return await asyncio.to_thread(cls.encrypt, plaintext, key=key, associated_data=associated_data)
 
     @classmethod
-    async def async_decrypt(cls, ciphertext: bytes | str | EncryptedValue, *, key: str | None = None) -> str:
-        return await asyncio.to_thread(cls.decrypt, ciphertext, key=key)
+    async def async_decrypt(
+        cls,
+        ciphertext: bytes | str | EncryptedValue,
+        *,
+        key: str | None = None,
+        associated_data: bytes,
+    ) -> str:
+        return await asyncio.to_thread(cls.decrypt, ciphertext, key=key, associated_data=associated_data)
 
 
 class HashingAdapter(ABC):

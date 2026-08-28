@@ -26,7 +26,24 @@ class FernetAdapter(EncryptionAdapter):
         return cls._clients[resolved]
 
     @classmethod
-    def encrypt(cls, plaintext: bytes | str | EncryptedValue, *, key: str | None = None) -> EncryptedValue:
+    def reject_associated_data(cls) -> None:
+        """Refuse the binding Fernet's token format has no field to authenticate."""
+
+        raise ValueError(
+            "Fernet cannot bind a ciphertext to associated data; "
+            "use an AEAD backend such as AWS KMS to bind one to its context."
+        )
+
+    @classmethod
+    def encrypt(
+        cls,
+        plaintext: bytes | str | EncryptedValue,
+        *,
+        key: str | None = None,
+        associated_data: bytes,
+    ) -> EncryptedValue:
+        cls.reject_associated_data()
+
         if isinstance(plaintext, EncryptedValue):
             return plaintext
 
@@ -34,7 +51,15 @@ class FernetAdapter(EncryptionAdapter):
         return EncryptedValue(client.encrypt(encode_text(plaintext)))
 
     @classmethod
-    def decrypt(cls, ciphertext: str | bytes | EncryptedValue, *, key: str | None = None) -> str:
+    def decrypt(
+        cls,
+        ciphertext: str | bytes | EncryptedValue,
+        *,
+        key: str | None = None,
+        associated_data: bytes,
+    ) -> str:
+        cls.reject_associated_data()
+
         client = cls.get_client(key)
         return client.decrypt(encode_text(ciphertext)).decode("utf-8")
 

@@ -18,13 +18,19 @@ from pydantic_encryption.types import EncryptedValue
 
 
 class SQLAlchemyEncryptedValue(TypeDecorator):
-    """SQLAlchemy column type that encrypts on write and decrypts on read."""
+    """SQLAlchemy column type that encrypts on write and decrypts on read.
+
+    ``context`` names the column these ciphertexts belong to and is authenticated into every one of
+    them, so a value lifted out of this column fails to open anywhere else. It is required: a column
+    that named no context would produce ciphertexts interchangeable with every other column's.
+    """
 
     impl = LargeBinary
     cache_ok = True
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, context: str | bytes, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
+        self.context = context.encode("utf-8") if isinstance(context, str) else context
         self._deferred = False
 
     @staticmethod
@@ -46,7 +52,9 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
 
         backend = self.backend()
 
-        return run_async_or_sync(backend.async_encrypt, backend.encrypt, encode_value(value))
+        return run_async_or_sync(
+            backend.async_encrypt, backend.encrypt, encode_value(value), associated_data=self.context
+        )
 
     def decrypt_cell(self, value: str | bytes | None) -> str | bytes | None:
         """Decrypt a single ciphertext; callers are responsible for decoding."""
@@ -56,7 +64,7 @@ class SQLAlchemyEncryptedValue(TypeDecorator):
 
         backend = self.backend()
 
-        return run_async_or_sync(backend.async_decrypt, backend.decrypt, value)
+        return run_async_or_sync(backend.async_decrypt, backend.decrypt, value, associated_data=self.context)
 
     def process_bind_param(self, value: EncryptableValue | None, dialect) -> bytes | None:
         """Encrypt a value before binding it to the database."""
@@ -92,9 +100,9 @@ class SQLAlchemyPGEncryptedArray(TypeDecorator):
     impl = ARRAY(LargeBinary)
     cache_ok = True
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, context: str | bytes, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self._element_type = SQLAlchemyEncryptedValue()
+        self._element_type = SQLAlchemyEncryptedValue(context)
 
     def process_bind_param(self, value: list[EncryptableValue] | None, dialect) -> list[bytes] | None:
         """Encrypt each element before binding to the database."""

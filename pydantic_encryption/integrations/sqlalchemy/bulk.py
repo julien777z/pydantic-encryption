@@ -14,6 +14,7 @@ from pydantic_encryption.adapters.registry import get_encryption_backend
 from pydantic_encryption.config import settings
 from pydantic_encryption.integrations.sqlalchemy.encryption import (
     SQLAlchemyEncryptedValue,
+    SQLAlchemyPGEncryptedArray,
 )
 from pydantic_encryption.integrations.sqlalchemy.serialization import (
     decode_value,
@@ -42,22 +43,36 @@ def resolve_backend() -> Any:
     return get_encryption_backend(method)
 
 
-def collect_row_assignments(rows: Iterable[Any], column_keys: Iterable[str]) -> list[tuple[Any, str, bytes]]:
-    """Build ``(row, key, ciphertext)`` triples for every encrypted cell across rows."""
+def column_context(row: Any, key: str) -> bytes:
+    """Return the associated data the column's own type binds its ciphertexts to."""
+
+    column_type = sa_inspect(type(row)).columns[key].type
+    if isinstance(column_type, SQLAlchemyPGEncryptedArray):
+        return column_type._element_type.context
+    if isinstance(column_type, SQLAlchemyEncryptedValue):
+        return column_type.context
+
+    raise ValueError(f"Column {key!r} does not encrypt its values, so it binds no context.")
+
+
+def collect_row_assignments(
+    rows: Iterable[Any], column_keys: Iterable[str]
+) -> list[tuple[Any, str, bytes, bytes]]:
+    """Build ``(row, key, ciphertext, context)`` tuples for every encrypted cell across rows."""
 
     column_keys = list(column_keys)
-    assignments: list[tuple[Any, str, bytes]] = []
+    assignments: list[tuple[Any, str, bytes, bytes]] = []
     for row in rows:
         for key in column_keys:
             value = read_raw_cell(row, key)
             if isinstance(value, EncryptedValue):
-                assignments.append((row, key, bytes(value)))
+                assignments.append((row, key, bytes(value), column_context(row, key)))
 
     return assignments
 
 
-async def decrypt_assignments(backend: Any, assignments: list[tuple[Any, str, bytes]]) -> None:
-    """Decrypt every ``(row, key, ciphertext)`` triple under a TaskGroup and write results back.
+async def decrypt_assignments(backend: Any, assignments: list[tuple[Any, str, bytes, bytes]]) -> None:
+    """Decrypt every ``(row, key, ciphertext, context)`` tuple under a TaskGroup and write results back.
 
     Concurrent KMS calls are bounded by the aiobotocore connection pool
     (default ``max_pool_connections=10``), so an explicit per-call
@@ -69,9 +84,12 @@ async def decrypt_assignments(backend: Any, assignments: list[tuple[Any, str, by
         return
 
     async with asyncio.TaskGroup() as tg:
-        tasks = [tg.create_task(backend.async_decrypt(ciphertext)) for _, _, ciphertext in assignments]
+        tasks = [
+            tg.create_task(backend.async_decrypt(ciphertext, associated_data=context))
+            for _, _, ciphertext, context in assignments
+        ]
 
-    for (row, key, _), task in zip(assignments, tasks):
+    for (row, key, _, _), task in zip(assignments, tasks):
         set_decrypted(row, key, decode_value(task.result()))
 
 
@@ -94,18 +112,19 @@ def decrypt_rows_sync(rows: Iterable[Any], *columns: InstrumentedAttribute | str
         return
 
     backend = resolve_backend()
-    for row, key, ciphertext in collect_row_assignments(rows, (column_key(c) for c in columns)):
-        set_decrypted(row, key, decode_value(backend.decrypt(ciphertext)))
+    for row, key, ciphertext, context in collect_row_assignments(rows, (column_key(c) for c in columns)):
+        set_decrypted(row, key, decode_value(backend.decrypt(ciphertext, associated_data=context)))
 
 
-async def decrypt_values(values: Iterable[Any]) -> list[Any]:
-    """Decrypt a flat iterable of ciphertexts, preserving non-encrypted positions as-is."""
+async def decrypt_values(values: Iterable[Any], *, context: str | bytes) -> list[Any]:
+    """Decrypt a flat iterable of ciphertexts from one column, preserving other positions as-is."""
 
     values_list = list(values)
     if not values_list:
         return []
 
     backend = resolve_backend()
+    associated_data = context.encode("utf-8") if isinstance(context, str) else context
     indexes: list[int] = []
     encrypted_blobs: list[bytes] = []
     for index, value in enumerate(values_list):
@@ -117,7 +136,10 @@ async def decrypt_values(values: Iterable[Any]) -> list[Any]:
         return values_list
 
     async with asyncio.TaskGroup() as tg:
-        tasks = [tg.create_task(backend.async_decrypt(blob)) for blob in encrypted_blobs]
+        tasks = [
+            tg.create_task(backend.async_decrypt(blob, associated_data=associated_data))
+            for blob in encrypted_blobs
+        ]
 
     for index, task in zip(indexes, tasks):
         values_list[index] = decode_value(task.result())

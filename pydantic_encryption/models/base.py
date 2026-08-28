@@ -174,6 +174,11 @@ class SecureModel:
         for name, task in tasks:
             setattr(self, name, task.result())
 
+    def field_context(self, field_name: str) -> bytes:
+        """Bind a field's ciphertext to the model and field it belongs to."""
+
+        return f"{type(self).__module__}.{type(self).__qualname__}.{field_name}".encode("utf-8")
+
     def encrypt_data(self) -> None:
         """Encrypt fields annotated with ``Encrypted`` in-place."""
 
@@ -183,7 +188,11 @@ class SecureModel:
 
         backend, key, fields = collected
         for field_name, value in fields.items():
-            setattr(self, field_name, backend.encrypt(value, key=key))
+            setattr(
+                self,
+                field_name,
+                backend.encrypt(value, key=key, associated_data=self.field_context(field_name)),
+            )
 
     def hash_data(self) -> None:
         """Hash fields annotated with ``Hashed`` in-place."""
@@ -214,7 +223,11 @@ class SecureModel:
 
         backend, key, fields = collected
         for field_name, value in fields.items():
-            setattr(self, field_name, backend.decrypt(value, key=key))
+            setattr(
+                self,
+                field_name,
+                backend.decrypt(value, key=key, associated_data=self.field_context(field_name)),
+            )
 
         return self
 
@@ -226,7 +239,12 @@ class SecureModel:
             return
 
         backend, key, fields = collected
-        await self.async_apply([(name, backend.async_encrypt(val, key=key)) for name, val in fields.items()])
+        await self.async_apply(
+            [
+                (name, backend.async_encrypt(val, key=key, associated_data=self.field_context(name)))
+                for name, val in fields.items()
+            ]
+        )
 
     async def async_hash_data(self) -> None:
         """Asynchronously hash fields annotated with ``Hashed``."""
@@ -259,7 +277,12 @@ class SecureModel:
             return self
 
         backend, key, fields = collected
-        await self.async_apply([(name, backend.async_decrypt(val, key=key)) for name, val in fields.items()])
+        await self.async_apply(
+            [
+                (name, backend.async_decrypt(val, key=key, associated_data=self.field_context(name)))
+                for name, val in fields.items()
+            ]
+        )
 
         return self
 

@@ -56,11 +56,20 @@ def kms_kwargs() -> dict[str, str]:
     }
 
 
-def seal(plaintext_data_key: bytes, wrapped_data_key: bytes, plaintext: bytes) -> EncryptedValue:
-    """Wrap plaintext under a fresh AES-GCM nonce and pack ``[magic][ver][wrapped][nonce][sealed]``."""
+def seal(
+    plaintext_data_key: bytes,
+    wrapped_data_key: bytes,
+    plaintext: bytes,
+    associated_data: bytes,
+) -> EncryptedValue:
+    """Wrap plaintext under a fresh AES-GCM nonce and pack ``[magic][ver][wrapped][nonce][sealed]``.
+
+    Associated data is authenticated by the tag but never written into the envelope, so opening it
+    requires the caller to supply the same bytes again.
+    """
 
     nonce = secrets.token_bytes(NONCE_LENGTH)
-    sealed = AESGCM(plaintext_data_key).encrypt(nonce, plaintext, None)
+    sealed = AESGCM(plaintext_data_key).encrypt(nonce, plaintext, associated_data)
 
     return EncryptedValue(
         struct.pack(HEADER_PACK_FORMAT, CIPHERTEXT_MAGIC, CIPHERTEXT_VERSION, len(wrapped_data_key))
@@ -171,17 +180,29 @@ class AWSAdapter(EncryptionAdapter):
         await ctx.__aexit__(None, None, None)
 
     @classmethod
-    def encrypt(cls, plaintext: bytes | str | EncryptedValue, *, key: str | None = None) -> EncryptedValue:
+    def encrypt(
+        cls,
+        plaintext: bytes | str | EncryptedValue,
+        *,
+        key: str | None = None,
+        associated_data: bytes,
+    ) -> EncryptedValue:
         if isinstance(plaintext, EncryptedValue):
             return plaintext
 
         response = cls.sync_kms().generate_data_key(KeyId=cls.encrypt_arn(), KeySpec=DATA_KEY_SPEC)
 
-        return seal(response["Plaintext"], response["CiphertextBlob"], encode_text(plaintext))
+        return seal(
+            response["Plaintext"], response["CiphertextBlob"], encode_text(plaintext), associated_data
+        )
 
     @classmethod
     async def async_encrypt(
-        cls, plaintext: bytes | str | EncryptedValue, *, key: str | None = None
+        cls,
+        plaintext: bytes | str | EncryptedValue,
+        *,
+        key: str | None = None,
+        associated_data: bytes,
     ) -> EncryptedValue:
         if isinstance(plaintext, EncryptedValue):
             return plaintext
@@ -189,21 +210,35 @@ class AWSAdapter(EncryptionAdapter):
         kms = await cls.async_kms()
         response = await kms.generate_data_key(KeyId=cls.encrypt_arn(), KeySpec=DATA_KEY_SPEC)
 
-        return seal(response["Plaintext"], response["CiphertextBlob"], encode_text(plaintext))
+        return seal(
+            response["Plaintext"], response["CiphertextBlob"], encode_text(plaintext), associated_data
+        )
 
     @classmethod
-    def decrypt(cls, ciphertext: bytes | str | EncryptedValue, *, key: str | None = None) -> str:
+    def decrypt(
+        cls,
+        ciphertext: bytes | str | EncryptedValue,
+        *,
+        key: str | None = None,
+        associated_data: bytes,
+    ) -> str:
         wrapped, nonce, sealed = open(to_bytes(ciphertext))
 
         plaintext_data_key = cls.sync_kms().decrypt(**cls.decrypt_kwargs(wrapped))["Plaintext"]
 
-        return AESGCM(plaintext_data_key).decrypt(nonce, sealed, None).decode("utf-8")
+        return AESGCM(plaintext_data_key).decrypt(nonce, sealed, associated_data).decode("utf-8")
 
     @classmethod
-    async def async_decrypt(cls, ciphertext: bytes | str | EncryptedValue, *, key: str | None = None) -> str:
+    async def async_decrypt(
+        cls,
+        ciphertext: bytes | str | EncryptedValue,
+        *,
+        key: str | None = None,
+        associated_data: bytes,
+    ) -> str:
         wrapped, nonce, sealed = open(to_bytes(ciphertext))
 
         kms = await cls.async_kms()
         response = await kms.decrypt(**cls.decrypt_kwargs(wrapped))
 
-        return AESGCM(response["Plaintext"]).decrypt(nonce, sealed, None).decode("utf-8")
+        return AESGCM(response["Plaintext"]).decrypt(nonce, sealed, associated_data).decode("utf-8")
