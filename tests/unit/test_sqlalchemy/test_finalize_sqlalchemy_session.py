@@ -22,13 +22,7 @@ class FinalizeBase(DeclarativeBase):
 
 
 class FinalizeUser(FinalizeBase, DeferredDecryptMixin):
-    """Mapped class with one deferred encrypted column.
-
-    Inherits DeferredDecryptMixin so the mapper_configured listener flips
-    the encrypted column's ``_deferred`` flag; without it, the drain path
-    in collect_encrypted_cells short-circuits and pending values stay
-    encrypted.
-    """
+    """Mapped class with one deferred encrypted column."""
 
     __tablename__ = "_finalize_user"
 
