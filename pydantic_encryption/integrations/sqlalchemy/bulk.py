@@ -19,6 +19,7 @@ from pydantic_encryption.integrations.sqlalchemy.encryption import (
 from pydantic_encryption.integrations.sqlalchemy.state import (
     PENDING_DECRYPT_KEY,
     read_raw_cell,
+    row_key,
     set_decrypted,
 )
 from pydantic_encryption.serialization import decode_value
@@ -44,8 +45,12 @@ def resolve_backend() -> Any:
 def column_context(row: Any, key: str) -> bytes:
     """Return the associated data the column's own type binds its ciphertexts to."""
 
-    column_type = sa_inspect(type(row)).columns[key].type
+    mapper = sa_inspect(type(row))
+    column_type = mapper.columns[key].type
     if isinstance(column_type, ContextBoundType):
+        if column_type.row_bound:
+            return column_type.cell_context(row_key(mapper, row))
+
         return column_type.bound_context()
 
     raise ValueError(f"Column {key!r} does not encrypt its values, so it binds no context.")

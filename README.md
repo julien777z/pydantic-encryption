@@ -68,6 +68,21 @@ derive_column_context("users", "email")                    # b"users.email"
 derive_column_context("users", "email", schema="secure")   # b"secure.users.email"
 ```
 
+### Binding a Cell to Its Row
+
+A column context stops a ciphertext moving between columns. To also stop one moving between rows of the same column, bind the row:
+
+```python
+tax_id: Mapped[bytes] = mapped_column(SQLAlchemyEncryptedValue(row_bound=True))
+```
+
+Each cell then binds to `schema.table.column.<primary key>`, which `derive_row_context` names. A row-bound column requires two things, and says so rather than binding something weaker:
+
+- **`DeferredDecryptMixin` on the mapped class.** A column type sees only the value it is handed, never the row, so row-bound cells seal as the row is inserted or updated and open through the deferred read path, which has the instance.
+- **A primary key that exists before the insert** — one the application assigns, or one with a client-side default such as `default=uuid.uuid4`. A server-generated key does not exist until after the insert it would have to be written into.
+
+Encrypted arrays decrypt on the read path, where no row is in scope, so they bind their column and refuse `row_bound`.
+
 Pass a context explicitly only where nothing can be derived, such as a value that never reaches a column:
 
 ```python

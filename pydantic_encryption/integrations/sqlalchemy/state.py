@@ -30,6 +30,25 @@ def set_decrypted(row: Any, column_key: str, plaintext: Any) -> None:
     set_committed_value(row, column_key, plaintext)
 
 
+def row_key(mapper: Any, instance: Any) -> str:
+    """Return the primary key identifying one row, as the context naming it spells it."""
+
+    values: list[str] = []
+    for column in mapper.primary_key:
+        value = getattr(instance, mapper.get_property_by_column(column).key, None)
+        if value is None:
+            raise ValueError(
+                f"Row of {mapper.class_.__name__} has no {column.key} yet, so its cells cannot bind "
+                "to the row they belong to. A row-bound column needs a primary key its application "
+                "assigns, or one with a client-side default; a server-generated key does not exist "
+                "until after the insert it would have to be written into."
+            )
+
+        values.append(str(value))
+
+    return ",".join(values)
+
+
 def pending_siblings(session: Any, cls: type) -> list[Any]:
     """Return pending-decrypt instances of ``cls`` bucketed in ``session`` (empty if none)."""
 
@@ -41,4 +60,4 @@ def pending_siblings(session: Any, cls: type) -> list[Any]:
     return list(bucket.get(cls) or [])
 
 
-__all__ = ["PENDING_DECRYPT_KEY", "read_raw_cell", "set_decrypted", "pending_siblings"]
+__all__ = ["PENDING_DECRYPT_KEY", "read_raw_cell", "row_key", "set_decrypted", "pending_siblings"]

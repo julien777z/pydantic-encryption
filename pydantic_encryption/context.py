@@ -10,3 +10,13 @@ def derive_column_context(table_name: str, column_name: str, *, schema: str | No
     qualified_table = f"{schema}.{table_name}" if schema else table_name
 
     return f"{qualified_table}.{column_name}".encode("utf-8")
+
+
+def derive_row_context(
+    table_name: str, column_name: str, row_key: str, *, schema: str | None = None
+) -> bytes:
+    """Return the context one row's cell in an encrypted column binds its ciphertext to."""
+
+    column_context = derive_column_context(table_name, column_name, schema=schema)
+
+    return b".".join((column_context, row_key.encode("utf-8")))

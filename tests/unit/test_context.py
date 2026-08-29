@@ -1,6 +1,6 @@
 import pytest
 
-from pydantic_encryption.context import derive_column_context, encode_context
+from pydantic_encryption.context import derive_column_context, derive_row_context, encode_context
 
 
 class TestDeriveColumnContext:
@@ -24,6 +24,25 @@ class TestDeriveColumnContext:
         second = derive_column_context("user_audit_log", "field_value_before", schema="vaultgig")
 
         assert first != second
+
+
+class TestDeriveRowContext:
+    """Test the rule that names the context one row's cell binds its ciphertext to."""
+
+    def test_extends_the_column_context_with_the_row(self):
+        """Test that a cell's context is its column's context followed by the row it belongs to."""
+
+        assert derive_row_context("users", "email", "42") == b"users.email.42"
+
+    def test_qualifies_a_row_with_its_schema(self):
+        """Test that a schema-qualified column carries through to its rows."""
+
+        assert derive_row_context("users", "email", "42", schema="secure") == b"secure.users.email.42"
+
+    def test_two_rows_of_one_column_bind_separately(self):
+        """Test that two rows of the same column do not share a context."""
+
+        assert derive_row_context("users", "email", "1") != derive_row_context("users", "email", "2")
 
 
 class TestEncodeContext:

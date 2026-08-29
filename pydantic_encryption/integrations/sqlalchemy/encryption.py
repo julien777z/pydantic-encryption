@@ -22,10 +22,11 @@ from pydantic_encryption.types import EncryptedValue
 class ContextBoundType(TypeDecorator):
     """Column type that binds its ciphertexts to the table and column it is attached to."""
 
-    def __init__(self, context: str | bytes | None = None, *args, **kwargs) -> None:
+    def __init__(self, context: str | bytes | None = None, row_bound: bool = False, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.declared_context = encode_context(context)
         self.context = self.declared_context
+        self.row_bound = row_bound
 
     def _set_parent(self, parent: Any, outer: bool = False, **kw: Any) -> None:
         """Wait for the column this type is attached to to join its table."""
@@ -39,8 +40,8 @@ class ContextBoundType(TypeDecorator):
         if self.declared_context is None:
             self.context = derive_column_context(table.name, column.name, schema=table.schema)
 
-    def bound_context(self) -> bytes:
-        """Return the context this column's ciphertexts are bound to."""
+    def column_context(self) -> bytes:
+        """Return the context naming the column itself, which a row-bound cell extends."""
 
         if self.context is None:
             raise ValueError(
@@ -49,6 +50,22 @@ class ContextBoundType(TypeDecorator):
             )
 
         return self.context
+
+    def bound_context(self) -> bytes:
+        """Return the context a cell of this column binds its ciphertext to."""
+
+        if self.row_bound:
+            raise ValueError(
+                "This column binds each row separately, and no row is in scope here. "
+                "Mix DeferredDecryptMixin into the mapped class so reads and writes carry the row."
+            )
+
+        return self.column_context()
+
+    def cell_context(self, row_key: str) -> bytes:
+        """Return the context the named row's cell in this column binds its ciphertext to."""
+
+        return b".".join((self.column_context(), row_key.encode("utf-8")))
 
 
 class SQLAlchemyEncryptedValue(ContextBoundType):
@@ -70,7 +87,9 @@ class SQLAlchemyEncryptedValue(ContextBoundType):
 
         return get_encryption_backend(settings.ENCRYPTION_METHOD)
 
-    def encrypt_cell(self, value: EncryptableValue | EncryptedValue | None) -> EncryptedValue | None:
+    def encrypt_cell(
+        self, value: EncryptableValue | EncryptedValue | None, *, context: bytes | None = None
+    ) -> EncryptedValue | None:
         """Encode + encrypt a single value, passing pre-encrypted values through."""
 
         if value is None:
@@ -81,10 +100,13 @@ class SQLAlchemyEncryptedValue(ContextBoundType):
         backend = self.backend()
 
         return run_async_or_sync(
-            backend.async_encrypt, backend.encrypt, encode_value(value), associated_data=self.bound_context()
+            backend.async_encrypt,
+            backend.encrypt,
+            encode_value(value),
+            associated_data=context if context is not None else self.bound_context(),
         )
 
-    def decrypt_cell(self, value: str | bytes | None) -> str | bytes | None:
+    def decrypt_cell(self, value: str | bytes | None, *, context: bytes | None = None) -> str | bytes | None:
         """Decrypt a single ciphertext; callers are responsible for decoding."""
 
         if value is None:
@@ -93,7 +115,10 @@ class SQLAlchemyEncryptedValue(ContextBoundType):
         backend = self.backend()
 
         return run_async_or_sync(
-            backend.async_decrypt, backend.decrypt, value, associated_data=self.bound_context()
+            backend.async_decrypt,
+            backend.decrypt,
+            value,
+            associated_data=context if context is not None else self.bound_context(),
         )
 
     def process_bind_param(self, value: EncryptableValue | None, dialect) -> bytes | None:
@@ -133,6 +158,12 @@ class SQLAlchemyPGEncryptedArray(ContextBoundType):
     def __init__(self, context: str | bytes | None = None, *args, **kwargs) -> None:
         super().__init__(context, *args, **kwargs)
         self._element_type = SQLAlchemyEncryptedValue(context)
+
+        if self.row_bound:
+            raise ValueError(
+                "An encrypted array cannot bind its elements to a row: its cells decrypt on the "
+                "read path, where no row is in scope."
+            )
 
     def _set_table(self, column, table) -> None:
         """Bind every element of this array to the context the column itself is bound to."""
