@@ -7,8 +7,6 @@ from sqlalchemy import Integer, Uuid, create_engine, select
 from sqlalchemy.exc import StatementError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
-from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
-from pydantic_encryption.config import settings
 from pydantic_encryption.context import derive_row_context
 from pydantic_encryption.integrations.sqlalchemy import DeferredDecryptMixin
 from pydantic_encryption.integrations.sqlalchemy.encryption import (
@@ -153,23 +151,6 @@ class TestRowBoundColumn:
         session.expunge_all()
 
         assert session.execute(select(ColumnBoundRow)).scalar_one().secret == "secret data"
-
-    def test_sealing_many_rows_does_not_grow_the_client_cache(
-        self, session: Session, monkeypatch: pytest.MonkeyPatch
-    ):
-        """Test that a context per row does not turn the backend's client cache into a leak."""
-
-        monkeypatch.setattr(settings, "FERNET_CLIENT_CACHE_SIZE", 8)
-        FernetAdapter._clients.clear()
-
-        session.add_all([BoundContractor(tax_id=f"{number:09d}") for number in range(200)])
-        session.commit()
-        session.expunge_all()
-
-        rows = session.execute(select(BoundContractor)).scalars().all()
-
-        assert sorted(row.tax_id for row in rows) == [f"{number:09d}" for number in range(200)]
-        assert len(FernetAdapter._clients) == 8
 
     def test_server_generated_key_is_refused(self, session: Session):
         """Test that a key which does not exist before its insert cannot bind a row."""

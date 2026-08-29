@@ -308,7 +308,7 @@ ENCRYPTION_METHOD=fernet
 ENCRYPTION_KEY=your_generated_key
 ```
 
-`ENCRYPTION_KEY` is the root key. Each context's key is derived from it with HKDF-SHA256, so one key covers every column and a token still only opens under the context it was sealed for. The most recently used derived clients are kept, bounded by `FERNET_CLIENT_CACHE_SIZE` (1024 by default), so binding a context per row costs a fixed amount of memory.
+`ENCRYPTION_KEY` is the root key. Each context's key is derived from it with HKDF-SHA256, so one key covers every column and a token still only opens under the context it was sealed for. Derived clients are cached most-recently-used within a fixed bound, so binding a context per row costs a fixed amount of memory.
 
 ### AWS KMS Setup
 

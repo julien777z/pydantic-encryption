@@ -1,6 +1,6 @@
 import base64
-from collections import OrderedDict
-from typing import ClassVar
+from functools import lru_cache
+from typing import Final
 
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.hashes import SHA256
@@ -11,7 +11,8 @@ from pydantic_encryption.adapters.registry import register_encryption_backend
 from pydantic_encryption.config import settings
 from pydantic_encryption.types import EncryptedValue, EncryptionMethod
 
-FERNET_KEY_LENGTH: int = 32
+FERNET_KEY_LENGTH: Final[int] = 32
+FERNET_CLIENT_CACHE_SIZE: Final[int] = 1024
 
 
 def derive_context_key(root_key: str, associated_data: bytes) -> bytes:
@@ -27,34 +28,25 @@ def derive_context_key(root_key: str, associated_data: bytes) -> bytes:
     return base64.urlsafe_b64encode(derived)
 
 
+@lru_cache(maxsize=FERNET_CLIENT_CACHE_SIZE)
+def build_fernet_client(root_key: str, associated_data: bytes) -> Fernet:
+    """Build the Fernet client one context seals under, keeping the most recently used ones."""
+
+    return Fernet(derive_context_key(root_key, associated_data))
+
+
 class FernetAdapter(EncryptionAdapter):
     """Adapter for Fernet encryption, sealing every context under its own derived key."""
 
-    _clients: ClassVar[OrderedDict[tuple[str, bytes], Fernet]] = OrderedDict()
-
     @classmethod
     def get_client(cls, key: str | None, associated_data: bytes) -> Fernet:
-        """Return the Fernet client one context seals under, keeping the most recently used ones."""
+        """Return the Fernet client the given context seals under."""
 
         resolved = key or settings.ENCRYPTION_KEY
         if not resolved:
             raise ValueError("Fernet requires ENCRYPTION_KEY to be set.")
 
-        cache_key = (resolved, associated_data)
-        client = cls._clients.get(cache_key)
-
-        if client is not None:
-            cls._clients.move_to_end(cache_key)
-
-            return client
-
-        client = Fernet(derive_context_key(resolved, associated_data))
-        cls._clients[cache_key] = client
-
-        while len(cls._clients) > settings.FERNET_CLIENT_CACHE_SIZE:
-            cls._clients.popitem(last=False)
-
-        return client
+        return build_fernet_client(resolved, associated_data)
 
     @classmethod
     def encrypt(

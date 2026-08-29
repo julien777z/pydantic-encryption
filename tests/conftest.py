@@ -6,7 +6,7 @@ import pytest_asyncio
 from cryptography.fernet import Fernet
 
 from pydantic_encryption.adapters.encryption.aws import AWSAdapter
-from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
+from pydantic_encryption.adapters.encryption.fernet import build_fernet_client
 from pydantic_encryption.config import settings
 from pydantic_encryption.types import EncryptionMethod
 from tests.factories import User, UserFactory
@@ -27,7 +27,7 @@ def set_default_encryption_method(monkeypatch):
 
     if settings.ENCRYPTION_KEY is None:
         monkeypatch.setattr(settings, "ENCRYPTION_KEY", Fernet.generate_key().decode())
-        FernetAdapter._clients.clear()
+        build_fernet_client.cache_clear()
 
     if settings.BLIND_INDEX_SECRET_KEY is None:
         monkeypatch.setattr(settings, "BLIND_INDEX_SECRET_KEY", "test-blind-index-secret-key")

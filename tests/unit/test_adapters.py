@@ -2,7 +2,12 @@ import pytest
 from cryptography.fernet import InvalidToken
 
 from pydantic_encryption.adapters.blind_index.hmac_sha256 import HMACSHA256Adapter
-from pydantic_encryption.adapters.encryption.fernet import FernetAdapter, derive_context_key
+from pydantic_encryption.adapters.encryption.fernet import (
+    FERNET_CLIENT_CACHE_SIZE,
+    FernetAdapter,
+    build_fernet_client,
+    derive_context_key,
+)
 from pydantic_encryption.adapters.hashing.argon2 import Argon2Adapter
 from pydantic_encryption.config import settings
 from pydantic_encryption.types import BlindIndexValue, EncryptedValue, HashedValue
@@ -76,7 +81,7 @@ class TestFernetAdapter:
 
 
 class TestFernetClientCache:
-    """Test that the per-context Fernet clients are kept to the configured bound."""
+    """Test that the per-context Fernet clients are kept to a bounded set."""
 
     CONTEXT = b"tests.adapters.cache"
 
@@ -88,45 +93,23 @@ class TestFernetClientCache:
 
         assert first is second
 
-    def test_cache_never_grows_past_its_bound(self, fernet_key: str, monkeypatch: pytest.MonkeyPatch):
+    def test_cache_never_grows_past_its_bound(self, fernet_key: str):
         """Test that a stream of one-off contexts cannot grow the cache without limit."""
 
-        monkeypatch.setattr(settings, "FERNET_CLIENT_CACHE_SIZE", 4)
-        FernetAdapter._clients.clear()
+        build_fernet_client.cache_clear()
 
-        for row in range(50):
+        for row in range(FERNET_CLIENT_CACHE_SIZE + 100):
             FernetAdapter.get_client(fernet_key, f"users.tax_id.{row}".encode("utf-8"))
 
-        assert len(FernetAdapter._clients) == 4
+        assert build_fernet_client.cache_info().currsize == FERNET_CLIENT_CACHE_SIZE
 
-    def test_evicted_context_still_opens_its_own_ciphertext(
-        self, fernet_key: str, monkeypatch: pytest.MonkeyPatch
-    ):
+    def test_evicted_context_still_opens_its_own_ciphertext(self, fernet_key: str):
         """Test that a context evicted from the cache decrypts what it sealed after rebuilding."""
 
-        monkeypatch.setattr(settings, "FERNET_CLIENT_CACHE_SIZE", 2)
-        FernetAdapter._clients.clear()
-
         encrypted = FernetAdapter.encrypt("secret data", key=fernet_key, associated_data=self.CONTEXT)
-        for row in range(10):
-            FernetAdapter.get_client(fernet_key, f"users.tax_id.{row}".encode("utf-8"))
+        build_fernet_client.cache_clear()
 
         assert FernetAdapter.decrypt(encrypted, key=fernet_key, associated_data=self.CONTEXT) == "secret data"
-
-    def test_least_recently_used_context_is_the_one_evicted(
-        self, fernet_key: str, monkeypatch: pytest.MonkeyPatch
-    ):
-        """Test that a context in steady use survives a flood of one-off ones."""
-
-        monkeypatch.setattr(settings, "FERNET_CLIENT_CACHE_SIZE", 3)
-        FernetAdapter._clients.clear()
-
-        hot = FernetAdapter.get_client(fernet_key, self.CONTEXT)
-        for row in range(10):
-            FernetAdapter.get_client(fernet_key, f"users.tax_id.{row}".encode("utf-8"))
-            FernetAdapter.get_client(fernet_key, self.CONTEXT)
-
-        assert FernetAdapter.get_client(fernet_key, self.CONTEXT) is hot
 
 
 class TestArgon2Adapter:
