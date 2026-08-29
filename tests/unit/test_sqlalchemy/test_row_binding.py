@@ -54,6 +54,15 @@ class UndeferredRow(RowBoundBase):
     )
 
 
+class ColumnBoundRow(RowBoundBase, DeferredDecryptMixin):
+    """Mapped class on the deferred read path whose encrypted column binds its column only."""
+
+    __tablename__ = "column_bound_rows"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    secret: Mapped[bytes | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
+
+
 @pytest.fixture
 def session() -> Iterator[Session]:
     """Open a session against a fresh in-memory database holding the row-binding tables."""
@@ -124,6 +133,24 @@ class TestRowBoundColumn:
         session.expunge_all()
 
         assert session.execute(select(BoundContractor)).scalar_one().tax_id == "333-33-3333"
+
+    def test_empty_cell_stays_empty(self, session: Session):
+        """Test that a row-bound column leaves a cell holding nothing alone."""
+
+        session.add(BoundContractor())
+        session.commit()
+        session.expunge_all()
+
+        assert session.execute(select(BoundContractor)).scalar_one().tax_id is None
+
+    def test_column_bound_row_is_untouched_by_the_row_bound_write_path(self, session: Session):
+        """Test that a class with no row-bound column writes and reads as it otherwise would."""
+
+        session.add(ColumnBoundRow(secret="secret data"))
+        session.commit()
+        session.expunge_all()
+
+        assert session.execute(select(ColumnBoundRow)).scalar_one().secret == "secret data"
 
     def test_server_generated_key_is_refused(self, session: Session):
         """Test that a key which does not exist before its insert cannot bind a row."""
