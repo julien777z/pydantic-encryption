@@ -1,6 +1,6 @@
 from typing import Self
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from pydantic_encryption.types import EncryptionMethod
@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     BLIND_INDEX_SECRET_KEY: str | None = None
 
     ENCRYPTION_METHOD: EncryptionMethod | None = None
+
+    FERNET_CLIENT_CACHE_SIZE: int = Field(default=1024, ge=1)
 
     @model_validator(mode="after")
     def validate_encryption_settings(self) -> Self:

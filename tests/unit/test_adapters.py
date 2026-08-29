@@ -75,6 +75,60 @@ class TestFernetAdapter:
             FernetAdapter.encrypt("secret data", associated_data=self.CONTEXT)
 
 
+class TestFernetClientCache:
+    """Test that the per-context Fernet clients are kept to the configured bound."""
+
+    CONTEXT = b"tests.adapters.cache"
+
+    def test_repeated_context_reuses_one_client(self, fernet_key: str):
+        """Test that a context already held is served without building a second client."""
+
+        first = FernetAdapter.get_client(fernet_key, self.CONTEXT)
+        second = FernetAdapter.get_client(fernet_key, self.CONTEXT)
+
+        assert first is second
+
+    def test_cache_never_grows_past_its_bound(self, fernet_key: str, monkeypatch: pytest.MonkeyPatch):
+        """Test that a stream of one-off contexts cannot grow the cache without limit."""
+
+        monkeypatch.setattr(settings, "FERNET_CLIENT_CACHE_SIZE", 4)
+        FernetAdapter._clients.clear()
+
+        for row in range(50):
+            FernetAdapter.get_client(fernet_key, f"users.tax_id.{row}".encode("utf-8"))
+
+        assert len(FernetAdapter._clients) == 4
+
+    def test_evicted_context_still_opens_its_own_ciphertext(
+        self, fernet_key: str, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Test that a context evicted from the cache decrypts what it sealed after rebuilding."""
+
+        monkeypatch.setattr(settings, "FERNET_CLIENT_CACHE_SIZE", 2)
+        FernetAdapter._clients.clear()
+
+        encrypted = FernetAdapter.encrypt("secret data", key=fernet_key, associated_data=self.CONTEXT)
+        for row in range(10):
+            FernetAdapter.get_client(fernet_key, f"users.tax_id.{row}".encode("utf-8"))
+
+        assert FernetAdapter.decrypt(encrypted, key=fernet_key, associated_data=self.CONTEXT) == "secret data"
+
+    def test_least_recently_used_context_is_the_one_evicted(
+        self, fernet_key: str, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Test that a context in steady use survives a flood of one-off ones."""
+
+        monkeypatch.setattr(settings, "FERNET_CLIENT_CACHE_SIZE", 3)
+        FernetAdapter._clients.clear()
+
+        hot = FernetAdapter.get_client(fernet_key, self.CONTEXT)
+        for row in range(10):
+            FernetAdapter.get_client(fernet_key, f"users.tax_id.{row}".encode("utf-8"))
+            FernetAdapter.get_client(fernet_key, self.CONTEXT)
+
+        assert FernetAdapter.get_client(fernet_key, self.CONTEXT) is hot
+
+
 class TestArgon2Adapter:
     """Test Argon2Adapter hashing."""
 

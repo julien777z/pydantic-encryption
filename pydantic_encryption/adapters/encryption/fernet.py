@@ -1,4 +1,5 @@
 import base64
+from collections import OrderedDict
 from typing import ClassVar
 
 from cryptography.fernet import Fernet
@@ -29,21 +30,31 @@ def derive_context_key(root_key: str, associated_data: bytes) -> bytes:
 class FernetAdapter(EncryptionAdapter):
     """Adapter for Fernet encryption, sealing every context under its own derived key."""
 
-    _clients: ClassVar[dict[tuple[str, bytes], Fernet]] = {}
+    _clients: ClassVar[OrderedDict[tuple[str, bytes], Fernet]] = OrderedDict()
 
     @classmethod
     def get_client(cls, key: str | None, associated_data: bytes) -> Fernet:
-        """Return the cached Fernet client for one context under the given root key."""
+        """Return the Fernet client one context seals under, keeping the most recently used ones."""
 
         resolved = key or settings.ENCRYPTION_KEY
         if not resolved:
             raise ValueError("Fernet requires ENCRYPTION_KEY to be set.")
 
         cache_key = (resolved, associated_data)
-        if cache_key not in cls._clients:
-            cls._clients[cache_key] = Fernet(derive_context_key(resolved, associated_data))
+        client = cls._clients.get(cache_key)
 
-        return cls._clients[cache_key]
+        if client is not None:
+            cls._clients.move_to_end(cache_key)
+
+            return client
+
+        client = Fernet(derive_context_key(resolved, associated_data))
+        cls._clients[cache_key] = client
+
+        while len(cls._clients) > settings.FERNET_CLIENT_CACHE_SIZE:
+            cls._clients.popitem(last=False)
+
+        return client
 
     @classmethod
     def encrypt(
