@@ -2,6 +2,7 @@ import asyncio
 import struct
 from typing import Any, Final
 
+from botocore.config import Config
 import pytest
 
 pytest.importorskip("boto3")
@@ -246,6 +247,10 @@ class TestAWSAdapterLazyInit:
         assert len(captured_kwargs) == 1
         assert captured_kwargs[0]["service"] == "kms"
         assert captured_kwargs[0]["region_name"] == "us-east-1"
+        assert isinstance(captured_kwargs[0]["config"], Config)
+        assert captured_kwargs[0]["config"].connect_timeout == 2
+        assert captured_kwargs[0]["config"].read_timeout == 5
+        assert captured_kwargs[0]["config"].retries == {"mode": "standard", "total_max_attempts": 2}
         assert AWSAdapter._sync_client is not None
 
         AWSAdapter.encrypt(b"payload-2", associated_data=CONTEXT)
@@ -266,6 +271,7 @@ class TestAWSAdapterLazyInit:
 
         opened_clients: list[FakeAsyncKMSClient] = []
         session_kwargs: list[dict[str, Any]] = []
+        captured_client_kwargs: list[dict[str, Any]] = []
 
         class _FakeClientCtx:
             def __init__(self, client: FakeAsyncKMSClient) -> None:
@@ -284,6 +290,7 @@ class TestAWSAdapterLazyInit:
 
             def client(self, service: str, **client_kwargs: Any) -> _FakeClientCtx:
                 assert service == "kms"
+                captured_client_kwargs.append(client_kwargs)
                 return _FakeClientCtx(FakeAsyncKMSClient(plaintext_data_key=DATA_KEY))
 
         monkeypatch.setattr("pydantic_encryption.adapters.encryption.aws.aioboto3.Session", _FakeAioSession)
@@ -292,6 +299,10 @@ class TestAWSAdapterLazyInit:
 
         assert len(opened_clients) == 1
         assert session_kwargs[0]["region_name"] == "us-east-1"
+        assert isinstance(captured_client_kwargs[0]["config"], Config)
+        assert captured_client_kwargs[0]["config"].connect_timeout == 2
+        assert captured_client_kwargs[0]["config"].read_timeout == 5
+        assert captured_client_kwargs[0]["config"].retries == {"mode": "standard", "total_max_attempts": 2}
         assert AWSAdapter._async_client is opened_clients[0]
         assert AWSAdapter._async_loop is asyncio.get_running_loop()
 
