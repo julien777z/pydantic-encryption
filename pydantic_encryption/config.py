@@ -1,6 +1,6 @@
 from typing import Self
 
-from pydantic import model_validator
+from pydantic import PositiveFloat, PositiveInt, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from pydantic_encryption.types import EncryptionMethod
@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     AWS_KMS_REGION: str | None = None
     AWS_KMS_ACCESS_KEY_ID: str | None = None
     AWS_KMS_SECRET_ACCESS_KEY: str | None = None
+    AWS_KMS_CONNECT_TIMEOUT_SECONDS: PositiveFloat = 2
+    AWS_KMS_READ_TIMEOUT_SECONDS: PositiveFloat = 5
+    AWS_KMS_MAX_ATTEMPTS: PositiveInt = 2
 
     BLIND_INDEX_SECRET_KEY: str | None = None
 

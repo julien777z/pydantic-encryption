@@ -10,6 +10,7 @@ require_optional_dependency("aioboto3", "aws")
 
 import aioboto3
 import boto3
+from botocore.config import Config
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from pydantic_encryption.adapters.base import EncryptionAdapter, encode_text
@@ -54,6 +55,16 @@ def kms_kwargs() -> dict[str, str]:
         "aws_access_key_id": settings.AWS_KMS_ACCESS_KEY_ID,
         "aws_secret_access_key": settings.AWS_KMS_SECRET_ACCESS_KEY,
     }
+
+
+def kms_transport_config() -> Config:
+    """Build the bounded KMS transport configuration."""
+
+    return Config(
+        connect_timeout=settings.AWS_KMS_CONNECT_TIMEOUT_SECONDS,
+        read_timeout=settings.AWS_KMS_READ_TIMEOUT_SECONDS,
+        retries={"mode": "standard", "total_max_attempts": settings.AWS_KMS_MAX_ATTEMPTS},
+    )
 
 
 def seal(
@@ -136,7 +147,7 @@ class AWSAdapter(EncryptionAdapter):
         """Return the lazily-built sync boto3 KMS client used by sync code paths."""
 
         if cls._sync_client is None:
-            cls._sync_client = boto3.client("kms", **kms_kwargs())
+            cls._sync_client = boto3.client("kms", config=kms_transport_config(), **kms_kwargs())
 
         return cls._sync_client
 
@@ -155,7 +166,7 @@ class AWSAdapter(EncryptionAdapter):
             if cls._async_client is not None and cls._async_loop is loop:
                 return cls._async_client
 
-            ctx = aioboto3.Session(**kms_kwargs()).client("kms")
+            ctx = aioboto3.Session(**kms_kwargs()).client("kms", config=kms_transport_config())
             cls._async_client = await ctx.__aenter__()
             cls._async_client_ctx = ctx
             cls._async_loop = loop
