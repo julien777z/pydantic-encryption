@@ -56,13 +56,13 @@ class TestDeriveFieldContext:
     def test_names_the_module_class_and_field(self):
         """Test that a field's context spells out where the field is declared."""
 
-        assert derive_field_context("billing.models", "Invoice", "secret") == b"billing.models.Invoice.secret"
+        assert derive_field_context("app.models", "Record", "secret") == b"app.models.Record.secret"
 
     def test_two_fields_of_one_model_bind_separately(self):
         """Test that sibling fields of one model do not share a context."""
 
-        first = derive_field_context("billing.models", "Invoice", "secret")
-        second = derive_field_context("billing.models", "Invoice", "account_number")
+        first = derive_field_context("app.models", "Record", "secret")
+        second = derive_field_context("app.models", "Record", "other_secret")
 
         assert first != second
 

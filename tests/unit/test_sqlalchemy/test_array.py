@@ -88,6 +88,6 @@ class TestPGEncryptedArrayContext:
         """Test that two arrays with different contexts do not share a statement cache key."""
 
         first = SQLAlchemyPGEncryptedArray("users.tags")
-        second = SQLAlchemyPGEncryptedArray("orders.tags")
+        second = SQLAlchemyPGEncryptedArray("records.tags")
 
         assert first._static_cache_key != second._static_cache_key

@@ -430,10 +430,10 @@ class ContextUser(ContextBase, SecretMixin):
     )
 
 
-class ContextAccount(ContextBase, SecretMixin):
+class ContextRecord(ContextBase, SecretMixin):
     """Second table carrying the same mixin column."""
 
-    __tablename__ = "context_accounts"
+    __tablename__ = "context_records"
 
     id: Mapped[int] = mapped_column(primary_key=True)
 
@@ -477,16 +477,16 @@ class TestDerivedColumnContext:
         """Test that a column inherited from a mixin binds to each inheriting table's own name."""
 
         assert ContextUser.__table__.c.secret.type.context == b"context_users.secret"
-        assert ContextAccount.__table__.c.secret.type.context == b"context_accounts.secret"
+        assert ContextRecord.__table__.c.secret.type.context == b"context_records.secret"
 
     def test_one_mixin_array_column_binds_each_table_separately(self):
         """Test that an inherited array column gives each table its own element type and context."""
 
         user_type = ContextUser.__table__.c.aliases.type
-        member_type = ContextAccount.__table__.c.aliases.type
+        member_type = ContextRecord.__table__.c.aliases.type
 
         assert user_type._element_type.context == b"context_users.aliases"
-        assert member_type._element_type.context == b"context_accounts.aliases"
+        assert member_type._element_type.context == b"context_records.aliases"
         assert user_type._element_type is not member_type._element_type
 
     def test_declared_context_survives_attachment(self):

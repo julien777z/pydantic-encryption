@@ -36,7 +36,7 @@ class User(Base, DeferredDecryptMixin):
     secret_data: Mapped[bytes | None] = mapped_column(SQLAlchemyEncryptedValue(), default=None)
     is_active: Mapped[bool | None] = mapped_column(SQLAlchemyEncryptedValue(), default=None)
     balance: Mapped[float | None] = mapped_column(SQLAlchemyEncryptedValue(), default=None)
-    salary: Mapped[Decimal | None] = mapped_column(SQLAlchemyEncryptedValue(), default=None)
+    quantity: Mapped[Decimal | None] = mapped_column(SQLAlchemyEncryptedValue(), default=None)
     external_id: Mapped[uuid.UUID | None] = mapped_column(SQLAlchemyEncryptedValue(), default=None)
     login_time: Mapped[time | None] = mapped_column(SQLAlchemyEncryptedValue(), default=None)
     session_duration: Mapped[timedelta | None] = mapped_column(SQLAlchemyEncryptedValue(), default=None)
