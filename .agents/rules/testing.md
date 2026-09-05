@@ -34,6 +34,7 @@ paths:
 ## Fixtures and Test Data
 
 - Use clearly synthetic data that is unique to each test or parametrized case unless an exact protocol or catalog literal is the contract under test; never paste exact user-provided examples into tests, and preserve only the shape or edge case being verified when inventing replacements.
+- Test data speaks the domain of the source its suite mirrors, or none: draw nouns from that source, invent neutral placeholders where a library has no domain of its own, and never carry another repository's, a consumer's, or an unrelated system's vocabulary — its tables, schemas, models, or product names — into a suite whose source does not use it.
 - Define test helper functions at module level.
 - Keep helper docstrings to a single line.
 - Use Polyfactory for structured Pydantic and SQLAlchemy test data. Define concrete `ModelFactory` or `SQLAlchemyFactory` classes in the nearest shared `factories.py`, set `__model__`, provide deterministic domain defaults, and call `.build(**overrides)` directly from tests.
