@@ -73,7 +73,7 @@ def reset_adapter_state() -> None:
 
 
 def configure_kms_settings(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Seed the AWS KMS settings a fake client still validates against."""
+    """Set the AWS KMS settings a fake client still validates against."""
 
     monkeypatch.setattr(settings, "AWS_KMS_KEY_ARN", "arn:aws:kms:us-east-1:000:key/test")
     monkeypatch.setattr(settings, "AWS_KMS_ENCRYPT_KEY_ARN", None)

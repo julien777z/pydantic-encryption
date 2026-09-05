@@ -21,7 +21,7 @@ from tests.kms import (
 
 @pytest.fixture(autouse=True)
 def set_default_encryption_method(monkeypatch):
-    """Seed encryption + blind-index config for every test so individual tests can opt out."""
+    """Set encryption and blind-index config for every test so individual tests can opt out."""
 
     monkeypatch.setattr(settings, "ENCRYPTION_METHOD", EncryptionMethod.FERNET)
 
@@ -42,7 +42,7 @@ def fernet_key() -> str:
 
 @pytest.fixture
 def fake_sync_kms(monkeypatch: pytest.MonkeyPatch) -> Iterator[FakeSyncKMSClient]:
-    """Install a fake sync KMS client and seed AWS settings for the test process."""
+    """Install a fake sync KMS client and set AWS settings for the test process."""
 
     reset_adapter_state()
 
@@ -58,7 +58,7 @@ def fake_sync_kms(monkeypatch: pytest.MonkeyPatch) -> Iterator[FakeSyncKMSClient
 
 @pytest_asyncio.fixture
 async def fake_async_kms(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[FakeAsyncKMSClient]:
-    """Install a fake async KMS client and seed AWS settings for the test process."""
+    """Install a fake async KMS client and set AWS settings for the test process."""
 
     reset_adapter_state()
 
