@@ -2,12 +2,7 @@ import pytest
 from cryptography.fernet import InvalidToken
 
 from pydantic_encryption.adapters.blind_index.hmac_sha256 import HMACSHA256Adapter
-from pydantic_encryption.adapters.encryption.fernet import (
-    FERNET_CLIENT_CACHE_SIZE,
-    FernetAdapter,
-    build_fernet_client,
-    derive_context_key,
-)
+from pydantic_encryption.adapters.encryption.fernet import FernetAdapter, derive_context_key
 from pydantic_encryption.adapters.hashing.argon2 import Argon2Adapter
 from pydantic_encryption.config import settings
 from pydantic_encryption.types import BlindIndexValue, EncryptedValue, HashedValue
@@ -80,34 +75,20 @@ class TestFernetAdapter:
             FernetAdapter.encrypt("secret data", associated_data=self.CONTEXT)
 
 
-class TestFernetClientCache:
-    """Test that the per-context Fernet clients are kept to a bounded set."""
+class TestFernetContextKeys:
+    """Test the key a context seals under."""
 
-    CONTEXT = b"tests.adapters.cache"
+    CONTEXT = b"tests.adapters.keys"
 
-    def test_repeated_context_reuses_one_client(self, fernet_key: str):
-        """Test that a context already held is served without building a second client."""
+    def test_one_context_derives_one_key(self, fernet_key: str):
+        """Test that a context derives the same key every time it is sealed under."""
 
-        first = FernetAdapter.get_client(fernet_key, self.CONTEXT)
-        second = FernetAdapter.get_client(fernet_key, self.CONTEXT)
+        assert derive_context_key(fernet_key, self.CONTEXT) == derive_context_key(fernet_key, self.CONTEXT)
 
-        assert first is second
-
-    def test_cache_never_grows_past_its_bound(self, fernet_key: str):
-        """Test that a stream of one-off contexts cannot grow the cache without limit."""
-
-        build_fernet_client.cache_clear()
-
-        for row in range(FERNET_CLIENT_CACHE_SIZE + 100):
-            FernetAdapter.get_client(fernet_key, f"users.secret.{row}".encode("utf-8"))
-
-        assert build_fernet_client.cache_info().currsize == FERNET_CLIENT_CACHE_SIZE
-
-    def test_evicted_context_still_opens_its_own_ciphertext(self, fernet_key: str):
-        """Test that a context evicted from the cache decrypts what it sealed after rebuilding."""
+    def test_a_context_opens_what_it_sealed(self, fernet_key: str):
+        """Test that a context decrypts its own ciphertext through a freshly built client."""
 
         encrypted = FernetAdapter.encrypt("secret data", key=fernet_key, associated_data=self.CONTEXT)
-        build_fernet_client.cache_clear()
 
         assert FernetAdapter.decrypt(encrypted, key=fernet_key, associated_data=self.CONTEXT) == "secret data"
 

@@ -1,5 +1,4 @@
 import base64
-from functools import lru_cache
 from typing import Final
 
 from cryptography.fernet import Fernet
@@ -12,7 +11,6 @@ from pydantic_encryption.config import settings
 from pydantic_encryption.types import EncryptedValue, EncryptionMethod
 
 FERNET_KEY_LENGTH: Final[int] = 32
-FERNET_CLIENT_CACHE_SIZE: Final[int] = 1024
 
 
 def derive_context_key(root_key: str, associated_data: bytes) -> bytes:
@@ -28,13 +26,6 @@ def derive_context_key(root_key: str, associated_data: bytes) -> bytes:
     return base64.urlsafe_b64encode(derived)
 
 
-@lru_cache(maxsize=FERNET_CLIENT_CACHE_SIZE)
-def build_fernet_client(root_key: str, associated_data: bytes) -> Fernet:
-    """Build the Fernet client one context seals under, keeping the most recently used ones."""
-
-    return Fernet(derive_context_key(root_key, associated_data))
-
-
 class FernetAdapter(EncryptionAdapter):
     """Adapter for Fernet encryption, sealing every context under its own derived key."""
 
@@ -46,7 +37,7 @@ class FernetAdapter(EncryptionAdapter):
         if not resolved:
             raise ValueError("Fernet requires ENCRYPTION_KEY to be set.")
 
-        return build_fernet_client(resolved, associated_data)
+        return Fernet(derive_context_key(resolved, associated_data))
 
     @classmethod
     def encrypt(
