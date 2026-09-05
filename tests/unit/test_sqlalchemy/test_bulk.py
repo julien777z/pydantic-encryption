@@ -110,7 +110,7 @@ class TestDecryptRows:
 
     def test_decrypt_rows_empty(self):
         asyncio.run(decrypt_rows([], "email"))  # no error
-        asyncio.run(decrypt_rows([self.make_row(None, None)], "email"))  # no error
+        asyncio.run(decrypt_rows([self.make_row(None, None)], "email"))
 
     def test_decrypt_rows_skips_none_cells(self):
         rows = [self.make_row("a@x.com", None), self.make_row(None, "s1")]

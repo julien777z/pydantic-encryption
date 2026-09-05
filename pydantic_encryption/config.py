@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     AWS_KMS_CONNECT_TIMEOUT_SECONDS: PositiveFloat = 2
     AWS_KMS_READ_TIMEOUT_SECONDS: PositiveFloat = 5
     AWS_KMS_MAX_ATTEMPTS: PositiveInt = 2
+    AWS_KMS_DATA_KEY_MAX_AGE_SECONDS: PositiveFloat = 300
+    AWS_KMS_DATA_KEY_MAX_USES: PositiveInt = 1000
+    AWS_KMS_UNWRAPPED_KEY_CACHE_SIZE: PositiveInt = 512
+    AWS_KMS_UNWRAPPED_KEY_MAX_AGE_SECONDS: PositiveFloat = 300
 
     BLIND_INDEX_SECRET_KEY: str | None = None
 

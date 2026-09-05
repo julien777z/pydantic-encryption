@@ -1,7 +1,13 @@
 import asyncio
 import secrets
 import struct
+import threading
+import time
+from collections import OrderedDict
 from typing import Any, ClassVar, Final
+from weakref import WeakKeyDictionary
+
+from pydantic import BaseModel, Field
 
 from pydantic_encryption.lazy import require_optional_dependency
 
@@ -23,6 +29,32 @@ HEADER_PACK_FORMAT: Final[str] = ">BBH"
 HEADER_LENGTH: Final[int] = struct.calcsize(HEADER_PACK_FORMAT)
 NONCE_LENGTH: Final[int] = 12
 DATA_KEY_SPEC: Final[str] = "AES_256"
+
+
+class DataKey(BaseModel):
+    """A KMS data key held in memory, with how far its reuse has gone."""
+
+    plaintext: bytes = Field(repr=False)
+    wrapped: bytes = Field(repr=False)
+    issued_at: float
+    uses: int = 0
+
+    def is_spent(self, max_uses: int, max_age_seconds: float, now: float) -> bool:
+        """Return whether this key has exhausted either of its reuse bounds."""
+
+        return self.uses >= max_uses or now - self.issued_at >= max_age_seconds
+
+
+class UnwrappedDataKey(BaseModel):
+    """A data key KMS has unwrapped for this process, kept until it expires."""
+
+    plaintext: bytes = Field(repr=False)
+    unwrapped_at: float
+
+    def has_expired(self, max_age_seconds: float, now: float) -> bool:
+        """Return whether this unwrapped key has outlived its retention."""
+
+        return now - self.unwrapped_at >= max_age_seconds
 
 
 def to_bytes(ciphertext: bytes | str | EncryptedValue) -> bytes:
@@ -86,6 +118,12 @@ def seal(
     )
 
 
+def unseal(plaintext_data_key: bytes, nonce: bytes, sealed: bytes, associated_data: bytes) -> str:
+    """Open one AES-GCM sealed value with an already unwrapped data key."""
+
+    return AESGCM(plaintext_data_key).decrypt(nonce, sealed, associated_data).decode("utf-8")
+
+
 def open(blob: bytes) -> tuple[bytes, bytes, bytes]:
     """Validate the envelope header and split into ``(wrapped_data_key, nonce, sealed)``."""
 
@@ -110,13 +148,25 @@ def open(blob: bytes) -> tuple[bytes, bytes, bytes]:
 
 
 class AWSAdapter(EncryptionAdapter):
-    """AWS KMS adapter using GenerateDataKey + AES-256-GCM envelope encryption."""
+    """AWS KMS envelope encryption, reusing each data key across values within configured bounds."""
 
     _sync_client: ClassVar[Any | None] = None
     _async_client: ClassVar[Any | None] = None
     _async_client_ctx: ClassVar[Any | None] = None
     _async_loop: ClassVar[asyncio.AbstractEventLoop | None] = None
     _async_init_lock: ClassVar[asyncio.Lock | None] = None
+
+    encrypt_key: ClassVar[DataKey | None] = None
+    unwrapped_keys: ClassVar[OrderedDict[bytes, UnwrappedDataKey]] = OrderedDict()
+    cache_lock: ClassVar[threading.Lock] = threading.Lock()
+    generation_lock: ClassVar[threading.Lock] = threading.Lock()
+    unwrapping_lock: ClassVar[threading.Lock] = threading.Lock()
+    loop_generation_locks: ClassVar[WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock]] = (
+        WeakKeyDictionary()
+    )
+    loop_unwrapping_locks: ClassVar[WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock]] = (
+        WeakKeyDictionary()
+    )
 
     @classmethod
     def encrypt_arn(cls) -> str:
@@ -187,6 +237,124 @@ class AWSAdapter(EncryptionAdapter):
         await ctx.__aexit__(None, None, None)
 
     @classmethod
+    def claim_encrypt_key(cls) -> DataKey | None:
+        """Return the held data key and count this use, or ``None`` once it is spent."""
+
+        with cls.cache_lock:
+            held = cls.encrypt_key
+            if held is None or held.is_spent(
+                settings.AWS_KMS_DATA_KEY_MAX_USES,
+                settings.AWS_KMS_DATA_KEY_MAX_AGE_SECONDS,
+                time.monotonic(),
+            ):
+                return None
+
+            held.uses += 1
+
+            return held
+
+    @classmethod
+    def hold_encrypt_key(cls, response: dict[str, Any]) -> DataKey:
+        """Hold a freshly generated data key for reuse, counting its first use."""
+
+        held = DataKey(
+            plaintext=response["Plaintext"],
+            wrapped=response["CiphertextBlob"],
+            issued_at=time.monotonic(),
+            uses=1,
+        )
+
+        with cls.cache_lock:
+            cls.encrypt_key = held
+
+        return held
+
+    @classmethod
+    def remember_unwrapped_key(cls, wrapped: bytes, plaintext: bytes) -> None:
+        """Keep an unwrapped data key, evicting the least recently used once the cache is full."""
+
+        with cls.cache_lock:
+            cls.unwrapped_keys[wrapped] = UnwrappedDataKey(plaintext=plaintext, unwrapped_at=time.monotonic())
+            cls.unwrapped_keys.move_to_end(wrapped)
+
+            while len(cls.unwrapped_keys) > settings.AWS_KMS_UNWRAPPED_KEY_CACHE_SIZE:
+                cls.unwrapped_keys.popitem(last=False)
+
+    @classmethod
+    def recall_unwrapped_key(cls, wrapped: bytes) -> bytes | None:
+        """Return a still-fresh unwrapped data key, marking it most recently used."""
+
+        with cls.cache_lock:
+            unwrapped = cls.unwrapped_keys.get(wrapped)
+            if unwrapped is None:
+                return None
+
+            if unwrapped.has_expired(settings.AWS_KMS_UNWRAPPED_KEY_MAX_AGE_SECONDS, time.monotonic()):
+                del cls.unwrapped_keys[wrapped]
+
+                return None
+
+            cls.unwrapped_keys.move_to_end(wrapped)
+
+            return unwrapped.plaintext
+
+    @classmethod
+    def loop_lock(cls, locks: WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock]) -> asyncio.Lock:
+        """Return the lock serializing one kind of cold KMS call on the running event loop."""
+
+        loop = asyncio.get_running_loop()
+
+        with cls.cache_lock:
+            lock = locks.get(loop)
+            if lock is None:
+                lock = asyncio.Lock()
+                locks[loop] = lock
+
+            return lock
+
+    @classmethod
+    def reset_cache(cls) -> None:
+        """Drop every held key so the next call goes back to KMS."""
+
+        with cls.cache_lock:
+            cls.encrypt_key = None
+            cls.unwrapped_keys.clear()
+
+    @classmethod
+    def unwrapped_key(cls, wrapped: bytes) -> bytes:
+        """Return the plaintext of a wrapped data key, unwrapping it through KMS once per process."""
+
+        plaintext = cls.recall_unwrapped_key(wrapped)
+        if plaintext is not None:
+            return plaintext
+
+        with cls.unwrapping_lock:
+            plaintext = cls.recall_unwrapped_key(wrapped)
+            if plaintext is None:
+                plaintext = cls.sync_kms().decrypt(**cls.decrypt_kwargs(wrapped))["Plaintext"]
+                cls.remember_unwrapped_key(wrapped, plaintext)
+
+        return plaintext
+
+    @classmethod
+    async def async_unwrapped_key(cls, wrapped: bytes) -> bytes:
+        """Return the plaintext of a wrapped data key, unwrapping it through KMS once per process."""
+
+        plaintext = cls.recall_unwrapped_key(wrapped)
+        if plaintext is not None:
+            return plaintext
+
+        async with cls.loop_lock(cls.loop_unwrapping_locks):
+            plaintext = cls.recall_unwrapped_key(wrapped)
+            if plaintext is None:
+                kms = await cls.async_kms()
+                response = await kms.decrypt(**cls.decrypt_kwargs(wrapped))
+                plaintext = response["Plaintext"]
+                cls.remember_unwrapped_key(wrapped, plaintext)
+
+        return plaintext
+
+    @classmethod
     def encrypt(
         cls,
         plaintext: bytes | str | EncryptedValue,
@@ -197,11 +365,14 @@ class AWSAdapter(EncryptionAdapter):
         if isinstance(plaintext, EncryptedValue):
             return plaintext
 
-        response = cls.sync_kms().generate_data_key(KeyId=cls.encrypt_arn(), KeySpec=DATA_KEY_SPEC)
+        held = cls.claim_encrypt_key()
+        if held is None:
+            with cls.generation_lock:
+                held = cls.claim_encrypt_key() or cls.hold_encrypt_key(
+                    cls.sync_kms().generate_data_key(KeyId=cls.encrypt_arn(), KeySpec=DATA_KEY_SPEC)
+                )
 
-        return seal(
-            response["Plaintext"], response["CiphertextBlob"], encode_text(plaintext), associated_data
-        )
+        return seal(held.plaintext, held.wrapped, encode_text(plaintext), associated_data)
 
     @classmethod
     async def async_encrypt(
@@ -214,12 +385,17 @@ class AWSAdapter(EncryptionAdapter):
         if isinstance(plaintext, EncryptedValue):
             return plaintext
 
-        kms = await cls.async_kms()
-        response = await kms.generate_data_key(KeyId=cls.encrypt_arn(), KeySpec=DATA_KEY_SPEC)
+        held = cls.claim_encrypt_key()
+        if held is None:
+            async with cls.loop_lock(cls.loop_generation_locks):
+                held = cls.claim_encrypt_key()
+                if held is None:
+                    kms = await cls.async_kms()
+                    held = cls.hold_encrypt_key(
+                        await kms.generate_data_key(KeyId=cls.encrypt_arn(), KeySpec=DATA_KEY_SPEC)
+                    )
 
-        return seal(
-            response["Plaintext"], response["CiphertextBlob"], encode_text(plaintext), associated_data
-        )
+        return seal(held.plaintext, held.wrapped, encode_text(plaintext), associated_data)
 
     @classmethod
     def decrypt(
@@ -231,9 +407,7 @@ class AWSAdapter(EncryptionAdapter):
     ) -> str:
         wrapped, nonce, sealed = open(to_bytes(ciphertext))
 
-        plaintext_data_key = cls.sync_kms().decrypt(**cls.decrypt_kwargs(wrapped))["Plaintext"]
-
-        return AESGCM(plaintext_data_key).decrypt(nonce, sealed, associated_data).decode("utf-8")
+        return unseal(cls.unwrapped_key(wrapped), nonce, sealed, associated_data)
 
     @classmethod
     async def async_decrypt(
@@ -245,7 +419,4 @@ class AWSAdapter(EncryptionAdapter):
     ) -> str:
         wrapped, nonce, sealed = open(to_bytes(ciphertext))
 
-        kms = await cls.async_kms()
-        response = await kms.decrypt(**cls.decrypt_kwargs(wrapped))
-
-        return AESGCM(response["Plaintext"]).decrypt(nonce, sealed, associated_data).decode("utf-8")
+        return unseal(await cls.async_unwrapped_key(wrapped), nonce, sealed, associated_data)

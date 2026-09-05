@@ -10,7 +10,6 @@ from pydantic_encryption.config import settings
 from pydantic_encryption.types import EncryptionMethod
 from tests.factories import User, UserFactory
 from tests.kms import (
-    DATA_KEY,
     FakeAsyncKMSClient,
     FakeSyncKMSClient,
     configure_kms_settings,
@@ -46,7 +45,7 @@ def fake_sync_kms(monkeypatch: pytest.MonkeyPatch) -> Iterator[FakeSyncKMSClient
 
     configure_kms_settings(monkeypatch)
 
-    client = FakeSyncKMSClient(plaintext_data_key=DATA_KEY)
+    client = FakeSyncKMSClient()
     AWSAdapter._sync_client = client
 
     yield client
@@ -62,7 +61,7 @@ async def fake_async_kms(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[FakeA
 
     configure_kms_settings(monkeypatch)
 
-    client = FakeAsyncKMSClient(plaintext_data_key=DATA_KEY)
+    client = FakeAsyncKMSClient()
     AWSAdapter._async_client = client
     AWSAdapter._async_loop = asyncio.get_running_loop()
 

@@ -1,3 +1,4 @@
+import secrets
 from typing import Any
 
 import pytest
@@ -5,71 +6,63 @@ import pytest
 from pydantic_encryption.adapters.encryption.aws import AWSAdapter
 from pydantic_encryption.config import settings
 
-DATA_KEY: bytes = b"\x00" * 32
-
 
 class FakeSyncKMSClient:
-    """Stand-in for the sync boto3 KMS client; records calls and returns deterministic blobs."""
+    """Stand-in for the sync boto3 KMS client; mints a distinct data key per call and records calls."""
 
-    def __init__(self, plaintext_data_key: bytes) -> None:
-        self.plaintext_data_key = plaintext_data_key
+    def __init__(self) -> None:
+        self.plaintext_keys: dict[bytes, bytes] = {}
         self.generate_calls: list[dict[str, Any]] = []
         self.decrypt_calls: list[dict[str, Any]] = []
-        self.next_wrapped_key: bytes = b"wrapped-key"
 
     def generate_data_key(self, **kwargs: Any) -> dict[str, bytes]:
-        """Return a fixed plaintext key and a unique wrapped key per call."""
+        """Return a fresh plaintext key wrapped under an identifier this fake can recover it by."""
 
         self.generate_calls.append(kwargs)
+        plaintext = secrets.token_bytes(32)
+        wrapped = f"wrapped-{len(self.plaintext_keys) + 1}".encode("utf-8")
+        self.plaintext_keys[wrapped] = plaintext
 
-        return {
-            "Plaintext": self.plaintext_data_key,
-            "CiphertextBlob": self.next_wrapped_key,
-        }
+        return {"Plaintext": plaintext, "CiphertextBlob": wrapped}
 
     def decrypt(self, **kwargs: Any) -> dict[str, bytes]:
-        """Return the fixed plaintext key for any wrapped key."""
+        """Return the plaintext key the wrapped identifier stands for."""
 
         self.decrypt_calls.append(kwargs)
 
-        return {"Plaintext": self.plaintext_data_key}
+        return {"Plaintext": self.plaintext_keys[kwargs["CiphertextBlob"]]}
 
 
 class FakeAsyncKMSClient:
-    """Stand-in for the aioboto3 KMS client; records calls and returns deterministic blobs."""
+    """Stand-in for the aioboto3 KMS client, answering the sync fake's calls asynchronously."""
 
-    def __init__(self, plaintext_data_key: bytes) -> None:
-        self.plaintext_data_key = plaintext_data_key
-        self.generate_calls: list[dict[str, Any]] = []
-        self.decrypt_calls: list[dict[str, Any]] = []
-        self.next_wrapped_key: bytes = b"wrapped-key"
+    def __init__(self) -> None:
+        self.kms = FakeSyncKMSClient()
+
+    @property
+    def generate_calls(self) -> list[dict[str, Any]]:
+        return self.kms.generate_calls
+
+    @property
+    def decrypt_calls(self) -> list[dict[str, Any]]:
+        return self.kms.decrypt_calls
 
     async def generate_data_key(self, **kwargs: Any) -> dict[str, bytes]:
-        """Return a fixed plaintext key and a unique wrapped key per call."""
-
-        self.generate_calls.append(kwargs)
-
-        return {
-            "Plaintext": self.plaintext_data_key,
-            "CiphertextBlob": self.next_wrapped_key,
-        }
+        return self.kms.generate_data_key(**kwargs)
 
     async def decrypt(self, **kwargs: Any) -> dict[str, bytes]:
-        """Return the fixed plaintext key for any wrapped key."""
-
-        self.decrypt_calls.append(kwargs)
-
-        return {"Plaintext": self.plaintext_data_key}
+        return self.kms.decrypt(**kwargs)
 
 
 def reset_adapter_state() -> None:
-    """Clear lazily-initialized KMS clients so each test starts fresh."""
+    """Clear the lazily built KMS clients and every held data key so each test starts cold."""
 
     AWSAdapter._sync_client = None
     AWSAdapter._async_client = None
     AWSAdapter._async_client_ctx = None
     AWSAdapter._async_loop = None
     AWSAdapter._async_init_lock = None
+    AWSAdapter.reset_cache()
 
 
 def configure_kms_settings(monkeypatch: pytest.MonkeyPatch) -> None:
