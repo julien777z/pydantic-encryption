@@ -6,14 +6,14 @@ from pydantic_encryption.integrations.sqlalchemy.encryption import (
     SQLAlchemyEncryptedValue,
     SQLAlchemyPGEncryptedArray,
 )
-from pydantic_encryption.integrations.sqlalchemy.serialization import decode_value, encode_value
+from pydantic_encryption.serialization import decode_value, encode_value
 
 
 class TestSQLAlchemyPGEncryptedArray:
     """Test the SQLAlchemyPGEncryptedArray type adapter."""
 
     def setup_method(self):
-        self.type_adapter = SQLAlchemyPGEncryptedArray()
+        self.type_adapter = SQLAlchemyPGEncryptedArray("tests.encrypted_array.values")
 
     def test_process_bind_param_none(self):
         assert self.type_adapter.process_bind_param(None, dialect=None) is None
@@ -74,3 +74,20 @@ class TestSQLAlchemyPGEncryptedArray:
         serialized = [encode_value(v) for v in original]
         result = [decode_value(v) for v in serialized]
         assert result == original
+
+
+class TestPGEncryptedArrayContext:
+    """Test that an encrypted array binds its elements to the column's context."""
+
+    def test_element_type_carries_the_context(self):
+        """Test that the element type is bound to the context the array was given."""
+
+        assert SQLAlchemyPGEncryptedArray("users.tags")._element_type.context == b"users.tags"
+
+    def test_cache_key_distinguishes_contexts(self):
+        """Test that two arrays with different contexts do not share a statement cache key."""
+
+        first = SQLAlchemyPGEncryptedArray("users.tags")
+        second = SQLAlchemyPGEncryptedArray("records.tags")
+
+        assert first._static_cache_key != second._static_cache_key

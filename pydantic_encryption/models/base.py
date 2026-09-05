@@ -9,7 +9,9 @@ from pydantic_encryption.adapters.base import BlindIndexAdapter, EncryptionAdapt
 from pydantic_encryption.adapters.hashing.argon2 import Argon2Adapter
 from pydantic_encryption.adapters.registry import get_blind_index_backend, get_encryption_backend
 from pydantic_encryption.config import settings
+from pydantic_encryption.context import derive_field_context
 from pydantic_encryption.normalization import normalize_value
+from pydantic_encryption.serialization import decode_value, encode_value
 from pydantic_encryption.types import BlindIndex, BlindIndexValue, Encrypted, EncryptionMethod, Hashed
 
 __all__ = ["BaseModel", "SecureModel"]
@@ -174,6 +176,17 @@ class SecureModel:
         for name, task in tasks:
             setattr(self, name, task.result())
 
+    @staticmethod
+    async def decode_awaited(plaintext: Awaitable[str]) -> Any:
+        """Await a decryption and deserialize its plaintext back to the value that was encrypted."""
+
+        return decode_value(await plaintext)
+
+    def field_context(self, field_name: str) -> bytes:
+        """Bind a field's ciphertext to the model and field it belongs to."""
+
+        return derive_field_context(type(self).__module__, type(self).__qualname__, field_name)
+
     def encrypt_data(self) -> None:
         """Encrypt fields annotated with ``Encrypted`` in-place."""
 
@@ -183,7 +196,11 @@ class SecureModel:
 
         backend, key, fields = collected
         for field_name, value in fields.items():
-            setattr(self, field_name, backend.encrypt(value, key=key))
+            setattr(
+                self,
+                field_name,
+                backend.encrypt(encode_value(value), key=key, associated_data=self.field_context(field_name)),
+            )
 
     def hash_data(self) -> None:
         """Hash fields annotated with ``Hashed`` in-place."""
@@ -214,7 +231,8 @@ class SecureModel:
 
         backend, key, fields = collected
         for field_name, value in fields.items():
-            setattr(self, field_name, backend.decrypt(value, key=key))
+            plaintext = backend.decrypt(value, key=key, associated_data=self.field_context(field_name))
+            setattr(self, field_name, decode_value(plaintext))
 
         return self
 
@@ -226,7 +244,17 @@ class SecureModel:
             return
 
         backend, key, fields = collected
-        await self.async_apply([(name, backend.async_encrypt(val, key=key)) for name, val in fields.items()])
+        await self.async_apply(
+            [
+                (
+                    name,
+                    backend.async_encrypt(
+                        encode_value(val), key=key, associated_data=self.field_context(name)
+                    ),
+                )
+                for name, val in fields.items()
+            ]
+        )
 
     async def async_hash_data(self) -> None:
         """Asynchronously hash fields annotated with ``Hashed``."""
@@ -259,7 +287,17 @@ class SecureModel:
             return self
 
         backend, key, fields = collected
-        await self.async_apply([(name, backend.async_decrypt(val, key=key)) for name, val in fields.items()])
+        await self.async_apply(
+            [
+                (
+                    name,
+                    self.decode_awaited(
+                        backend.async_decrypt(val, key=key, associated_data=self.field_context(name))
+                    ),
+                )
+                for name, val in fields.items()
+            ]
+        )
 
         return self
 

@@ -4,6 +4,14 @@ on:
   push:
     branches:
       - "**"
+    paths:
+      - "pydantic_encryption/**"
+      - "tests/**"
+      - "scripts/**"
+      - "pyproject.toml"
+      - "poetry.lock"
+      - ".github/workflows/run_tests.yml"
+      - ".github/actions/setup-python-poetry/**"
 
 jobs:
   build:

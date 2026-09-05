@@ -1,76 +1,96 @@
 import pytest
+from cryptography.fernet import InvalidToken
 
 from pydantic_encryption.adapters.blind_index.hmac_sha256 import HMACSHA256Adapter
-from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
+from pydantic_encryption.adapters.encryption.fernet import FernetAdapter, derive_context_key
 from pydantic_encryption.adapters.hashing.argon2 import Argon2Adapter
+from pydantic_encryption.config import settings
 from pydantic_encryption.types import BlindIndexValue, EncryptedValue, HashedValue
 
 
 class TestFernetAdapter:
-    """Test FernetAdapter encryption and decryption."""
+    """Test FernetAdapter encryption and decryption under a bound context."""
 
-    def test_encrypt_string(self):
-        """Test encrypting a string."""
-        plaintext = "secret data"
-        encrypted = FernetAdapter.encrypt(plaintext)
+    CONTEXT = b"tests.adapters.first_column"
+    OTHER_CONTEXT = b"tests.adapters.second_column"
+
+    @pytest.mark.parametrize(
+        "plaintext",
+        [
+            "",
+            "secret data",
+            "Hello, World! 🔐",
+            "日本語 한국어 العربية 🎉🔒",
+            '!@#$%^&*()_+-={}[]|\\:";<>?,./~`',
+        ],
+        ids=["empty", "ascii", "mixed", "unicode", "punctuation"],
+    )
+    def test_round_trip_under_the_matching_context(self, fernet_key: str, plaintext: str):
+        """Test that decrypt returns the plaintext when handed the context encrypt was given."""
+
+        encrypted = FernetAdapter.encrypt(plaintext, key=fernet_key, associated_data=self.CONTEXT)
 
         assert isinstance(encrypted, EncryptedValue)
         assert encrypted != plaintext.encode("utf-8")
+        assert FernetAdapter.decrypt(encrypted, key=fernet_key, associated_data=self.CONTEXT) == plaintext
 
-    def test_encrypt_bytes(self):
-        """Test encrypting bytes."""
-        plaintext = b"secret bytes"
-        encrypted = FernetAdapter.encrypt(plaintext)
+    def test_encrypt_bytes(self, fernet_key: str):
+        """Test that bytes plaintext seals the same way a str does."""
+
+        encrypted = FernetAdapter.encrypt(b"secret bytes", key=fernet_key, associated_data=self.CONTEXT)
 
         assert isinstance(encrypted, EncryptedValue)
 
-    def test_decrypt_returns_string(self):
-        """Test decrypting returns plain string."""
-        plaintext = "secret data"
-        encrypted = FernetAdapter.encrypt(plaintext)
-        decrypted = FernetAdapter.decrypt(encrypted)
+    def test_decrypt_under_a_different_context_fails(self, fernet_key: str):
+        """Test that a value lifted into another context fails to open there."""
 
-        assert isinstance(decrypted, str)
-        assert decrypted == plaintext
+        encrypted = FernetAdapter.encrypt("secret data", key=fernet_key, associated_data=self.CONTEXT)
 
-    def test_encrypt_decrypt_roundtrip(self):
-        """Test encrypt/decrypt roundtrip preserves data."""
-        plaintext = "Hello, World! 🔐"
-        encrypted = FernetAdapter.encrypt(plaintext)
-        decrypted = FernetAdapter.decrypt(encrypted)
+        with pytest.raises(InvalidToken):
+            FernetAdapter.decrypt(encrypted, key=fernet_key, associated_data=self.OTHER_CONTEXT)
 
-        assert decrypted == plaintext
+    def test_each_context_derives_its_own_key(self, fernet_key: str):
+        """Test that two contexts under one root key seal under different derived keys."""
 
-    def test_encrypt_already_encrypted_returns_same(self):
-        """Test encrypting already encrypted value returns same value."""
-        plaintext = "secret"
-        encrypted = FernetAdapter.encrypt(plaintext)
-        double_encrypted = FernetAdapter.encrypt(encrypted)
+        first = derive_context_key(fernet_key, self.CONTEXT)
+        second = derive_context_key(fernet_key, self.OTHER_CONTEXT)
+
+        assert first != second
+        assert first == derive_context_key(fernet_key, self.CONTEXT)
+
+    def test_encrypt_already_encrypted_returns_same(self, fernet_key: str):
+        """Test that encrypting an already encrypted value returns it unchanged."""
+
+        encrypted = FernetAdapter.encrypt("secret", key=fernet_key, associated_data=self.CONTEXT)
+        double_encrypted = FernetAdapter.encrypt(encrypted, key=fernet_key, associated_data=self.CONTEXT)
 
         assert encrypted == double_encrypted
 
-    def test_encrypt_empty_string(self):
-        """Test encrypting empty string."""
-        encrypted = FernetAdapter.encrypt("")
-        decrypted = FernetAdapter.decrypt(encrypted)
+    def test_encrypt_raises_without_a_root_key(self, monkeypatch: pytest.MonkeyPatch):
+        """Test that encrypt raises when neither an explicit key nor ENCRYPTION_KEY is set."""
 
-        assert decrypted == ""
+        monkeypatch.setattr(settings, "ENCRYPTION_KEY", None)
 
-    def test_encrypt_special_characters(self):
-        """Test encrypting special characters."""
-        plaintext = '!@#$%^&*()_+-={}[]|\\:";<>?,./~`'
-        encrypted = FernetAdapter.encrypt(plaintext)
-        decrypted = FernetAdapter.decrypt(encrypted)
+        with pytest.raises(ValueError, match="ENCRYPTION_KEY"):
+            FernetAdapter.encrypt("secret data", associated_data=self.CONTEXT)
 
-        assert decrypted == plaintext
 
-    def test_encrypt_unicode(self):
-        """Test encrypting unicode characters."""
-        plaintext = "日本語 한국어 العربية 🎉🔒"
-        encrypted = FernetAdapter.encrypt(plaintext)
-        decrypted = FernetAdapter.decrypt(encrypted)
+class TestFernetContextKeys:
+    """Test the key a context seals under."""
 
-        assert decrypted == plaintext
+    CONTEXT = b"tests.adapters.keys"
+
+    def test_one_context_derives_one_key(self, fernet_key: str):
+        """Test that a context derives the same key every time it is sealed under."""
+
+        assert derive_context_key(fernet_key, self.CONTEXT) == derive_context_key(fernet_key, self.CONTEXT)
+
+    def test_a_context_opens_what_it_sealed(self, fernet_key: str):
+        """Test that a context decrypts its own ciphertext through a freshly built client."""
+
+        encrypted = FernetAdapter.encrypt("secret data", key=fernet_key, associated_data=self.CONTEXT)
+
+        assert FernetAdapter.decrypt(encrypted, key=fernet_key, associated_data=self.CONTEXT) == "secret data"
 
 
 class TestArgon2Adapter:

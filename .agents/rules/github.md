@@ -47,6 +47,13 @@ alwaysApply: true
 
 - Describe available capabilities without assuming how consumers will use the project or framing guidance as prohibitions such as "never do X."
 - Remove repeated explanations and prefer short sections, bullets, tables, and focused examples over long prose.
+- **Order sections for a reader arriving cold, never by what landed most recently.** A section goes
+  where its vocabulary is already established: one whose examples are all of some construct follows
+  the section that introduces that construct, however central the behavior it describes is. Being the
+  headline of the change that added it is not a claim on the top of the file.
+- A section that has grown into a wall of prose is a signal that it is carrying rules a table states
+  better. Move the composition rules into the table and leave the prose only what a table cannot say —
+  the caveats, the reasons, and when to reach for the explicit form.
 
 ### GitHub Actions And Libraries
 
