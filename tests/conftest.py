@@ -1,20 +1,13 @@
-import asyncio
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import Iterator
 
 import pytest
-import pytest_asyncio
 from cryptography.fernet import Fernet
 
 from pydantic_encryption.adapters.encryption.aws import AWSAdapter
 from pydantic_encryption.config import settings
 from pydantic_encryption.types import EncryptionMethod
 from tests.factories import User, UserFactory
-from tests.kms import (
-    FakeAsyncKMSClient,
-    FakeSyncKMSClient,
-    configure_kms_settings,
-    reset_adapter_state,
-)
+from tests.kms import FakeSyncKMSClient, configure_kms_settings, reset_adapter_state
 
 
 @pytest.fixture(autouse=True)
@@ -39,7 +32,7 @@ def fernet_key() -> str:
 
 @pytest.fixture
 def fake_sync_kms(monkeypatch: pytest.MonkeyPatch) -> Iterator[FakeSyncKMSClient]:
-    """Install a fake sync KMS client and set AWS settings for the test process."""
+    """Install a fake KMS client and set AWS settings for the test process."""
 
     reset_adapter_state()
 
@@ -47,23 +40,6 @@ def fake_sync_kms(monkeypatch: pytest.MonkeyPatch) -> Iterator[FakeSyncKMSClient
 
     client = FakeSyncKMSClient()
     AWSAdapter._sync_client = client
-
-    yield client
-
-    reset_adapter_state()
-
-
-@pytest_asyncio.fixture
-async def fake_async_kms(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[FakeAsyncKMSClient]:
-    """Install a fake async KMS client and set AWS settings for the test process."""
-
-    reset_adapter_state()
-
-    configure_kms_settings(monkeypatch)
-
-    client = FakeAsyncKMSClient()
-    AWSAdapter._async_client = client
-    AWSAdapter._async_loop = asyncio.get_running_loop()
 
     yield client
 

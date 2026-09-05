@@ -5,16 +5,13 @@ import threading
 import time
 from collections import OrderedDict
 from typing import Any, ClassVar, Final
-from weakref import WeakKeyDictionary
 
 from pydantic import BaseModel, Field
 
 from pydantic_encryption.lazy import require_optional_dependency
 
 require_optional_dependency("boto3", "aws")
-require_optional_dependency("aioboto3", "aws")
 
-import aioboto3
 import boto3
 from botocore.config import Config
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -67,7 +64,7 @@ def to_bytes(ciphertext: bytes | str | EncryptedValue) -> bytes:
 
 
 def kms_kwargs() -> dict[str, str]:
-    """Return boto3/aioboto3 kwargs for the configured KMS region + credentials."""
+    """Return boto3 kwargs for the configured KMS region and credentials."""
 
     has_key = settings.AWS_KMS_KEY_ARN or settings.AWS_KMS_ENCRYPT_KEY_ARN or settings.AWS_KMS_DECRYPT_KEY_ARN
     if not (
@@ -151,22 +148,12 @@ class AWSAdapter(EncryptionAdapter):
     """AWS KMS envelope encryption, reusing each data key across values within configured bounds."""
 
     _sync_client: ClassVar[Any | None] = None
-    _async_client: ClassVar[Any | None] = None
-    _async_client_ctx: ClassVar[Any | None] = None
-    _async_loop: ClassVar[asyncio.AbstractEventLoop | None] = None
-    _async_init_lock: ClassVar[asyncio.Lock | None] = None
 
     encrypt_key: ClassVar[DataKey | None] = None
     unwrapped_keys: ClassVar[OrderedDict[bytes, UnwrappedDataKey]] = OrderedDict()
     cache_lock: ClassVar[threading.Lock] = threading.Lock()
     generation_lock: ClassVar[threading.Lock] = threading.Lock()
     unwrapping_lock: ClassVar[threading.Lock] = threading.Lock()
-    loop_generation_locks: ClassVar[WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock]] = (
-        WeakKeyDictionary()
-    )
-    loop_unwrapping_locks: ClassVar[WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock]] = (
-        WeakKeyDictionary()
-    )
 
     @classmethod
     def encrypt_arn(cls) -> str:
@@ -200,41 +187,6 @@ class AWSAdapter(EncryptionAdapter):
             cls._sync_client = boto3.client("kms", config=kms_transport_config(), **kms_kwargs())
 
         return cls._sync_client
-
-    @classmethod
-    async def async_kms(cls) -> Any:
-        """Return the lazily-built aioboto3 KMS client, opened once per event loop."""
-
-        loop = asyncio.get_running_loop()
-        if cls._async_client is not None and cls._async_loop is loop:
-            return cls._async_client
-
-        if cls._async_init_lock is None:
-            cls._async_init_lock = asyncio.Lock()
-
-        async with cls._async_init_lock:
-            if cls._async_client is not None and cls._async_loop is loop:
-                return cls._async_client
-
-            ctx = aioboto3.Session(**kms_kwargs()).client("kms", config=kms_transport_config())
-            cls._async_client = await ctx.__aenter__()
-            cls._async_client_ctx = ctx
-            cls._async_loop = loop
-
-            return cls._async_client
-
-    @classmethod
-    async def aclose_async_kms(cls) -> None:
-        """Close the active aioboto3 KMS client (must be called from the loop that opened it)."""
-
-        ctx = cls._async_client_ctx
-        if ctx is None:
-            return
-
-        cls._async_client = None
-        cls._async_client_ctx = None
-        cls._async_loop = None
-        await ctx.__aexit__(None, None, None)
 
     @classmethod
     def claim_encrypt_key(cls) -> DataKey | None:
@@ -299,26 +251,21 @@ class AWSAdapter(EncryptionAdapter):
             return unwrapped.plaintext
 
     @classmethod
-    def loop_lock(cls, locks: WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock]) -> asyncio.Lock:
-        """Return the lock serializing one kind of cold KMS call on the running event loop."""
-
-        loop = asyncio.get_running_loop()
-
-        with cls.cache_lock:
-            lock = locks.get(loop)
-            if lock is None:
-                lock = asyncio.Lock()
-                locks[loop] = lock
-
-            return lock
-
-    @classmethod
     def reset_cache(cls) -> None:
         """Drop every held key so the next call goes back to KMS."""
 
         with cls.cache_lock:
             cls.encrypt_key = None
             cls.unwrapped_keys.clear()
+
+    @classmethod
+    def generated_encrypt_key(cls) -> DataKey:
+        """Return the data key to seal with, generating one through KMS only once it is spent."""
+
+        with cls.generation_lock:
+            return cls.claim_encrypt_key() or cls.hold_encrypt_key(
+                cls.sync_kms().generate_data_key(KeyId=cls.encrypt_arn(), KeySpec=DATA_KEY_SPEC)
+            )
 
     @classmethod
     def unwrapped_key(cls, wrapped: bytes) -> bytes:
@@ -338,21 +285,13 @@ class AWSAdapter(EncryptionAdapter):
 
     @classmethod
     async def async_unwrapped_key(cls, wrapped: bytes) -> bytes:
-        """Return the plaintext of a wrapped data key, unwrapping it through KMS once per process."""
+        """Return the plaintext of a wrapped data key, leaving the loop only for a cold KMS unwrap."""
 
         plaintext = cls.recall_unwrapped_key(wrapped)
         if plaintext is not None:
             return plaintext
 
-        async with cls.loop_lock(cls.loop_unwrapping_locks):
-            plaintext = cls.recall_unwrapped_key(wrapped)
-            if plaintext is None:
-                kms = await cls.async_kms()
-                response = await kms.decrypt(**cls.decrypt_kwargs(wrapped))
-                plaintext = response["Plaintext"]
-                cls.remember_unwrapped_key(wrapped, plaintext)
-
-        return plaintext
+        return await asyncio.to_thread(cls.unwrapped_key, wrapped)
 
     @classmethod
     def encrypt(
@@ -365,12 +304,7 @@ class AWSAdapter(EncryptionAdapter):
         if isinstance(plaintext, EncryptedValue):
             return plaintext
 
-        held = cls.claim_encrypt_key()
-        if held is None:
-            with cls.generation_lock:
-                held = cls.claim_encrypt_key() or cls.hold_encrypt_key(
-                    cls.sync_kms().generate_data_key(KeyId=cls.encrypt_arn(), KeySpec=DATA_KEY_SPEC)
-                )
+        held = cls.claim_encrypt_key() or cls.generated_encrypt_key()
 
         return seal(held.plaintext, held.wrapped, encode_text(plaintext), associated_data)
 
@@ -385,15 +319,7 @@ class AWSAdapter(EncryptionAdapter):
         if isinstance(plaintext, EncryptedValue):
             return plaintext
 
-        held = cls.claim_encrypt_key()
-        if held is None:
-            async with cls.loop_lock(cls.loop_generation_locks):
-                held = cls.claim_encrypt_key()
-                if held is None:
-                    kms = await cls.async_kms()
-                    held = cls.hold_encrypt_key(
-                        await kms.generate_data_key(KeyId=cls.encrypt_arn(), KeySpec=DATA_KEY_SPEC)
-                    )
+        held = cls.claim_encrypt_key() or await asyncio.to_thread(cls.generated_encrypt_key)
 
         return seal(held.plaintext, held.wrapped, encode_text(plaintext), associated_data)
 

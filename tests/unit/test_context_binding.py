@@ -6,7 +6,7 @@ from pydantic_encryption.adapters.encryption.aws import AWSAdapter
 from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
 from pydantic_encryption.context import derive_field_context
 from tests.factories import User
-from tests.kms import FakeAsyncKMSClient, FakeSyncKMSClient
+from tests.kms import FakeSyncKMSClient
 
 COLUMN_CONTEXT = b"tests.context_binding.first_column"
 OTHER_COLUMN_CONTEXT = b"tests.context_binding.second_column"
@@ -24,7 +24,7 @@ class TestAWSCiphertextContextBinding:
             AWSAdapter.decrypt(sealed, associated_data=OTHER_COLUMN_CONTEXT)
 
     @pytest.mark.asyncio
-    async def test_async_decrypt_under_a_different_context_fails(self, fake_async_kms: FakeAsyncKMSClient):
+    async def test_async_decrypt_under_a_different_context_fails(self, fake_sync_kms: FakeSyncKMSClient):
         """Test that the async path rejects a ciphertext from another context too."""
 
         sealed = await AWSAdapter.async_encrypt("secret data", associated_data=COLUMN_CONTEXT)
@@ -45,7 +45,7 @@ class TestAWSCiphertextContextBinding:
         assert AWSAdapter.decrypt(sealed, associated_data=COLUMN_CONTEXT) == plaintext
 
     @pytest.mark.asyncio
-    async def test_async_round_trip_under_the_matching_context(self, fake_async_kms: FakeAsyncKMSClient):
+    async def test_async_round_trip_under_the_matching_context(self, fake_sync_kms: FakeSyncKMSClient):
         """Test that the async path round trips under one context."""
 
         sealed = await AWSAdapter.async_encrypt("secret data", associated_data=COLUMN_CONTEXT)

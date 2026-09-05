@@ -1,4 +1,3 @@
-import asyncio
 import struct
 from typing import Any, Final
 
@@ -6,7 +5,6 @@ from botocore.config import Config
 import pytest
 
 pytest.importorskip("boto3")
-pytest.importorskip("aioboto3")
 
 from pydantic_encryption.adapters.encryption.aws import (
     CIPHERTEXT_MAGIC,
@@ -18,12 +16,7 @@ from pydantic_encryption.adapters.encryption.aws import (
 )
 from pydantic_encryption.config import settings
 from pydantic_encryption.types import EncryptedValue
-from tests.kms import (
-    FakeAsyncKMSClient,
-    FakeSyncKMSClient,
-    configure_kms_settings,
-    reset_adapter_state,
-)
+from tests.kms import FakeSyncKMSClient, configure_kms_settings, reset_adapter_state
 
 CONTEXT: Final[bytes] = b"tests.aws_adapter.payload"
 
@@ -131,25 +124,25 @@ class TestAWSAdapterDecrypt:
 
 
 class TestAWSAdapterAsync:
-    """Test that async_encrypt / async_decrypt run the KMS round-trip on the event loop without threads."""
+    """Test that async_encrypt / async_decrypt seal and open values, reaching KMS off the event loop."""
 
     @pytest.mark.asyncio
     async def test_async_encrypt_then_async_decrypt_round_trips(
-        self, fake_async_kms: FakeAsyncKMSClient
+        self, fake_sync_kms: FakeSyncKMSClient
     ) -> None:
-        """Test that async_decrypt(async_encrypt(x)) returns x as a str via the async client."""
+        """Test that async_decrypt(async_encrypt(x)) returns x as a str."""
 
         sealed = await AWSAdapter.async_encrypt("hello async", associated_data=CONTEXT)
 
         result = await AWSAdapter.async_decrypt(sealed, associated_data=CONTEXT)
 
         assert result == "hello async"
-        assert len(fake_async_kms.generate_calls) == 1
-        assert len(fake_async_kms.decrypt_calls) == 1
+        assert len(fake_sync_kms.generate_calls) == 1
+        assert len(fake_sync_kms.decrypt_calls) == 1
 
     @pytest.mark.asyncio
     async def test_async_encrypt_passthrough_for_already_encrypted_value(
-        self, fake_async_kms: FakeAsyncKMSClient
+        self, fake_sync_kms: FakeSyncKMSClient
     ) -> None:
         """Test that async_encrypt() returns an existing EncryptedValue without invoking KMS."""
 
@@ -158,12 +151,12 @@ class TestAWSAdapterAsync:
         result = await AWSAdapter.async_encrypt(already_encrypted, associated_data=CONTEXT)
 
         assert result is already_encrypted
-        assert fake_async_kms.generate_calls == []
+        assert fake_sync_kms.generate_calls == []
 
     @pytest.mark.asyncio
     async def test_async_decrypt_passes_decrypt_arn_when_configured(
         self,
-        fake_async_kms: FakeAsyncKMSClient,
+        fake_sync_kms: FakeSyncKMSClient,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Test that async_decrypt() includes the configured KeyId when AWS_KMS_DECRYPT_KEY_ARN is set."""
@@ -173,7 +166,7 @@ class TestAWSAdapterAsync:
 
         await AWSAdapter.async_decrypt(sealed, associated_data=CONTEXT)
 
-        assert fake_async_kms.decrypt_calls[-1]["KeyId"] == "arn:aws:kms:us-east-1:000:key/dec"
+        assert fake_sync_kms.decrypt_calls[-1]["KeyId"] == "arn:aws:kms:us-east-1:000:key/dec"
 
 
 class TestAWSAdapterValidation:
@@ -225,7 +218,7 @@ class TestAWSAdapterValidation:
 
 
 class TestAWSAdapterLazyInit:
-    """Test the lazy boto3 / aioboto3 client construction paths."""
+    """Test the lazy boto3 client construction path."""
 
     def test_sync_kms_builds_boto3_client_on_first_use(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that the first call to ``encrypt()`` builds a boto3 KMS client and caches it."""
@@ -256,147 +249,5 @@ class TestAWSAdapterLazyInit:
         AWSAdapter.encrypt(b"payload-2", associated_data=CONTEXT)
 
         assert len(captured_kwargs) == 1
-
-        reset_adapter_state()
-
-    @pytest.mark.asyncio
-    async def test_async_kms_opens_aioboto3_client_on_first_use(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Test that the first ``async_encrypt()`` opens an aioboto3 KMS client and caches it for the loop."""
-
-        reset_adapter_state()
-
-        configure_kms_settings(monkeypatch)
-
-        opened_clients: list[FakeAsyncKMSClient] = []
-        session_kwargs: list[dict[str, Any]] = []
-        captured_client_kwargs: list[dict[str, Any]] = []
-
-        class _FakeClientCtx:
-            def __init__(self, client: FakeAsyncKMSClient) -> None:
-                self._client = client
-
-            async def __aenter__(self) -> FakeAsyncKMSClient:
-                opened_clients.append(self._client)
-                return self._client
-
-            async def __aexit__(self, *exc: Any) -> None:
-                pass
-
-        class _FakeAioSession:
-            def __init__(self, **kwargs: Any) -> None:
-                session_kwargs.append(kwargs)
-
-            def client(self, service: str, **client_kwargs: Any) -> _FakeClientCtx:
-                assert service == "kms"
-                captured_client_kwargs.append(client_kwargs)
-                return _FakeClientCtx(FakeAsyncKMSClient())
-
-        monkeypatch.setattr("pydantic_encryption.adapters.encryption.aws.aioboto3.Session", _FakeAioSession)
-
-        await AWSAdapter.async_encrypt(b"payload", associated_data=CONTEXT)
-
-        assert len(opened_clients) == 1
-        assert session_kwargs[0]["region_name"] == "us-east-1"
-        assert isinstance(captured_client_kwargs[0]["config"], Config)
-        assert captured_client_kwargs[0]["config"].connect_timeout == 2
-        assert captured_client_kwargs[0]["config"].read_timeout == 5
-        assert captured_client_kwargs[0]["config"].retries == {"mode": "standard", "total_max_attempts": 2}
-        assert AWSAdapter._async_client is opened_clients[0]
-        assert AWSAdapter._async_loop is asyncio.get_running_loop()
-
-        await AWSAdapter.async_encrypt(b"payload-2", associated_data=CONTEXT)
-
-        assert len(opened_clients) == 1
-
-        reset_adapter_state()
-
-    @pytest.mark.asyncio
-    async def test_async_kms_coalesces_concurrent_first_callers(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Test that concurrent first-time async_encrypt calls open the aioboto3 client exactly once."""
-
-        reset_adapter_state()
-
-        configure_kms_settings(monkeypatch)
-
-        opened_clients: list[FakeAsyncKMSClient] = []
-
-        class _FakeClientCtx:
-            def __init__(self, client: FakeAsyncKMSClient) -> None:
-                self._client = client
-
-            async def __aenter__(self) -> FakeAsyncKMSClient:
-                await asyncio.sleep(0)
-                opened_clients.append(self._client)
-                return self._client
-
-            async def __aexit__(self, *exc: Any) -> None:
-                pass
-
-        class _FakeAioSession:
-            def __init__(self, **kwargs: Any) -> None:
-                pass
-
-            def client(self, service: str, **client_kwargs: Any) -> _FakeClientCtx:
-                return _FakeClientCtx(FakeAsyncKMSClient())
-
-        monkeypatch.setattr("pydantic_encryption.adapters.encryption.aws.aioboto3.Session", _FakeAioSession)
-
-        await asyncio.gather(
-            AWSAdapter.async_encrypt(b"a", associated_data=CONTEXT),
-            AWSAdapter.async_encrypt(b"b", associated_data=CONTEXT),
-            AWSAdapter.async_encrypt(b"c", associated_data=CONTEXT),
-        )
-
-        assert len(opened_clients) == 1
-
-        reset_adapter_state()
-
-    @pytest.mark.asyncio
-    async def test_aclose_async_kms_exits_the_context_manager(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Test that aclose_async_kms() drives __aexit__ on the cached aioboto3 client context."""
-
-        reset_adapter_state()
-
-        configure_kms_settings(monkeypatch)
-
-        exit_calls: list[tuple[Any, ...]] = []
-
-        class _FakeClientCtx:
-            def __init__(self, client: FakeAsyncKMSClient) -> None:
-                self._client = client
-
-            async def __aenter__(self) -> FakeAsyncKMSClient:
-                return self._client
-
-            async def __aexit__(self, *exc: Any) -> None:
-                exit_calls.append(exc)
-
-        class _FakeAioSession:
-            def __init__(self, **kwargs: Any) -> None:
-                pass
-
-            def client(self, service: str, **client_kwargs: Any) -> _FakeClientCtx:
-                return _FakeClientCtx(FakeAsyncKMSClient())
-
-        monkeypatch.setattr("pydantic_encryption.adapters.encryption.aws.aioboto3.Session", _FakeAioSession)
-
-        await AWSAdapter.async_encrypt(b"warm", associated_data=CONTEXT)
-
-        assert AWSAdapter._async_client is not None
-
-        await AWSAdapter.aclose_async_kms()
-
-        assert exit_calls == [(None, None, None)]
-        assert AWSAdapter._async_client is None
-        assert AWSAdapter._async_client_ctx is None
-        assert AWSAdapter._async_loop is None
-
-        await AWSAdapter.aclose_async_kms()
-
-        assert exit_calls == [(None, None, None)]
 
         reset_adapter_state()

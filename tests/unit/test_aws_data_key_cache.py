@@ -1,5 +1,7 @@
 import asyncio
-from typing import Final
+import time
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Final
 
 import pytest
 
@@ -7,7 +9,7 @@ pytest.importorskip("boto3")
 
 from pydantic_encryption.adapters.encryption.aws import AWSAdapter
 from pydantic_encryption.config import settings
-from tests.kms import FakeAsyncKMSClient, FakeSyncKMSClient
+from tests.kms import FakeSyncKMSClient
 
 CONTEXT: Final[bytes] = b"tests.aws_data_key_cache"
 
@@ -24,14 +26,14 @@ class TestDataKeyReuse:
         assert len(fake_sync_kms.generate_calls) == 1
 
     @pytest.mark.asyncio
-    async def test_values_racing_a_cold_cache_share_one_key(self, fake_async_kms: FakeAsyncKMSClient) -> None:
+    async def test_values_racing_a_cold_cache_share_one_key(self, fake_sync_kms: FakeSyncKMSClient) -> None:
         """Test that encrypts arriving together mint one key between them."""
 
         await asyncio.gather(
             *(AWSAdapter.async_encrypt(f"value-{index}", associated_data=CONTEXT) for index in range(50))
         )
 
-        assert len(fake_async_kms.generate_calls) == 1
+        assert len(fake_sync_kms.generate_calls) == 1
 
     def test_values_round_trip_through_the_shared_key(self, fake_sync_kms: FakeSyncKMSClient) -> None:
         """Test that a value sealed under a reused key opens back to itself."""
@@ -77,6 +79,56 @@ class TestDataKeyReuse:
         assert held.plaintext.hex() not in repr(held)
 
 
+class SlowFakeKMS(FakeSyncKMSClient):
+    """Fake KMS whose calls take long enough for racing threads to pile up behind one."""
+
+    def generate_data_key(self, **kwargs: Any) -> dict[str, bytes]:
+        time.sleep(0.05)
+
+        return super().generate_data_key(**kwargs)
+
+    def decrypt(self, **kwargs: Any) -> dict[str, bytes]:
+        time.sleep(0.05)
+
+        return super().decrypt(**kwargs)
+
+
+class TestSingleFlight:
+    """Test that threads racing a cold cache share one KMS call between them."""
+
+    def test_threads_racing_a_cold_cache_mint_one_data_key(self, fake_sync_kms: FakeSyncKMSClient) -> None:
+        """Test that concurrent sync encrypts on a cold cache generate one key, not one each."""
+
+        slow = SlowFakeKMS()
+        AWSAdapter._sync_client = slow
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            list(
+                pool.map(
+                    lambda index: AWSAdapter.encrypt(f"value-{index}", associated_data=CONTEXT), range(8)
+                )
+            )
+
+        assert len(slow.generate_calls) == 1
+
+    def test_threads_racing_a_cold_key_unwrap_it_once(self, fake_sync_kms: FakeSyncKMSClient) -> None:
+        """Test that concurrent sync decrypts of one cold data key unwrap it once, not once each."""
+
+        slow = SlowFakeKMS()
+        AWSAdapter._sync_client = slow
+        ciphertexts = [AWSAdapter.encrypt(f"value-{index}", associated_data=CONTEXT) for index in range(8)]
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            decrypted = list(
+                pool.map(
+                    lambda ciphertext: AWSAdapter.decrypt(ciphertext, associated_data=CONTEXT), ciphertexts
+                )
+            )
+
+        assert decrypted == [f"value-{index}" for index in range(8)]
+        assert len(slow.decrypt_calls) == 1
+
+
 class TestUnwrappedKeyCache:
     """Test that reading many values does not unwrap their data key once per value."""
 
@@ -92,7 +144,7 @@ class TestUnwrappedKeyCache:
 
     @pytest.mark.asyncio
     async def test_concurrent_reads_of_a_cold_key_share_one_unwrap(
-        self, fake_async_kms: FakeAsyncKMSClient
+        self, fake_sync_kms: FakeSyncKMSClient
     ) -> None:
         """Test that decrypts racing on an unwrapped key share one KMS call."""
 
@@ -104,7 +156,7 @@ class TestUnwrappedKeyCache:
             *(AWSAdapter.async_decrypt(ciphertext, associated_data=CONTEXT) for ciphertext in ciphertexts)
         )
 
-        assert len(fake_async_kms.decrypt_calls) == 1
+        assert len(fake_sync_kms.decrypt_calls) == 1
 
     def test_the_unwrapped_key_cache_is_bounded(
         self, fake_sync_kms: FakeSyncKMSClient, monkeypatch: pytest.MonkeyPatch
