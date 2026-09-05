@@ -1,6 +1,11 @@
 import pytest
 
-from pydantic_encryption.context import derive_column_context, derive_row_context, encode_context
+from pydantic_encryption.context import (
+    derive_column_context,
+    derive_field_context,
+    derive_row_context,
+    encode_context,
+)
 
 
 class TestDeriveColumnContext:
@@ -43,6 +48,23 @@ class TestDeriveRowContext:
         """Test that two rows of the same column do not share a context."""
 
         assert derive_row_context("users", "email", "1") != derive_row_context("users", "email", "2")
+
+
+class TestDeriveFieldContext:
+    """Test the rule that names the context an encrypted model field binds its ciphertext to."""
+
+    def test_names_the_module_class_and_field(self):
+        """Test that a field's context spells out where the field is declared."""
+
+        assert derive_field_context("billing.models", "Invoice", "tax_id") == b"billing.models.Invoice.tax_id"
+
+    def test_two_fields_of_one_model_bind_separately(self):
+        """Test that sibling fields of one model do not share a context."""
+
+        first = derive_field_context("billing.models", "Invoice", "tax_id")
+        second = derive_field_context("billing.models", "Invoice", "account_number")
+
+        assert first != second
 
 
 class TestEncodeContext:

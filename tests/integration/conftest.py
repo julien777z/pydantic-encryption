@@ -91,9 +91,6 @@ async def async_engine(
 ):
     """Create a per-test AsyncEngine against the docker-managed Postgres."""
 
-    # asyncpg binds a connection to the loop that opened it, so a pooled one reused on
-    # pytest-asyncio's next per-test loop raises "attached to a different loop".
-
     engine = create_async_engine(async_sqlalchemy_connect_url, poolclass=NullPool)
     yield engine
     await engine.dispose()

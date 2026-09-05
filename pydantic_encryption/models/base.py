@@ -9,6 +9,7 @@ from pydantic_encryption.adapters.base import BlindIndexAdapter, EncryptionAdapt
 from pydantic_encryption.adapters.hashing.argon2 import Argon2Adapter
 from pydantic_encryption.adapters.registry import get_blind_index_backend, get_encryption_backend
 from pydantic_encryption.config import settings
+from pydantic_encryption.context import derive_field_context
 from pydantic_encryption.normalization import normalize_value
 from pydantic_encryption.serialization import decode_value, encode_value
 from pydantic_encryption.types import BlindIndex, BlindIndexValue, Encrypted, EncryptionMethod, Hashed
@@ -184,7 +185,7 @@ class SecureModel:
     def field_context(self, field_name: str) -> bytes:
         """Bind a field's ciphertext to the model and field it belongs to."""
 
-        return f"{type(self).__module__}.{type(self).__qualname__}.{field_name}".encode("utf-8")
+        return derive_field_context(type(self).__module__, type(self).__qualname__, field_name)
 
     def encrypt_data(self) -> None:
         """Encrypt fields annotated with ``Encrypted`` in-place."""

@@ -9,7 +9,7 @@ from sqlalchemy.types import ARRAY, LargeBinary, TypeDecorator
 
 from pydantic_encryption.adapters.registry import get_encryption_backend
 from pydantic_encryption.config import settings
-from pydantic_encryption.context import derive_column_context, encode_context
+from pydantic_encryption.context import append_row_key, derive_column_context, encode_context
 from pydantic_encryption.integrations.sqlalchemy.async_bridge import run_async_or_sync
 from pydantic_encryption.serialization import (
     EncryptableValue,
@@ -65,7 +65,7 @@ class ContextBoundType(TypeDecorator):
     def cell_context(self, row_key: str) -> bytes:
         """Return the context the named row's cell in this column binds its ciphertext to."""
 
-        return b".".join((self.column_context(), row_key.encode("utf-8")))
+        return append_row_key(self.column_context(), row_key)
 
 
 class SQLAlchemyEncryptedValue(ContextBoundType):
