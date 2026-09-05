@@ -29,7 +29,6 @@ def install_descriptors(mapper: Any, class_: type) -> None:
             continue
 
         if not column.type._deferred:
-            # Copy so we don't mutate a TypeDecorator instance shared across mappers.
             column.type = column.type.copy()
             column.type._deferred = True
 

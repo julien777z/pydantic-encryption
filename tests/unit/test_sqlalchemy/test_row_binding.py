@@ -3,7 +3,7 @@ from collections.abc import Iterator
 
 import pytest
 from cryptography.fernet import InvalidToken
-from sqlalchemy import Integer, MetaData, Uuid, create_engine, func, select
+from sqlalchemy import Integer, MetaData, String, Uuid, create_engine, func, select
 from sqlalchemy.exc import StatementError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
@@ -27,6 +27,7 @@ class RowBoundRecord(RowBoundBase, DeferredDecryptMixin):
     __tablename__ = "row_bound_records"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    label: Mapped[str | None] = mapped_column(String, nullable=True, default=None)
     secret: Mapped[bytes | None] = mapped_column(
         SQLAlchemyEncryptedValue(row_bound=True), nullable=True, default=None
     )
@@ -236,6 +237,27 @@ class TestRowKeyChanges:
         reloaded = session.get(RowBoundRecord, moved_id)
 
         assert reloaded is not None
+        assert reloaded.secret == "secret-one"
+
+    def test_a_cell_is_left_alone_when_the_row_keeps_its_key(self, session: Session):
+        """Test that updating another column leaves a sealed cell exactly as it was."""
+
+        record = RowBoundRecord(secret="secret-one", label="before")
+        session.add(record)
+        session.flush()
+        record_id = record.id
+        session.expunge_all()
+
+        stored = session.get(RowBoundRecord, record_id)
+        assert stored is not None
+        stored.label = "after"
+        session.flush()
+        session.expunge_all()
+
+        reloaded = session.get(RowBoundRecord, record_id)
+
+        assert reloaded is not None
+        assert reloaded.label == "after"
         assert reloaded.secret == "secret-one"
 
 

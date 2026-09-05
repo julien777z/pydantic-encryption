@@ -1,3 +1,5 @@
+import pytest
+
 from pydantic_encryption.context import (
     derive_column_context,
     derive_field_context,
@@ -86,6 +88,12 @@ class TestContextSegmentEscaping:
         """Test that two primary keys splitting the same characters differently bind apart."""
 
         assert derive_row_context("t", "c", "1,2", "3") != derive_row_context("t", "c", "1", "2,3")
+
+    def test_a_row_context_needs_a_row_to_name(self):
+        """Test that extending a column context with no primary key raises rather than binding it."""
+
+        with pytest.raises(ValueError, match="needs the primary key"):
+            derive_row_context("users", "email")
 
     def test_an_ordinary_name_carries_no_escape(self):
         """Test that a name without a separator reads exactly as it is written."""
