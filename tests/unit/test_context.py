@@ -14,7 +14,7 @@ class TestDeriveColumnContext:
     def test_qualifies_a_column_with_its_schema(self):
         """Test that a column in a named schema binds to the schema-qualified table."""
 
-        assert derive_column_context("users", "email", schema="secure") == b"secure.users.email"
+        assert derive_column_context("users", "email", schema="archive") == b"archive.users.email"
 
     def test_omits_a_schema_that_is_absent(self):
         """Test that a column in an unqualified table binds to the table name alone."""
@@ -25,8 +25,8 @@ class TestDeriveColumnContext:
     def test_two_schemas_separate_same_named_columns(self):
         """Test that one table name in two schemas does not produce one shared context."""
 
-        first = derive_column_context("user_audit_log", "field_value_before", schema="secure")
-        second = derive_column_context("user_audit_log", "field_value_before", schema="vaultgig")
+        first = derive_column_context("entries", "note", schema="archive")
+        second = derive_column_context("entries", "note", schema="public")
 
         assert first != second
 
@@ -42,7 +42,7 @@ class TestDeriveRowContext:
     def test_qualifies_a_row_with_its_schema(self):
         """Test that a schema-qualified column carries through to its rows."""
 
-        assert derive_row_context("users", "email", "42", schema="secure") == b"secure.users.email.42"
+        assert derive_row_context("users", "email", "42", schema="archive") == b"archive.users.email.42"
 
     def test_two_rows_of_one_column_bind_separately(self):
         """Test that two rows of the same column do not share a context."""
@@ -56,12 +56,12 @@ class TestDeriveFieldContext:
     def test_names_the_module_class_and_field(self):
         """Test that a field's context spells out where the field is declared."""
 
-        assert derive_field_context("billing.models", "Invoice", "tax_id") == b"billing.models.Invoice.tax_id"
+        assert derive_field_context("billing.models", "Invoice", "secret") == b"billing.models.Invoice.secret"
 
     def test_two_fields_of_one_model_bind_separately(self):
         """Test that sibling fields of one model do not share a context."""
 
-        first = derive_field_context("billing.models", "Invoice", "tax_id")
+        first = derive_field_context("billing.models", "Invoice", "secret")
         second = derive_field_context("billing.models", "Invoice", "account_number")
 
         assert first != second

@@ -143,56 +143,56 @@ class BulkOrg(BulkBase, DeferredDecryptMixin):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str | None] = mapped_column(nullable=True, default=None)
-    contractors: Mapped[list["BulkContractor"]] = relationship(back_populates="org")
+    members: Mapped[list["BulkMember"]] = relationship(back_populates="org")
 
 
-class BulkContractor(BulkBase, DeferredDecryptMixin):
+class BulkMember(BulkBase, DeferredDecryptMixin):
     """Test ORM child with deferred encrypted columns."""
 
-    __tablename__ = "_bulk_test_contractor"
+    __tablename__ = "_bulk_test_member"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     org_id: Mapped[int | None] = mapped_column(ForeignKey("_bulk_test_org.id"), nullable=True, default=None)
     first_name: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
     last_name: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
-    org: Mapped["BulkOrg | None"] = relationship(back_populates="contractors")
+    org: Mapped["BulkOrg | None"] = relationship(back_populates="members")
 
 
 def encrypt_first_name(value: str) -> bytes:
-    """Encrypt a contractor first name through its own column."""
+    """Encrypt a member first name through its own column."""
 
-    return encrypt_through_column(BulkContractor.__table__.c.first_name, value)
+    return encrypt_through_column(BulkMember.__table__.c.first_name, value)
 
 
 def encrypt_last_name(value: str) -> bytes:
-    """Encrypt a contractor last name through its own column."""
+    """Encrypt a member last name through its own column."""
 
-    return encrypt_through_column(BulkContractor.__table__.c.last_name, value)
+    return encrypt_through_column(BulkMember.__table__.c.last_name, value)
 
 
 class TestDeferredDecryptMixin:
     """Test the DeferredDecryptMixin decrypt() and decrypt_many() helpers."""
 
     def test_decrypt_many_none_and_empty(self):
-        asyncio.run(BulkContractor.decrypt_many(None))
-        asyncio.run(BulkContractor.decrypt_many([]))
+        asyncio.run(BulkMember.decrypt_many(None))
+        asyncio.run(BulkMember.decrypt_many([]))
 
     def test_instance_decrypt(self):
-        contractor = BulkContractor(
+        member = BulkMember(
             id=1,
             first_name=encrypt_first_name("first"),
             last_name=encrypt_last_name("last"),
         )
 
-        returned = asyncio.run(contractor.decrypt())
+        returned = asyncio.run(member.decrypt())
 
-        assert returned is contractor
-        assert contractor.first_name == "first"
-        assert contractor.last_name == "last"
+        assert returned is member
+        assert member.first_name == "first"
+        assert member.last_name == "last"
 
     def test_decrypt_many(self):
-        contractors = [
-            BulkContractor(
+        members = [
+            BulkMember(
                 id=i,
                 first_name=encrypt_first_name(f"First{i}"),
                 last_name=encrypt_last_name(f"Last{i}"),
@@ -200,15 +200,15 @@ class TestDeferredDecryptMixin:
             for i in range(3)
         ]
 
-        asyncio.run(BulkContractor.decrypt_many(contractors))
+        asyncio.run(BulkMember.decrypt_many(members))
 
-        for i, contractor in enumerate(contractors):
-            assert contractor.first_name == f"First{i}"
-            assert contractor.last_name == f"Last{i}"
+        for i, member in enumerate(members):
+            assert member.first_name == f"First{i}"
+            assert member.last_name == f"Last{i}"
 
     def test_decrypt_many_accepts_generator(self):
-        contractors = [
-            BulkContractor(
+        members = [
+            BulkMember(
                 id=i,
                 first_name=encrypt_first_name(f"Gen{i}"),
                 last_name=encrypt_last_name(f"Last{i}"),
@@ -216,42 +216,42 @@ class TestDeferredDecryptMixin:
             for i in range(3)
         ]
 
-        asyncio.run(BulkContractor.decrypt_many(c for c in contractors))
+        asyncio.run(BulkMember.decrypt_many(c for c in members))
 
-        for i, contractor in enumerate(contractors):
-            assert contractor.first_name == f"Gen{i}"
-            assert contractor.last_name == f"Last{i}"
+        for i, member in enumerate(members):
+            assert member.first_name == f"Gen{i}"
+            assert member.last_name == f"Last{i}"
 
     def test_none_column_values_skipped(self):
-        contractor = BulkContractor(id=1, first_name=encrypt_first_name("first"), last_name=None)
+        member = BulkMember(id=1, first_name=encrypt_first_name("first"), last_name=None)
 
-        asyncio.run(contractor.decrypt())
+        asyncio.run(member.decrypt())
 
-        assert contractor.first_name == "first"
-        assert contractor.last_name is None
+        assert member.first_name == "first"
+        assert member.last_name is None
 
     def test_walks_loaded_relationships(self):
         org = BulkOrg(id=1, name="Acme")
-        contractor = BulkContractor(id=1, first_name=encrypt_first_name("first"), last_name=None)
-        org.contractors = [contractor]
+        member = BulkMember(id=1, first_name=encrypt_first_name("first"), last_name=None)
+        org.members = [member]
 
         asyncio.run(org.decrypt())
 
-        assert contractor.first_name == "first"
+        assert member.first_name == "first"
 
     def test_all_columns_none(self):
-        contractor = BulkContractor(id=1, first_name=None, last_name=None)
+        member = BulkMember(id=1, first_name=None, last_name=None)
 
-        asyncio.run(contractor.decrypt())
+        asyncio.run(member.decrypt())
 
-        assert contractor.first_name is None
-        assert contractor.last_name is None
+        assert member.first_name is None
+        assert member.last_name is None
 
 
 class TestDecryptValues:
     """Test the decrypt_values bulk helper for flat ciphertext iterables."""
 
-    CONTEXT = "_bulk_test_contractor.first_name"
+    CONTEXT = "_bulk_test_member.first_name"
 
     def make_ciphertext(self, value: str) -> bytes:
         """Encrypt a value under the column the flat list is drained from."""

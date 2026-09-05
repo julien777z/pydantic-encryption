@@ -408,16 +408,16 @@ class ContextBase(DeclarativeBase):
     """Isolated declarative base for the context-derivation tests."""
 
 
-class TaxIdMixin:
+class SecretMixin:
     """Mixin whose encrypted columns are inherited by more than one table."""
 
-    tax_id: Mapped[bytes | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
+    secret: Mapped[bytes | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
     aliases: Mapped[list[str] | None] = mapped_column(
         SQLAlchemyPGEncryptedArray(), nullable=True, default=None
     )
 
 
-class ContextUser(ContextBase, TaxIdMixin):
+class ContextUser(ContextBase, SecretMixin):
     """Table carrying the mixin column plus columns of its own."""
 
     __tablename__ = "context_users"
@@ -426,41 +426,37 @@ class ContextUser(ContextBase, TaxIdMixin):
     email: Mapped[bytes | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
     tags: Mapped[list[str] | None] = mapped_column(SQLAlchemyPGEncryptedArray(), nullable=True, default=None)
     envelope: Mapped[bytes | None] = mapped_column(
-        SQLAlchemyEncryptedValue("onboarding.draft"), nullable=True, default=None
+        SQLAlchemyEncryptedValue("records.draft"), nullable=True, default=None
     )
 
 
-class ContextContractor(ContextBase, TaxIdMixin):
+class ContextAccount(ContextBase, SecretMixin):
     """Second table carrying the same mixin column."""
 
-    __tablename__ = "context_contractors"
+    __tablename__ = "context_accounts"
 
     id: Mapped[int] = mapped_column(primary_key=True)
 
 
-class SecureAuditLog(ContextBase):
+class ArchivedEntry(ContextBase):
     """Table whose name is shared with another table in a different schema."""
 
-    __tablename__ = "context_audit_log"
-    __table_args__ = {"schema": "secure"}
+    __tablename__ = "entries"
+    __table_args__ = {"schema": "archive"}
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    field_value_before: Mapped[bytes | None] = mapped_column(
-        SQLAlchemyEncryptedValue(), nullable=True, default=None
-    )
+    note: Mapped[bytes | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
     tags: Mapped[list[str] | None] = mapped_column(SQLAlchemyPGEncryptedArray(), nullable=True, default=None)
 
 
-class PublicAuditLog(ContextBase):
+class PublicEntry(ContextBase):
     """Same table name in a second schema, whose columns must bind separately."""
 
-    __tablename__ = "context_audit_log"
-    __table_args__ = {"schema": "vaultgig"}
+    __tablename__ = "entries"
+    __table_args__ = {"schema": "public"}
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    field_value_before: Mapped[bytes | None] = mapped_column(
-        SQLAlchemyEncryptedValue(), nullable=True, default=None
-    )
+    note: Mapped[bytes | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
 
 
 class TestDerivedColumnContext:
@@ -480,60 +476,58 @@ class TestDerivedColumnContext:
     def test_one_mixin_column_binds_each_table_separately(self):
         """Test that a column inherited from a mixin binds to each inheriting table's own name."""
 
-        assert ContextUser.__table__.c.tax_id.type.context == b"context_users.tax_id"
-        assert ContextContractor.__table__.c.tax_id.type.context == b"context_contractors.tax_id"
+        assert ContextUser.__table__.c.secret.type.context == b"context_users.secret"
+        assert ContextAccount.__table__.c.secret.type.context == b"context_accounts.secret"
 
     def test_one_mixin_array_column_binds_each_table_separately(self):
         """Test that an inherited array column gives each table its own element type and context."""
 
         user_type = ContextUser.__table__.c.aliases.type
-        contractor_type = ContextContractor.__table__.c.aliases.type
+        member_type = ContextAccount.__table__.c.aliases.type
 
         assert user_type._element_type.context == b"context_users.aliases"
-        assert contractor_type._element_type.context == b"context_contractors.aliases"
-        assert user_type._element_type is not contractor_type._element_type
+        assert member_type._element_type.context == b"context_accounts.aliases"
+        assert user_type._element_type is not member_type._element_type
 
     def test_declared_context_survives_attachment(self):
         """Test that a column given a context keeps it rather than deriving one."""
 
-        assert ContextUser.__table__.c.envelope.type.context == b"onboarding.draft"
+        assert ContextUser.__table__.c.envelope.type.context == b"records.draft"
 
     def test_column_in_a_schema_derives_the_qualified_table(self):
         """Test that a column in a named schema binds to the schema-qualified table."""
 
-        column_type = SecureAuditLog.__table__.c.field_value_before.type
+        column_type = ArchivedEntry.__table__.c.note.type
 
-        assert column_type.context == b"secure.context_audit_log.field_value_before"
+        assert column_type.context == b"archive.entries.note"
 
     def test_one_table_name_in_two_schemas_binds_separately(self):
         """Test that same-named columns in two schemas do not share one context."""
 
-        secure_type = SecureAuditLog.__table__.c.field_value_before.type
-        public_type = PublicAuditLog.__table__.c.field_value_before.type
+        secure_type = ArchivedEntry.__table__.c.note.type
+        public_type = PublicEntry.__table__.c.note.type
 
         assert secure_type.context != public_type.context
 
     def test_array_elements_follow_the_column_context_exactly(self):
         """Test that an array's elements bind to the same context the array column binds to."""
 
-        column_type = SecureAuditLog.__table__.c.tags.type
+        column_type = ArchivedEntry.__table__.c.tags.type
 
         assert column_type._element_type.context == column_type.context
-        assert column_type.context == b"secure.context_audit_log.tags"
+        assert column_type.context == b"archive.entries.tags"
 
     @pytest.mark.parametrize(
         "mapped_class, schema",
-        [(SecureAuditLog, "secure"), (PublicAuditLog, "vaultgig")],
-        ids=["secure", "vaultgig"],
+        [(ArchivedEntry, "archive"), (PublicEntry, "public")],
+        ids=["archive", "public"],
     )
     def test_derive_column_context_matches_what_a_column_derives(self, mapped_class: type, schema: str):
         """Test that the documented helper names the same context the column itself resolves."""
 
-        column_type = mapped_class.__table__.c.field_value_before.type
+        column_type = mapped_class.__table__.c.note.type
 
-        assert column_type.context == derive_column_context(
-            "context_audit_log", "field_value_before", schema=schema
-        )
+        assert column_type.context == derive_column_context("entries", "note", schema=schema)
 
     def test_derive_column_context_matches_an_unqualified_column(self):
         """Test that the helper names an unqualified column's context too."""

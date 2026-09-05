@@ -65,7 +65,7 @@ The derived context is `table.column`, or `schema.table.column` where the table 
 from pydantic_encryption import derive_column_context
 
 derive_column_context("users", "email")                    # b"users.email"
-derive_column_context("users", "email", schema="secure")   # b"secure.users.email"
+derive_column_context("users", "email", schema="archive")   # b"archive.users.email"
 ```
 
 ### Binding a Cell to Its Row
@@ -73,7 +73,7 @@ derive_column_context("users", "email", schema="secure")   # b"secure.users.emai
 A column context stops a ciphertext moving between columns. To also stop one moving between rows of the same column, bind the row:
 
 ```python
-tax_id: Mapped[bytes] = mapped_column(SQLAlchemyEncryptedValue(row_bound=True))
+secret: Mapped[bytes] = mapped_column(SQLAlchemyEncryptedValue(row_bound=True))
 ```
 
 Each cell then binds to `schema.table.column.<primary key>`, which `derive_row_context` names. A row-bound column requires two things, and says so rather than binding something weaker:
@@ -86,7 +86,7 @@ Encrypted arrays decrypt on the read path, where no row is in scope, so they bin
 Pass a context explicitly only where nothing can be derived, such as a value that never reaches a column:
 
 ```python
-draft = SQLAlchemyEncryptedValue("onboarding.draft").encrypt_cell(payload)
+draft = SQLAlchemyEncryptedValue("records.draft").encrypt_cell(payload)
 ```
 
 The context is authenticated but never written into the ciphertext, so it is part of the column's contract: values already stored under one context do not decrypt under another, and renaming a table or column re-binds what it writes from then on.

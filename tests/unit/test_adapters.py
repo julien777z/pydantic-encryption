@@ -99,7 +99,7 @@ class TestFernetClientCache:
         build_fernet_client.cache_clear()
 
         for row in range(FERNET_CLIENT_CACHE_SIZE + 100):
-            FernetAdapter.get_client(fernet_key, f"users.tax_id.{row}".encode("utf-8"))
+            FernetAdapter.get_client(fernet_key, f"users.secret.{row}".encode("utf-8"))
 
         assert build_fernet_client.cache_info().currsize == FERNET_CLIENT_CACHE_SIZE
 

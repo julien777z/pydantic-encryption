@@ -21,13 +21,13 @@ class RowBoundBase(DeclarativeBase):
     """Isolated declarative base for the row-binding tests."""
 
 
-class BoundContractor(RowBoundBase, DeferredDecryptMixin):
+class RowBoundRecord(RowBoundBase, DeferredDecryptMixin):
     """Mapped class whose encrypted column binds each row separately."""
 
-    __tablename__ = "bound_contractors"
+    __tablename__ = "row_bound_records"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    tax_id: Mapped[bytes | None] = mapped_column(
+    secret: Mapped[bytes | None] = mapped_column(
         SQLAlchemyEncryptedValue(row_bound=True), nullable=True, default=None
     )
 
@@ -80,68 +80,68 @@ class TestRowBoundColumn:
     def test_round_trip_through_the_row_it_was_written_to(self, session: Session):
         """Test that a row-bound cell decrypts when read back from its own row."""
 
-        session.add(BoundContractor(tax_id="111-11-1111"))
+        session.add(RowBoundRecord(secret="secret-one"))
         session.commit()
         session.expunge_all()
 
-        stored = session.execute(select(BoundContractor)).scalar_one()
+        stored = session.execute(select(RowBoundRecord)).scalar_one()
 
-        assert stored.tax_id == "111-11-1111"
+        assert stored.secret == "secret-one"
 
     def test_cell_binds_to_the_context_naming_its_row(self, session: Session):
         """Test that a cell is sealed under the context naming its table, column and row."""
 
-        contractor = BoundContractor(tax_id="111-11-1111")
-        session.add(contractor)
+        member = RowBoundRecord(secret="secret-one")
+        session.add(member)
         session.commit()
-        session.refresh(contractor)
+        session.refresh(member)
 
-        column_type = BoundContractor.__table__.c.tax_id.type
-        expected = derive_row_context("bound_contractors", "tax_id", str(contractor.id))
+        column_type = RowBoundRecord.__table__.c.secret.type
+        expected = derive_row_context("row_bound_records", "secret", str(member.id))
 
-        assert column_type.cell_context(str(contractor.id)) == expected
-        assert column_type.decrypt_cell(bytes(read_raw_cell(contractor, "tax_id")), context=expected)
+        assert column_type.cell_context(str(member.id)) == expected
+        assert column_type.decrypt_cell(bytes(read_raw_cell(member, "secret")), context=expected)
 
     def test_ciphertext_moved_to_another_row_fails_to_open(self, session: Session):
         """Test that a cell carrying another row's ciphertext raises instead of decrypting."""
 
-        first = BoundContractor(tax_id="111-11-1111")
-        second = BoundContractor(tax_id="222-22-2222")
+        first = RowBoundRecord(secret="secret-one")
+        second = RowBoundRecord(secret="secret-two")
         session.add_all([first, second])
         session.commit()
 
         first_id, second_id = first.id, second.id
         session.expunge_all()
 
-        rows = {row.id: row for row in session.execute(select(BoundContractor)).scalars()}
-        stolen = EncryptedValue(bytes(read_raw_cell(rows[second_id], "tax_id")))
+        rows = {row.id: row for row in session.execute(select(RowBoundRecord)).scalars()}
+        stolen = EncryptedValue(bytes(read_raw_cell(rows[second_id], "secret")))
         victim = rows[first_id]
-        victim.__dict__["tax_id"] = stolen
+        victim.__dict__["secret"] = stolen
 
         with pytest.raises(InvalidToken):
-            victim.tax_id
+            victim.secret
 
     def test_update_reseals_under_the_same_row(self, session: Session):
         """Test that updating a row-bound cell keeps it readable from its own row."""
 
-        contractor = BoundContractor(tax_id="111-11-1111")
-        session.add(contractor)
+        member = RowBoundRecord(secret="secret-one")
+        session.add(member)
         session.commit()
 
-        contractor.tax_id = "333-33-3333"
+        member.secret = "secret-three"
         session.commit()
         session.expunge_all()
 
-        assert session.execute(select(BoundContractor)).scalar_one().tax_id == "333-33-3333"
+        assert session.execute(select(RowBoundRecord)).scalar_one().secret == "secret-three"
 
     def test_empty_cell_stays_empty(self, session: Session):
         """Test that a row-bound column leaves a cell holding nothing alone."""
 
-        session.add(BoundContractor())
+        session.add(RowBoundRecord())
         session.commit()
         session.expunge_all()
 
-        assert session.execute(select(BoundContractor)).scalar_one().tax_id is None
+        assert session.execute(select(RowBoundRecord)).scalar_one().secret is None
 
     def test_column_bound_row_is_untouched_by_the_row_bound_write_path(self, session: Session):
         """Test that a class with no row-bound column writes and reads as it otherwise would."""
@@ -181,8 +181,8 @@ class TestRowBoundDeclaration:
     def test_row_binding_changes_the_statement_cache_key(self):
         """Test that a row-bound column cannot share a cache key with a column-bound one."""
 
-        column_bound = SQLAlchemyEncryptedValue("users.tax_id")
-        row_bound = SQLAlchemyEncryptedValue("users.tax_id", row_bound=True)
+        column_bound = SQLAlchemyEncryptedValue("users.secret")
+        row_bound = SQLAlchemyEncryptedValue("users.secret", row_bound=True)
 
         assert column_bound._static_cache_key != row_bound._static_cache_key
 
@@ -190,4 +190,4 @@ class TestRowBoundDeclaration:
         """Test that asking a row-bound column for one context raises rather than binding the column."""
 
         with pytest.raises(ValueError, match="binds each row separately"):
-            SQLAlchemyEncryptedValue("users.tax_id", row_bound=True).bound_context()
+            SQLAlchemyEncryptedValue("users.secret", row_bound=True).bound_context()
