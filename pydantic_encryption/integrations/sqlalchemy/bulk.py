@@ -10,6 +10,7 @@ from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 
+from pydantic_encryption.adapters.base import encode_text
 from pydantic_encryption.adapters.registry import get_encryption_backend
 from pydantic_encryption.config import settings
 from pydantic_encryption.integrations.sqlalchemy.encryption import (
@@ -49,7 +50,7 @@ def column_context(row: Any, key: str) -> bytes:
     column_type = mapper.columns[key].type
     if isinstance(column_type, ContextBoundType):
         if column_type.row_bound:
-            return column_type.cell_context(row_key(mapper, row))
+            return column_type.cell_context(*row_key(mapper, row))
 
         return column_type.bound_context()
 
@@ -111,7 +112,20 @@ def decrypt_rows_sync(rows: Iterable[Any], *columns: InstrumentedAttribute | str
         set_decrypted(row, key, decode_value(backend.decrypt(ciphertext, associated_data=context)))
 
 
-async def decrypt_values(values: Iterable[Any], *, context: str | bytes) -> list[Any]:
+def resolve_context(context: InstrumentedAttribute | str | bytes) -> bytes:
+    """Return the context a column binds to, derived from the column itself where one is given."""
+
+    if isinstance(context, InstrumentedAttribute):
+        column_type = context.property.columns[0].type
+        if not isinstance(column_type, ContextBoundType):
+            raise ValueError(f"Column {context.key!r} does not encrypt its values, so it binds no context.")
+
+        return column_type.bound_context()
+
+    return encode_text(context)
+
+
+async def decrypt_values(values: Iterable[Any], *, context: InstrumentedAttribute | str | bytes) -> list[Any]:
     """Decrypt a flat iterable of ciphertexts from one column, preserving other positions as-is."""
 
     values_list = list(values)
@@ -119,7 +133,7 @@ async def decrypt_values(values: Iterable[Any], *, context: str | bytes) -> list
         return []
 
     backend = resolve_backend()
-    associated_data = context.encode("utf-8") if isinstance(context, str) else context
+    associated_data = resolve_context(context)
     indexes: list[int] = []
     encrypted_blobs: list[bytes] = []
     for index, value in enumerate(values_list):

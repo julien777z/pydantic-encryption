@@ -158,18 +158,6 @@ class BulkMember(BulkBase, DeferredDecryptMixin):
     org: Mapped["BulkOrg | None"] = relationship(back_populates="members")
 
 
-def encrypt_first_name(value: str) -> bytes:
-    """Encrypt a member first name through its own column."""
-
-    return encrypt_through_column(BulkMember.__table__.c.first_name, value)
-
-
-def encrypt_last_name(value: str) -> bytes:
-    """Encrypt a member last name through its own column."""
-
-    return encrypt_through_column(BulkMember.__table__.c.last_name, value)
-
-
 class TestDeferredDecryptMixin:
     """Test the DeferredDecryptMixin decrypt() and decrypt_many() helpers."""
 
@@ -180,8 +168,8 @@ class TestDeferredDecryptMixin:
     def test_instance_decrypt(self):
         member = BulkMember(
             id=1,
-            first_name=encrypt_first_name("first"),
-            last_name=encrypt_last_name("last"),
+            first_name=encrypt_through_column(BulkMember.__table__.c.first_name, "first"),
+            last_name=encrypt_through_column(BulkMember.__table__.c.last_name, "last"),
         )
 
         returned = asyncio.run(member.decrypt())
@@ -194,8 +182,8 @@ class TestDeferredDecryptMixin:
         members = [
             BulkMember(
                 id=i,
-                first_name=encrypt_first_name(f"First{i}"),
-                last_name=encrypt_last_name(f"Last{i}"),
+                first_name=encrypt_through_column(BulkMember.__table__.c.first_name, f"First{i}"),
+                last_name=encrypt_through_column(BulkMember.__table__.c.last_name, f"Last{i}"),
             )
             for i in range(3)
         ]
@@ -210,8 +198,8 @@ class TestDeferredDecryptMixin:
         members = [
             BulkMember(
                 id=i,
-                first_name=encrypt_first_name(f"Gen{i}"),
-                last_name=encrypt_last_name(f"Last{i}"),
+                first_name=encrypt_through_column(BulkMember.__table__.c.first_name, f"Gen{i}"),
+                last_name=encrypt_through_column(BulkMember.__table__.c.last_name, f"Last{i}"),
             )
             for i in range(3)
         ]
@@ -223,7 +211,11 @@ class TestDeferredDecryptMixin:
             assert member.last_name == f"Last{i}"
 
     def test_none_column_values_skipped(self):
-        member = BulkMember(id=1, first_name=encrypt_first_name("first"), last_name=None)
+        member = BulkMember(
+            id=1,
+            first_name=encrypt_through_column(BulkMember.__table__.c.first_name, "first"),
+            last_name=None,
+        )
 
         asyncio.run(member.decrypt())
 
@@ -232,7 +224,11 @@ class TestDeferredDecryptMixin:
 
     def test_walks_loaded_relationships(self):
         org = BulkOrg(id=1, name="Acme")
-        member = BulkMember(id=1, first_name=encrypt_first_name("first"), last_name=None)
+        member = BulkMember(
+            id=1,
+            first_name=encrypt_through_column(BulkMember.__table__.c.first_name, "first"),
+            last_name=None,
+        )
         org.members = [member]
 
         asyncio.run(org.decrypt())
@@ -251,17 +247,15 @@ class TestDeferredDecryptMixin:
 class TestDecryptValues:
     """Test the decrypt_values bulk helper for flat ciphertext iterables."""
 
-    CONTEXT = "_bulk_test_member.first_name"
-
     def make_ciphertext(self, value: str) -> bytes:
         """Encrypt a value under the column the flat list is drained from."""
 
-        return encrypt_first_name(value)
+        return encrypt_through_column(BulkMember.__table__.c.first_name, value)
 
     def test_decrypts_list_of_ciphertexts(self):
         values = [self.make_ciphertext(f"user-{i}") for i in range(3)]
 
-        result = asyncio.run(decrypt_values(values, context=self.CONTEXT))
+        result = asyncio.run(decrypt_values(values, context=BulkMember.first_name))
 
         assert result == ["user-0", "user-1", "user-2"]
 
@@ -273,19 +267,34 @@ class TestDecryptValues:
             None,
         ]
 
-        result = asyncio.run(decrypt_values(values, context=self.CONTEXT))
+        result = asyncio.run(decrypt_values(values, context=BulkMember.first_name))
 
         assert result == ["a", None, "b", None]
 
     def test_empty_input(self):
-        assert asyncio.run(decrypt_values([], context=self.CONTEXT)) == []
+        assert asyncio.run(decrypt_values([], context=BulkMember.first_name)) == []
 
     def test_passes_through_non_bytes_cells(self):
         values = [self.make_ciphertext("a"), 42, "plain", None]
 
-        result = asyncio.run(decrypt_values(values, context=self.CONTEXT))
+        result = asyncio.run(decrypt_values(values, context=BulkMember.first_name))
 
         assert result == ["a", 42, "plain", None]
+
+    def test_accepts_a_context_written_out(self):
+        """Test that a context named directly opens what its own column sealed."""
+
+        result = asyncio.run(
+            decrypt_values([self.make_ciphertext("a")], context="_bulk_test_member.first_name")
+        )
+
+        assert result == ["a"]
+
+    def test_refuses_a_column_that_encrypts_nothing(self):
+        """Test that asking a plain column for a context raises rather than binding nothing."""
+
+        with pytest.raises(ValueError, match="does not encrypt its values"):
+            asyncio.run(decrypt_values([self.make_ciphertext("a")], context=BulkMember.id))
 
 
 class TestColumnContext:

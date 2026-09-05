@@ -1,10 +1,7 @@
-import pytest
-
 from pydantic_encryption.context import (
     derive_column_context,
     derive_field_context,
     derive_row_context,
-    encode_context,
 )
 
 
@@ -56,7 +53,7 @@ class TestDeriveFieldContext:
     def test_names_the_module_class_and_field(self):
         """Test that a field's context spells out where the field is declared."""
 
-        assert derive_field_context("app.models", "Record", "secret") == b"app.models.Record.secret"
+        assert derive_field_context("app", "Record", "secret") == b"app.Record.secret"
 
     def test_two_fields_of_one_model_bind_separately(self):
         """Test that sibling fields of one model do not share a context."""
@@ -67,15 +64,30 @@ class TestDeriveFieldContext:
         assert first != second
 
 
-class TestEncodeContext:
-    """Test the coercion applied to a declared context."""
+class TestContextSegmentEscaping:
+    """Test that no two distinct locations can share one derived context."""
 
-    @pytest.mark.parametrize(
-        "context, expected",
-        [("users.email", b"users.email"), (b"users.email", b"users.email"), (None, None)],
-        ids=["str", "bytes", "absent"],
-    )
-    def test_encodes_a_declared_context(self, context: str | bytes | None, expected: bytes | None):
-        """Test that a declared context becomes bytes and an absent one stays absent."""
+    def test_a_dotted_table_does_not_collide_with_a_schema(self):
+        """Test that a table whose name holds a separator binds apart from a qualified table."""
 
-        assert encode_context(context) == expected
+        assert derive_column_context("a.b", "c") != derive_column_context("b", "c", schema="a")
+
+    def test_a_dotted_row_key_does_not_collide_with_a_dotted_column(self):
+        """Test that a separator inside a row key stays inside that row key."""
+
+        assert derive_row_context("t", "col", "1.2") != derive_row_context("t", "col.1", "2")
+
+    def test_a_dotted_module_does_not_collide_with_a_nested_class(self):
+        """Test that a class nested in another binds apart from one in a submodule."""
+
+        assert derive_field_context("a.b", "Model", "x") != derive_field_context("a", "b.Model", "x")
+
+    def test_composite_row_keys_do_not_collide_across_component_boundaries(self):
+        """Test that two primary keys splitting the same characters differently bind apart."""
+
+        assert derive_row_context("t", "c", "1,2", "3") != derive_row_context("t", "c", "1", "2,3")
+
+    def test_an_ordinary_name_carries_no_escape(self):
+        """Test that a name without a separator reads exactly as it is written."""
+
+        assert derive_column_context("users", "email") == b"users.email"

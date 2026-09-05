@@ -30,8 +30,8 @@ def set_decrypted(row: Any, column_key: str, plaintext: Any) -> None:
     set_committed_value(row, column_key, plaintext)
 
 
-def row_key(mapper: Any, instance: Any) -> str:
-    """Return the primary key identifying one row, as the context naming it spells it."""
+def row_key(mapper: Any, instance: Any) -> list[str]:
+    """Return the primary key values identifying one row, one context segment each."""
 
     values: list[str] = []
     for column in mapper.primary_key:
@@ -46,7 +46,7 @@ def row_key(mapper: Any, instance: Any) -> str:
 
         values.append(str(value))
 
-    return ",".join(values)
+    return values
 
 
 def pending_siblings(session: Any, cls: type) -> list[Any]:

@@ -4,6 +4,7 @@ from cryptography.fernet import InvalidToken
 
 from pydantic_encryption.adapters.encryption.aws import AWSAdapter
 from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
+from pydantic_encryption.context import derive_field_context
 from tests.factories import User
 from tests.kms import FakeAsyncKMSClient, FakeSyncKMSClient
 
@@ -58,7 +59,7 @@ class TestModelFieldContext:
     def test_field_context_names_the_model_and_field(self, user: User):
         """Test that a field's context spells out its module, class, and field name."""
 
-        assert user.field_context("address") == f"{User.__module__}.User.address".encode("utf-8")
+        assert user.field_context("address") == derive_field_context(User.__module__, "User", "address")
 
     def test_field_context_differs_per_field(self, user: User):
         """Test that two fields of one model bind to different contexts."""

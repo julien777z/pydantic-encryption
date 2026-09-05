@@ -7,9 +7,10 @@ require_optional_dependency("sqlalchemy", "sqlalchemy")
 from sqlalchemy import util
 from sqlalchemy.types import ARRAY, LargeBinary, TypeDecorator
 
+from pydantic_encryption.adapters.base import encode_text
 from pydantic_encryption.adapters.registry import get_encryption_backend
 from pydantic_encryption.config import settings
-from pydantic_encryption.context import append_row_key, derive_column_context, encode_context
+from pydantic_encryption.context import append_row_key, derive_column_context
 from pydantic_encryption.integrations.sqlalchemy.async_bridge import run_async_or_sync
 from pydantic_encryption.serialization import (
     EncryptableValue,
@@ -24,9 +25,10 @@ class ContextBoundType(TypeDecorator):
 
     def __init__(self, context: str | bytes | None = None, row_bound: bool = False, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.declared_context = encode_context(context)
+        self.declared_context = encode_text(context) if context is not None else None
         self.context = self.declared_context
         self.row_bound = row_bound
+        self.bound_column: str | None = None
 
     def _set_parent(self, parent: Any, outer: bool = False, **kw: Any) -> None:
         """Wait for the column this type is attached to to join its table."""
@@ -37,8 +39,27 @@ class ContextBoundType(TypeDecorator):
     def _set_table(self, column, table) -> None:
         """Derive the context from the column this type is attached to, unless one was declared."""
 
+        attached = f"{table.fullname}.{column.name}"
+        if self.bound_column is not None and self.bound_column != attached:
+            raise ValueError(
+                f"This encrypted type is already bound to {self.bound_column}, and one type binds one "
+                f"column: attaching it to {attached} as well would rebind what {self.bound_column} "
+                "already wrote. Give each column a type of its own."
+            )
+
+        self.bound_column = attached
         if self.declared_context is None:
             self.context = derive_column_context(table.name, column.name, schema=table.schema)
+            self.__dict__.pop("_static_cache_key", None)
+
+    def copy(self, **kw) -> "ContextBoundType":
+        """Copy this type unbound, so the column it lands on derives a context of its own."""
+
+        duplicate = super().copy(**kw)
+        duplicate.bound_column = None
+        duplicate.__dict__.pop("_static_cache_key", None)
+
+        return duplicate
 
     def column_context(self) -> bytes:
         """Return the context naming the column itself, which a row-bound cell extends."""
@@ -62,10 +83,10 @@ class ContextBoundType(TypeDecorator):
 
         return self.column_context()
 
-    def cell_context(self, row_key: str) -> bytes:
+    def cell_context(self, *row_key: str) -> bytes:
         """Return the context the named row's cell in this column binds its ciphertext to."""
 
-        return append_row_key(self.column_context(), row_key)
+        return append_row_key(self.column_context(), *row_key)
 
 
 class SQLAlchemyEncryptedValue(ContextBoundType):

@@ -263,7 +263,7 @@ async with AsyncSession(engine) as session:
     await users[0].decrypt()                              # one mixin instance
     await User.decrypt_many(users)                        # batch of one class
     await decrypt_rows(users, User.email)                 # InstrumentedAttribute or column names
-    await decrypt_values(ciphertexts, context="users.email")  # flat ciphertexts; preserves None positions
+    await decrypt_values(ciphertexts, context=User.email)     # flat ciphertexts; preserves None positions
 ```
 
 ### Catching Accidental Ciphertext Access
@@ -284,7 +284,7 @@ Contexts are derived, so there is nothing to pass in the common case:
 | An array element | the context of the array column itself |
 | A model field | `module.Model.field` |
 
-A column inherited from a mixin binds separately for each table that inherits it, and one table name in two schemas binds separately. `derive_column_context` and `derive_field_context` apply these rules, so a migration can name what a value binds to without reimplementing them:
+A column inherited from a mixin binds separately for each table that inherits it, and one type binds one column — a type already attached to a column refuses a second. A separator inside a name is escaped, so no two locations can share a context however they are named. `derive_column_context` and `derive_field_context` apply these rules, so a migration can name what a value binds to without reimplementing them:
 
 ```python
 from pydantic_encryption import derive_column_context
@@ -313,6 +313,8 @@ Each cell then binds to `schema.table.column.<primary key>`, which `derive_row_c
 
 - **`DeferredDecryptMixin` on the mapped class.** A column type sees only the value it is handed, never the row, so row-bound cells seal as the row is inserted or updated and open through the deferred read path, which has the instance.
 - **A primary key that exists before the insert** — one the application assigns, or one with a client-side default such as `default=uuid.uuid4`. A server-generated key does not exist until after the insert it would have to be written into.
+
+Changing a row's primary key re-seals its row-bound cells under the key it moves to, so the row keeps reading.
 
 Encrypted arrays decrypt on the read path, where no row is in scope, so they bind their column and refuse `row_bound`.
 

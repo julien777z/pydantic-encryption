@@ -3,7 +3,7 @@ from collections.abc import Iterator
 
 import pytest
 from cryptography.fernet import InvalidToken
-from sqlalchemy import Integer, Uuid, create_engine, select
+from sqlalchemy import Integer, MetaData, Uuid, create_engine, func, select
 from sqlalchemy.exc import StatementError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
@@ -27,6 +27,17 @@ class RowBoundRecord(RowBoundBase, DeferredDecryptMixin):
     __tablename__ = "row_bound_records"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    secret: Mapped[bytes | None] = mapped_column(
+        SQLAlchemyEncryptedValue(row_bound=True), nullable=True, default=None
+    )
+
+
+class ExpressionKeyedRow(RowBoundBase, DeferredDecryptMixin):
+    """Mapped class whose primary key defaults to an expression the database evaluates."""
+
+    __tablename__ = "expression_keyed_rows"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=func.gen_random_uuid())
     secret: Mapped[bytes | None] = mapped_column(
         SQLAlchemyEncryptedValue(row_bound=True), nullable=True, default=None
     )
@@ -191,3 +202,91 @@ class TestRowBoundDeclaration:
 
         with pytest.raises(ValueError, match="binds each row separately"):
             SQLAlchemyEncryptedValue("users.secret", row_bound=True).bound_context()
+
+
+class TestRowBoundPrimaryKeyDefaults:
+    """Test which primary-key defaults can name a row before the insert that stores it."""
+
+    def test_a_key_defaulting_to_an_expression_is_refused(self, session: Session):
+        """Test that a key the database computes raises rather than naming the row by its expression."""
+
+        session.add(ExpressionKeyedRow(secret="secret data"))
+
+        with pytest.raises(ValueError, match="defaults to a SQL expression"):
+            session.flush()
+
+
+class TestRowKeyChanges:
+    """Test what happens to a row-bound cell when the row it names is renamed."""
+
+    def test_a_cell_follows_its_row_to_a_new_primary_key(self, session: Session):
+        """Test that changing a primary key re-seals the cells bound to the row it named."""
+
+        record = RowBoundRecord(secret="secret-one")
+        session.add(record)
+        session.flush()
+        session.expunge_all()
+
+        moved = session.execute(select(RowBoundRecord)).scalar_one()
+        moved.id = uuid.uuid4()
+        session.flush()
+        moved_id = moved.id
+        session.expunge_all()
+
+        reloaded = session.get(RowBoundRecord, moved_id)
+
+        assert reloaded is not None
+        assert reloaded.secret == "secret-one"
+
+
+class TestSharedColumnTypes:
+    """Test what one encrypted type does when more than one column reaches for it."""
+
+    def test_one_type_refuses_a_second_column(self):
+        """Test that a type already bound to a column refuses to rebind what that column wrote."""
+
+        shared = SQLAlchemyEncryptedValue()
+
+        class SharedBase(DeclarativeBase):
+            """Isolated declarative base for the shared-type test."""
+
+        class FirstOwner(SharedBase):
+            """Mapped class claiming the shared type first."""
+
+            __tablename__ = "first_owners"
+
+            id: Mapped[int] = mapped_column(Integer, primary_key=True)
+            secret: Mapped[bytes | None] = mapped_column(shared, nullable=True, default=None)
+
+        with pytest.raises(ValueError, match="already bound to"):
+
+            class SecondOwner(SharedBase):
+                """Mapped class reaching for a type another column already owns."""
+
+                __tablename__ = "second_owners"
+
+                id: Mapped[int] = mapped_column(Integer, primary_key=True)
+                secret: Mapped[bytes | None] = mapped_column(shared, nullable=True, default=None)
+
+    def test_a_copied_type_derives_its_own_context(self):
+        """Test that copying a table re-derives the copy's context and its statement cache key."""
+
+        class CopiedBase(DeclarativeBase):
+            """Isolated declarative base for the copied-table test."""
+
+        class Original(CopiedBase):
+            """Mapped class whose table is copied to another name."""
+
+            __tablename__ = "originals"
+
+            id: Mapped[int] = mapped_column(Integer, primary_key=True)
+            secret: Mapped[bytes | None] = mapped_column(
+                SQLAlchemyEncryptedValue(), nullable=True, default=None
+            )
+
+        source = Original.__table__.c.secret.type
+        source_cache_key = source._static_cache_key
+        copied = Original.__table__.to_metadata(MetaData(), name="copies").c.secret.type
+
+        assert copied.context == b"copies.secret"
+        assert copied._static_cache_key != source_cache_key
