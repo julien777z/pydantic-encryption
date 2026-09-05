@@ -1,3 +1,4 @@
+import importlib
 from typing import TYPE_CHECKING
 
 from pydantic_encryption.adapters.encryption import fernet
@@ -10,8 +11,6 @@ __all__ = ["fernet", "aws"]
 
 def __getattr__(name: str):
     if name == "aws":
-        from pydantic_encryption.adapters.encryption import aws
-
-        return aws
+        return importlib.import_module("pydantic_encryption.adapters.encryption.aws")
 
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
