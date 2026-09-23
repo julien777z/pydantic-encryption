@@ -4,14 +4,16 @@ from decimal import Decimal
 from uuid import UUID
 
 import pytest
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
 from pydantic_encryption.config import settings
+from pydantic_encryption.context import derive_column_context
 from pydantic_encryption.integrations.sqlalchemy.encryption import (
     SQLAlchemyEncryptedValue,
     SQLAlchemyPGEncryptedArray,
 )
-from pydantic_encryption.integrations.sqlalchemy.serialization import (
+from pydantic_encryption.serialization import (
     TypePrefix,
     decode_value,
     encode_value,
@@ -319,7 +321,7 @@ class TestEncryptionIdempotency:
     """Test that already-encrypted values are not re-encrypted."""
 
     def setup_method(self):
-        self.type_adapter = SQLAlchemyEncryptedValue()
+        self.type_adapter = SQLAlchemyEncryptedValue("tests.encrypted_column.value")
 
     def test_encrypt_cell_already_encrypted_returns_same(self):
         encrypted = self.type_adapter.encrypt_cell("hello")
@@ -362,7 +364,7 @@ class TestEncryptedValueNoneHandling:
     """Test ``SQLAlchemyEncryptedValue`` None handling and metadata."""
 
     def setup_method(self):
-        self.type_adapter = SQLAlchemyEncryptedValue()
+        self.type_adapter = SQLAlchemyEncryptedValue("tests.encrypted_column.value")
 
     def test_encrypt_cell_none_returns_none(self):
         """Test that encrypting None returns None without invoking the backend."""
@@ -384,7 +386,7 @@ class TestPGEncryptedArrayLiteralParam:
     """Test ``SQLAlchemyPGEncryptedArray.process_literal_param`` element encryption."""
 
     def setup_method(self):
-        self.type_adapter = SQLAlchemyPGEncryptedArray()
+        self.type_adapter = SQLAlchemyPGEncryptedArray("tests.encrypted_column.value")
 
     def test_literal_param_none_returns_none(self):
         """Test that a None array literal returns None."""
@@ -400,3 +402,142 @@ class TestPGEncryptedArrayLiteralParam:
         assert len(result) == 2
         assert result[0] != "hello"
         assert result[1] != "world"
+
+
+class ContextBase(DeclarativeBase):
+    """Isolated declarative base for the context-derivation tests."""
+
+
+class SecretMixin:
+    """Mixin whose encrypted columns are inherited by more than one table."""
+
+    secret: Mapped[bytes | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
+    aliases: Mapped[list[str] | None] = mapped_column(
+        SQLAlchemyPGEncryptedArray(), nullable=True, default=None
+    )
+
+
+class ContextUser(ContextBase, SecretMixin):
+    """Table carrying the mixin column plus columns of its own."""
+
+    __tablename__ = "context_users"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[bytes | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
+    tags: Mapped[list[str] | None] = mapped_column(SQLAlchemyPGEncryptedArray(), nullable=True, default=None)
+    envelope: Mapped[bytes | None] = mapped_column(
+        SQLAlchemyEncryptedValue("records.draft"), nullable=True, default=None
+    )
+
+
+class ContextRecord(ContextBase, SecretMixin):
+    """Second table carrying the same mixin column."""
+
+    __tablename__ = "context_records"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+
+
+class ArchivedEntry(ContextBase):
+    """Table whose name is shared with another table in a different schema."""
+
+    __tablename__ = "entries"
+    __table_args__ = {"schema": "archive"}
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    note: Mapped[bytes | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
+    tags: Mapped[list[str] | None] = mapped_column(SQLAlchemyPGEncryptedArray(), nullable=True, default=None)
+
+
+class PublicEntry(ContextBase):
+    """Same table name in a second schema, whose columns must bind separately."""
+
+    __tablename__ = "entries"
+    __table_args__ = {"schema": "public"}
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    note: Mapped[bytes | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
+
+
+class TestDerivedColumnContext:
+    """Test that an encrypted column binds its cells to the table and column it is attached to."""
+
+    def test_column_derives_its_table_and_column(self):
+        """Test that a column with no declared context names the schema it is attached to."""
+
+        assert ContextUser.__table__.c.email.type.context == b"context_users.email"
+
+    def test_array_column_derives_its_table_and_column(self):
+        """Test that an encrypted array derives the context every element is bound to."""
+
+        assert ContextUser.__table__.c.tags.type.context == b"context_users.tags"
+        assert ContextUser.__table__.c.tags.type._element_type.context == b"context_users.tags"
+
+    def test_one_mixin_column_binds_each_table_separately(self):
+        """Test that a column inherited from a mixin binds to each inheriting table's own name."""
+
+        assert ContextUser.__table__.c.secret.type.context == b"context_users.secret"
+        assert ContextRecord.__table__.c.secret.type.context == b"context_records.secret"
+
+    def test_one_mixin_array_column_binds_each_table_separately(self):
+        """Test that an inherited array column gives each table its own element type and context."""
+
+        user_type = ContextUser.__table__.c.aliases.type
+        member_type = ContextRecord.__table__.c.aliases.type
+
+        assert user_type._element_type.context == b"context_users.aliases"
+        assert member_type._element_type.context == b"context_records.aliases"
+        assert user_type._element_type is not member_type._element_type
+
+    def test_declared_context_survives_attachment(self):
+        """Test that a column given a context keeps it rather than deriving one."""
+
+        assert ContextUser.__table__.c.envelope.type.context == b"records.draft"
+
+    def test_column_in_a_schema_derives_the_qualified_table(self):
+        """Test that a column in a named schema binds to the schema-qualified table."""
+
+        column_type = ArchivedEntry.__table__.c.note.type
+
+        assert column_type.context == b"archive.entries.note"
+
+    def test_one_table_name_in_two_schemas_binds_separately(self):
+        """Test that same-named columns in two schemas do not share one context."""
+
+        secure_type = ArchivedEntry.__table__.c.note.type
+        public_type = PublicEntry.__table__.c.note.type
+
+        assert secure_type.context != public_type.context
+
+    def test_array_elements_follow_the_column_context_exactly(self):
+        """Test that an array's elements bind to the same context the array column binds to."""
+
+        column_type = ArchivedEntry.__table__.c.tags.type
+
+        assert column_type._element_type.context == column_type.context
+        assert column_type.context == b"archive.entries.tags"
+
+    @pytest.mark.parametrize(
+        "mapped_class, schema",
+        [(ArchivedEntry, "archive"), (PublicEntry, "public")],
+        ids=["archive", "public"],
+    )
+    def test_derive_column_context_matches_what_a_column_derives(self, mapped_class: type, schema: str):
+        """Test that the documented helper names the same context the column itself resolves."""
+
+        column_type = mapped_class.__table__.c.note.type
+
+        assert column_type.context == derive_column_context("entries", "note", schema=schema)
+
+    def test_derive_column_context_matches_an_unqualified_column(self):
+        """Test that the helper names an unqualified column's context too."""
+
+        column_type = ContextUser.__table__.c.email.type
+
+        assert column_type.context == derive_column_context("context_users", "email")
+
+    def test_detached_type_without_a_context_raises(self):
+        """Test that a type attached to no column refuses to encrypt rather than binding nothing."""
+
+        with pytest.raises(ValueError, match="attached to no column"):
+            SQLAlchemyEncryptedValue().encrypt_cell("secret")

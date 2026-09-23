@@ -17,7 +17,7 @@ class TestUnitEncryptionModel:
 
         old_address = user.address
 
-        user.address = FernetAdapter.encrypt(user.address)
+        user.address = FernetAdapter.encrypt(user.address, associated_data=user.field_context("address"))
 
         assert user.address == old_address
 

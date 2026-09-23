@@ -1,28 +1,49 @@
-import pytest
+from collections.abc import Iterator
 
+import pytest
+from cryptography.fernet import Fernet
+
+from pydantic_encryption.adapters.encryption.aws import AWSAdapter
 from pydantic_encryption.config import settings
 from pydantic_encryption.types import EncryptionMethod
 from tests.factories import User, UserFactory
+from tests.kms import FakeSyncKMSClient, configure_kms_settings, reset_adapter_state
 
 
 @pytest.fixture(autouse=True)
 def set_default_encryption_method(monkeypatch):
-    """Seed encryption + blind-index config for every test so individual tests can opt out."""
+    """Set encryption and blind-index config for every test so individual tests can opt out."""
 
     monkeypatch.setattr(settings, "ENCRYPTION_METHOD", EncryptionMethod.FERNET)
 
-    # Also ensure ENCRYPTION_KEY is set for Fernet tests if not already provided
     if settings.ENCRYPTION_KEY is None:
-        from cryptography.fernet import Fernet
-
         monkeypatch.setattr(settings, "ENCRYPTION_KEY", Fernet.generate_key().decode())
-        # Reset cached Fernet client so it picks up new key
-        from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
-
-        FernetAdapter._clients.clear()
 
     if settings.BLIND_INDEX_SECRET_KEY is None:
         monkeypatch.setattr(settings, "BLIND_INDEX_SECRET_KEY", "test-blind-index-secret-key")
+
+
+@pytest.fixture
+def fernet_key() -> str:
+    """Generate a Fernet root key for tests that exercise that backend directly."""
+
+    return Fernet.generate_key().decode()
+
+
+@pytest.fixture
+def fake_sync_kms(monkeypatch: pytest.MonkeyPatch) -> Iterator[FakeSyncKMSClient]:
+    """Install a fake KMS client and set AWS settings for the test process."""
+
+    reset_adapter_state()
+
+    configure_kms_settings(monkeypatch)
+
+    client = FakeSyncKMSClient()
+    AWSAdapter._sync_client = client
+
+    yield client
+
+    reset_adapter_state()
 
 
 @pytest.fixture

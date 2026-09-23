@@ -21,7 +21,6 @@ Repository = "https://github.com/julien777z/pydantic-encryption"
 [project.optional-dependencies]
 aws = [
     "boto3>=1.40.46",
-    "aioboto3>=15.5.0",
 ]
 sqlalchemy = [
     "sqlalchemy>=2.0.51",
@@ -29,7 +28,6 @@ sqlalchemy = [
 ]
 all = [
     "boto3>=1.40.46",
-    "aioboto3>=15.5.0",
     "sqlalchemy>=2.0.51",
     "greenlet>=3.0.0",
 ]

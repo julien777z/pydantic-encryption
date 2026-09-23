@@ -11,13 +11,7 @@ from tests.integration.database import User
 
 
 class TestIntegrationAsyncFinalizeSession:
-    """Test finalize_sqlalchemy_session against a real Postgres AsyncSession.
-
-    Uses the same ``User`` model as the sync integration tests; it inherits
-    ``DeferredDecryptMixin`` so encrypted columns come back as ``EncryptedValue``
-    wrappers on load, and the drain path inside ``finalize_sqlalchemy_session`` decrypts
-    every bucketed row in one batch before committing.
-    """
+    """Test finalize_sqlalchemy_session against a real Postgres AsyncSession."""
 
     @pytest.mark.asyncio
     async def test_finalize_decrypts_pending_and_commits(
@@ -66,13 +60,7 @@ class TestIntegrationAsyncFinalizeSession:
         async_session: AsyncSession,
         db_session: Session,
     ):
-        """After finalize_sqlalchemy_session, descriptor reads return plaintext without a live tx.
-
-        This is the property the records API relies on: response construction
-        must be able to read decrypted columns after the connection has been
-        returned to the pool. The descriptor should find the cached plaintext
-        set by the drain and not re-enter the session's greenlet bridge.
-        """
+        """Test that a descriptor read returns cached plaintext once the drain has committed."""
 
         db_session.add(User(username="async_finalize_cache", email="cache@example.com", password="pass123"))
         db_session.commit()

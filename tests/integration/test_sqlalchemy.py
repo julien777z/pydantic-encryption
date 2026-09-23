@@ -16,7 +16,7 @@ TEST_LAST_LOGIN: Final[datetime] = datetime(2025, 1, 21, 14, 30, 45)
 TEST_AGE: Final[int] = 34
 TEST_SECRET_DATA: Final[bytes] = b"\x00\x01\x02\x03binary\xff\xfe"
 TEST_BALANCE: Final[float] = 1234.56
-TEST_SALARY: Final[Decimal] = Decimal("99999.99")
+TEST_QUANTITY: Final[Decimal] = Decimal("99999.99")
 TEST_EXTERNAL_ID: Final[uuid.UUID] = uuid.UUID("12345678-1234-5678-1234-567812345678")
 TEST_LOGIN_TIME: Final[time] = time(14, 30, 45)
 TEST_SESSION_DURATION: Final[timedelta] = timedelta(hours=2, minutes=30)
@@ -36,7 +36,7 @@ class TestIntegrationSQLAlchemy:
         secret_data: bytes | None = None,
         is_active: bool | None = None,
         balance: float | None = None,
-        salary: Decimal | None = None,
+        quantity: Decimal | None = None,
         external_id: uuid.UUID | None = None,
         login_time: time | None = None,
         session_duration: timedelta | None = None,
@@ -56,7 +56,7 @@ class TestIntegrationSQLAlchemy:
             secret_data=secret_data,
             is_active=is_active,
             balance=balance,
-            salary=salary,
+            quantity=quantity,
             external_id=external_id,
             login_time=login_time,
             session_duration=session_duration,
@@ -187,19 +187,21 @@ class TestIntegrationSQLAlchemy:
     def test_encrypt_decrypt_decimal(self, db_session: Session):
         """Test that Decimal fields are encrypted and decrypted correctly."""
 
-        user = self.create_user(db_session, username="user14", password=TEST_PASSWORD, salary=TEST_SALARY)
+        user = self.create_user(db_session, username="user14", password=TEST_PASSWORD, quantity=TEST_QUANTITY)
 
-        assert user.salary == TEST_SALARY
-        assert isinstance(user.salary, Decimal)
+        assert user.quantity == TEST_QUANTITY
+        assert isinstance(user.quantity, Decimal)
 
     def test_encrypt_decrypt_decimal_high_precision(self, db_session: Session):
         """Test that high-precision Decimal values are preserved."""
 
         high_precision = Decimal("123.456789012345678901234567890")
 
-        user = self.create_user(db_session, username="user15", password=TEST_PASSWORD, salary=high_precision)
+        user = self.create_user(
+            db_session, username="user15", password=TEST_PASSWORD, quantity=high_precision
+        )
 
-        assert user.salary == high_precision
+        assert user.quantity == high_precision
 
     def test_encrypt_decrypt_uuid(self, db_session: Session):
         """Test that UUID fields are encrypted and decrypted correctly."""

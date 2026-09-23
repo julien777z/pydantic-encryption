@@ -38,6 +38,21 @@ alwaysApply: true
 - Treat it as failed only after that window or an explicit failure from the user.
 - A failure is not approval; wait until the user resumes the task before prompting again.
 
+## Repository Independence
+
+- Every repository stands on its own. Never carry another repository's domain vocabulary into this
+  one: its product name, its services, its table and column names, its record types, or the nouns
+  its business speaks in. That holds for source, tests, fixtures, examples, and documentation
+  alike, and it holds most strongly in a library, where every reader is a different consumer.
+- Name things for the shape being exercised, not for whichever caller happened to prompt the work.
+  A test needing a table with a secret column names it for that — a record with a secret — rather
+  than borrowing the one real table the change was made for.
+- A consumer's needs are a legitimate reason to build something and never a reason to name it after
+  them. Where a consumer's specifics matter to reviewers, they belong in the pull request
+  description, which is read once, rather than in code that outlives the conversation.
+- Sample values follow the same rule: prefer plainly synthetic literals over ones shaped like a
+  real identifier from another system's domain.
+
 ## Rule Files
 
 - Every rule file except `project.md` states guidance that holds in any repository using that

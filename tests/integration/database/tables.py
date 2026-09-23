@@ -22,15 +22,7 @@ class Base(DeclarativeBase):
 
 
 class User(Base, DeferredDecryptMixin):
-    """User model used across the sync and async integration tests.
-
-    Inherits ``DeferredDecryptMixin`` so that encrypted columns are returned
-    as ``EncryptedValue`` wrappers on read and decrypted on first attribute
-    access. Under a sync ``Session`` the descriptor falls back to the
-    synchronous decrypt path (no greenlet bridge available); under an
-    ``AsyncSession`` it runs the batched ``asyncio.gather`` path used by
-    ``finalize_sqlalchemy_session``.
-    """
+    """User model with deferred encrypted columns, used across the sync and async integration tests."""
 
     __tablename__ = "users"
 
@@ -44,7 +36,7 @@ class User(Base, DeferredDecryptMixin):
     secret_data: Mapped[bytes | None] = mapped_column(SQLAlchemyEncryptedValue(), default=None)
     is_active: Mapped[bool | None] = mapped_column(SQLAlchemyEncryptedValue(), default=None)
     balance: Mapped[float | None] = mapped_column(SQLAlchemyEncryptedValue(), default=None)
-    salary: Mapped[Decimal | None] = mapped_column(SQLAlchemyEncryptedValue(), default=None)
+    quantity: Mapped[Decimal | None] = mapped_column(SQLAlchemyEncryptedValue(), default=None)
     external_id: Mapped[uuid.UUID | None] = mapped_column(SQLAlchemyEncryptedValue(), default=None)
     login_time: Mapped[time | None] = mapped_column(SQLAlchemyEncryptedValue(), default=None)
     session_duration: Mapped[timedelta | None] = mapped_column(SQLAlchemyEncryptedValue(), default=None)

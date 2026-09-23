@@ -1,6 +1,16 @@
-# pydantic-encryption
+# Pydantic Encryption
 
-Field-level encryption, hashing, and blind indexing for Pydantic models with SQLAlchemy integration.
+Field-level encryption, hashing, and blind indexing for Pydantic models, with SQLAlchemy column types for the same.
+
+## Features
+
+- Encrypted, hashed, and blind-indexed fields on Pydantic models
+- SQLAlchemy column types for encrypted values, hashes, blind indexes, and PostgreSQL arrays
+- Every ciphertext bound to the column, row, or field it belongs to, and refused anywhere else
+- Values return as the Python type they were stored as, not as bytes
+- Fernet and AWS KMS backends, or your own
+- Sync and async paths, with decryption batched across a session and deferred to first read
+- Blind indexes for equality search over encrypted data, with normalization and per-row salts
 
 ## Installation
 
@@ -8,7 +18,7 @@ Field-level encryption, hashing, and blind indexing for Pydantic models with SQL
 pip install pydantic-encryption
 ```
 
-### Optional Extras
+Optional extras:
 
 ```bash
 pip install "pydantic-encryption[sqlalchemy]"  # SQLAlchemy integration
@@ -18,36 +28,119 @@ pip install "pydantic-encryption[all]"         # All optional dependencies
 
 ## Quick Start
 
-Mix `DeferredDecryptMixin` into any model with encrypted columns. The first time you read an encrypted attribute on any loaded row, the column is batch-decrypted across every sibling instance in the session — columns you never read stay encrypted and cost nothing:
+Annotate a field with `Encrypted` or `Hashed` and it is processed during model initialization:
 
 ```python
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from pydantic_encryption import DeferredDecryptMixin, SQLAlchemyEncryptedValue
+from datetime import date
+from typing import Annotated
+from pydantic_encryption import BaseModel, Encrypted, Hashed
 
 
-class Base(DeclarativeBase):
-    pass
+class User(BaseModel):
+    name: str
+    address: Annotated[str, Encrypted]
+    joined_on: Annotated[date, Encrypted]
+    password: Annotated[str, Hashed]
 
 
-class User(Base, DeferredDecryptMixin):
-    __tablename__ = "users"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    email: Mapped[bytes] = mapped_column(SQLAlchemyEncryptedValue())
+user = User(name="John Doe", address="123 Main St", joined_on=date(2026, 1, 2), password="secret123")
 
+print(user.name)      # "John Doe"
+print(user.address)   # encrypted bytes
+print(user.password)  # argon2 hash bytes
 
-engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-Session = async_sessionmaker(engine, expire_on_commit=False)
-
-async with Session() as session:
-    session.add(User(email="john@example.com"))
-    await session.commit()
-
-    result = await session.execute(select(User))
-    user = result.scalar_one()
-    print(user.email)  # "john@example.com" — decrypted on first read
+user.decrypt_data()
+print(user.address)    # "123 Main St"
+print(user.joined_on)  # datetime.date(2026, 1, 2)
 ```
+
+`decrypt_data()` decrypts every `Encrypted` field in place and returns `self`, so it can be chained. A field comes back as the type it declares, so `joined_on` decrypts to a `date` rather than to the string it was serialized as.
+
+## Configuration
+
+Set the encryption method via environment variable. There is no default — it must be set explicitly to use `Encrypted` fields.
+
+```bash
+ENCRYPTION_METHOD=aws      # AWS KMS (requires AWS_KMS_KEY_ARN, AWS_KMS_REGION, etc.)
+ENCRYPTION_METHOD=fernet   # Fernet symmetric encryption (requires ENCRYPTION_KEY)
+```
+
+### Fernet
+
+```bash
+# Generate a key
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+
+# Set environment variables
+ENCRYPTION_METHOD=fernet
+ENCRYPTION_KEY=your_generated_key
+```
+
+`ENCRYPTION_KEY` is the root key. Each context's key is derived from it with HKDF-SHA256 as the value is sealed or opened, so one key covers every column and a token still only opens under the context it was sealed for.
+
+### AWS KMS
+
+```bash
+ENCRYPTION_METHOD=aws
+AWS_KMS_KEY_ARN=arn:aws:kms:us-east-1:123456789:key/your-key-id
+AWS_KMS_REGION=us-east-1
+AWS_KMS_ACCESS_KEY_ID=your_access_key
+AWS_KMS_SECRET_ACCESS_KEY=your_secret_key
+```
+
+As an alternative to `AWS_KMS_KEY_ARN`, separate encrypt/decrypt keys are supported for key rotation or read-only scenarios:
+
+```bash
+AWS_KMS_ENCRYPT_KEY_ARN=arn:aws:kms:...encrypt-key
+AWS_KMS_DECRYPT_KEY_ARN=arn:aws:kms:...decrypt-key
+```
+
+Use one mode or the other — combining `AWS_KMS_KEY_ARN` with either split variant raises a validation error. A decrypt-only key alone is allowed (read-only workloads).
+
+One KMS data key seals many values, and an unwrapped data key opens many, so KMS is called once per key rather than once per value. The bounds on that reuse are settings:
+
+| Setting | Default | Bounds |
+|---------|---------|--------|
+| `AWS_KMS_DATA_KEY_MAX_USES` | `1000` | Values one data key seals before a fresh one is generated |
+| `AWS_KMS_DATA_KEY_MAX_AGE_SECONDS` | `300` | How long one data key seals values before a fresh one is generated |
+| `AWS_KMS_UNWRAPPED_KEY_CACHE_SIZE` | `512` | Unwrapped data keys held in memory, least recently used evicted first |
+| `AWS_KMS_UNWRAPPED_KEY_MAX_AGE_SECONDS` | `300` | How long an unwrapped data key is held before KMS unwraps it again |
+
+Every value still carries its own nonce and its own context, so sharing a data key changes how often KMS is called and nothing about what a ciphertext opens under.
+
+### Per Model
+
+Override encryption settings on a model instead of relying on environment variables:
+
+```python
+from typing import Annotated
+from pydantic_encryption import BaseModel, Encrypted, EncryptionMethod
+
+
+class SpecialUser(BaseModel, encryption_method=EncryptionMethod.FERNET, encryption_key="my-key"):
+    email: Annotated[bytes, Encrypted]
+```
+
+Supported kwargs: `encryption_method`, `encryption_key`, `blind_index_key`. Falls back to env vars if not set.
+
+## Supported Types
+
+Encrypted columns and `Encrypted` model fields alike preserve the Python type of your data:
+
+`str`, `bytes`, `bool`, `int`, `float`, `Decimal`, `UUID`, `date`, `datetime`, `time`, `timedelta`
+
+## Async Models
+
+Use `async_init()` to construct models with async encryption, hashing, and blind indexing, and `async_decrypt_data()` for async decryption:
+
+```python
+user = await User.async_init(
+    name="John", address="123 Main St", joined_on=date(2026, 1, 2), password="secret"
+)
+await user.async_decrypt_data()
+```
+
+All phases (encrypt, hash, blind-index) run concurrently via `asyncio.gather`, and nested `BaseModel` instances — including those inside `list`, `tuple`, `dict`, and `set` containers — are processed recursively.
 
 ## SQLAlchemy Integration
 
@@ -101,13 +194,7 @@ with Session(engine) as session:
     print(found.email)  # decrypted
 ```
 
-### Supported Types
-
-`SQLAlchemyEncryptedValue` preserves the Python type of your data:
-
-`str`, `bytes`, `bool`, `int`, `float`, `Decimal`, `UUID`, `date`, `datetime`, `time`, `timedelta`
-
-### Array Support (PostgreSQL)
+### Arrays (PostgreSQL)
 
 ```python
 from pydantic_encryption import SQLAlchemyPGEncryptedArray
@@ -127,6 +214,8 @@ Each element is individually encrypted. Requires PostgreSQL.
 Mix the helper into any model with encrypted columns and read as usual:
 
 ```python
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker
 from pydantic_encryption import DeferredDecryptMixin, SQLAlchemyEncryptedValue
 
 
@@ -185,126 +274,84 @@ async with AsyncSession(engine) as session:
     await users[0].decrypt()                              # one mixin instance
     await User.decrypt_many(users)                        # batch of one class
     await decrypt_rows(users, User.email)                 # InstrumentedAttribute or column names
-    await decrypt_values(ciphertexts)                     # flat ciphertexts; preserves None positions
+    await decrypt_values(ciphertexts, context=User.email)     # flat ciphertexts; preserves None positions
 ```
 
-### Safety: Catching Accidental Ciphertext Access
+### Catching Accidental Ciphertext Access
 
 Reads go through the on-access descriptor. When the underlying cell is still an `EncryptedValue`, the descriptor prefers an async batch decrypt over the session's pending siblings (via SQLAlchemy's greenlet bridge), and transparently falls back to a synchronous decrypt either when the read happens outside a greenlet or when the instance is detached from any session.
 
 An `EncryptedValue` only reaches user code if something bypasses the descriptor entirely (raw `state.dict[col]`, a logged row). Coercing it via `str(value)` / `f"{value}"` / `"%s" % value` raises `EncryptedValueAccessError`. `repr(value)` is a safe `<EncryptedValue: N bytes>` marker, and `bytes(value)` returns the raw ciphertext. Use `is_encrypted(value)` to guard at a boundary.
 
-## Manual Encryption or Hashing
+## Context Binding
 
-Fields annotated with `Encrypted` are encrypted and fields annotated with `Hashed` are hashed during model initialization:
+Every ciphertext is bound to the context it belongs to. That context is authenticated on encrypt and required on decrypt, so a value lifted out of one column fails to open anywhere else.
 
-```python
-from typing import Annotated
-from pydantic_encryption import BaseModel, Encrypted, Hashed
+Contexts are derived, so there is nothing to pass in the common case:
 
-class User(BaseModel):
-    name: str
-    address: Annotated[bytes, Encrypted]
-    password: Annotated[str, Hashed]
+| Value | Context |
+|-------|---------|
+| A column | `table.column`, or `schema.table.column` where the table names a schema |
+| An array element | the context of the array column itself |
+| A model field | `module.Model.field` |
 
-user = User(name="John Doe", address="123 Main St", password="secret123")
-
-print(user.name)      # "John Doe"
-print(user.address)   # encrypted bytes
-print(user.password)  # argon2 hash bytes
-```
-
-### Decrypting
-
-Call `decrypt_data()` to decrypt all `Encrypted` fields in-place. It returns `self`, so it can be chained:
+A column inherited from a mixin binds separately for each table that inherits it, and one type binds one column — a type already attached to a column refuses a second. A separator inside a name is escaped, so no two locations can share a context however they are named. `derive_column_context` and `derive_field_context` apply these rules, so a migration can name what a value binds to without reimplementing them:
 
 ```python
-user = User(name="John", address="123 Main St", password="secret")
-user.decrypt_data()
-print(user.address)  # "123 Main St"
+from pydantic_encryption import derive_column_context
+
+derive_column_context("users", "email")                    # b"users.email"
+derive_column_context("users", "email", schema="archive")  # b"archive.users.email"
 ```
 
-### Async Support
+The context is authenticated but never written into the ciphertext, so it is part of the column's contract: renaming a table or column re-binds what it writes from then on, and values stored under the old name no longer open.
 
-Use `async_init()` to construct models with async encryption, hashing, and blind indexing, and `async_decrypt_data()` for async decryption:
+Pass a context explicitly only where nothing can be derived, such as a value that never reaches a column:
 
 ```python
-user = await User.async_init(name="John", address="123 Main St", password="secret")
-await user.async_decrypt_data()
+draft = SQLAlchemyEncryptedValue("records.draft").encrypt_cell(payload)
 ```
 
-All phases (encrypt, hash, blind-index) run concurrently via `asyncio.gather`, and nested `BaseModel` instances — including those inside `list`, `tuple`, `dict`, and `set` containers — are processed recursively.
+### Binding a Cell to Its Row
 
-## Encryption Methods
-
-Set the encryption method via environment variable:
-
-```bash
-ENCRYPTION_METHOD=fernet   # Fernet symmetric encryption (requires ENCRYPTION_KEY)
-ENCRYPTION_METHOD=aws      # AWS KMS (requires AWS_KMS_KEY_ARN, AWS_KMS_REGION, etc.)
-```
-
-There is no default — you must explicitly set `ENCRYPTION_METHOD` if using `Encrypted` fields.
-
-### Fernet Setup
-
-```bash
-# Generate a key
-python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-
-# Set environment variables
-ENCRYPTION_METHOD=fernet
-ENCRYPTION_KEY=your_generated_key
-```
-
-### AWS KMS Setup
-
-```bash
-ENCRYPTION_METHOD=aws
-AWS_KMS_KEY_ARN=arn:aws:kms:us-east-1:123456789:key/your-key-id
-AWS_KMS_REGION=us-east-1
-AWS_KMS_ACCESS_KEY_ID=your_access_key
-AWS_KMS_SECRET_ACCESS_KEY=your_secret_key
-```
-
-As an alternative to `AWS_KMS_KEY_ARN`, separate encrypt/decrypt keys are supported for key rotation or read-only scenarios:
-
-```bash
-AWS_KMS_ENCRYPT_KEY_ARN=arn:aws:kms:...encrypt-key
-AWS_KMS_DECRYPT_KEY_ARN=arn:aws:kms:...decrypt-key
-```
-
-Use one mode or the other — combining `AWS_KMS_KEY_ARN` with either split variant raises a validation error. A decrypt-only key alone is allowed (read-only workloads).
-
-### Model-Level Config
-
-Override encryption settings per model instead of relying on environment variables:
+A column context stops a ciphertext moving between columns. `row_bound=True` also stops one moving between rows of the same column:
 
 ```python
-from pydantic_encryption import BaseModel, Encrypted, EncryptionMethod
-from typing import Annotated
-
-class SpecialUser(BaseModel, encryption_method=EncryptionMethod.FERNET, encryption_key="my-key"):
-    email: Annotated[bytes, Encrypted]
+secret: Mapped[bytes] = mapped_column(SQLAlchemyEncryptedValue(row_bound=True))
 ```
 
-Supported kwargs: `encryption_method`, `encryption_key`, `blind_index_key`. Falls back to env vars if not set.
+Each cell then binds to `schema.table.column.<primary key>`, which `derive_row_context` names. A row-bound column requires two things, and says so rather than binding something weaker:
+
+- **`DeferredDecryptMixin` on the mapped class.** A column type sees only the value it is handed, never the row, so row-bound cells seal as the row is inserted or updated and open through the deferred read path, which has the instance.
+- **A primary key that exists before the insert** — one the application assigns, or one with a client-side default such as `default=uuid.uuid4`. A server-generated key does not exist until after the insert it would have to be written into.
+
+Changing a row's primary key re-seals its row-bound cells under the key it moves to, so the row keeps reading.
+
+Encrypted arrays decrypt on the read path, where no row is in scope, so they bind their column and refuse `row_bound`.
+
+### Backends
+
+Both backends bind, and one whose primitive could not authenticate a context raises rather than ignoring it. AWS KMS authenticates the context in the AES-GCM tag. A Fernet token has no field for it, so Fernet binds by key separation instead: each context gets its own key derived from `ENCRYPTION_KEY`, and a token carried into another context fails its authentication check there.
 
 ## Blind Indexes
 
-Blind indexes enable equality searches on encrypted data by storing a deterministic keyed hash alongside the ciphertext.
-
-**Configuration:** Set `BLIND_INDEX_SECRET_KEY` via environment variable.
-
-### Pydantic Models
+Blind indexes enable equality searches on encrypted data by storing a deterministic keyed hash alongside the ciphertext. Set `BLIND_INDEX_SECRET_KEY` via environment variable.
 
 ```python
 from typing import Annotated
 from pydantic_encryption import BaseModel, BlindIndex, BlindIndexMethod
 
+
 class User(BaseModel):
     email_index: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
 ```
+
+### Methods
+
+| Method | Description |
+|--------|-------------|
+| `BlindIndexMethod.HMAC_SHA256` | Fast HMAC-SHA256 keyed hash. Standard choice. |
+| `BlindIndexMethod.ARGON2` | Memory-hard Argon2 hash with deterministic salt. Better brute-force resistance. |
 
 ### Normalization
 
@@ -330,13 +377,6 @@ Available options:
 | `normalize_to_uppercase` | Convert to uppercase |
 
 Normalization determines the hashed value, so changing a field's flags changes the indexes computed for the values those flags touch. Recompute stored indexes when flags change.
-
-### Methods
-
-| Method | Description |
-|--------|-------------|
-| `BlindIndexMethod.HMAC_SHA256` | Fast HMAC-SHA256 keyed hash. Standard choice. |
-| `BlindIndexMethod.ARGON2` | Memory-hard Argon2 hash with deterministic salt. Better brute-force resistance. |
 
 ### Computing Indexes Directly
 
@@ -377,6 +417,7 @@ Subclass `BaseModel` and override any of `encrypt_data`, `hash_data`, `blind_ind
 ```python
 from pydantic_encryption import BaseModel
 
+
 class MyModel(BaseModel):
     def encrypt_data(self) -> None:
         # your encryption logic (mutate self in-place)
@@ -385,9 +426,12 @@ class MyModel(BaseModel):
 
 To implement a new backend instead of replacing the per-model path, subclass one of the adapter ABCs (`EncryptionAdapter`, `HashingAdapter`, `BlindIndexAdapter`) and register it via `register_encryption_backend` / `register_blind_index_backend`. Async variants are inherited by default — override `async_encrypt` / `async_decrypt` only for natively-async backends.
 
-## Run Tests
+## Local Development
 
 ```bash
-pip install -e ".[dev]"
-pytest -v
+pip install -e ".[dev]"   # install with the development dependencies
+pytest -v                 # run the unit tests
+black .                   # format
 ```
+
+The integration tier runs against a Docker-managed PostgreSQL, so Docker must be available to run the full suite.

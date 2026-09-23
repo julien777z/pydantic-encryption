@@ -15,7 +15,7 @@ class User(BaseModel):
     first_name: str
     last_name: str
     payload: bytes
-    address: Annotated[bytes, Encrypted]
+    address: Annotated[str, Encrypted]
     password: Annotated[str, Hashed] = None
 
 

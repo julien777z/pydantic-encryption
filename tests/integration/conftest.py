@@ -89,15 +89,7 @@ async def async_engine(
     db_session,
     async_sqlalchemy_connect_url: str,
 ):
-    """Create an AsyncEngine against the docker-managed Postgres.
-
-    Scoped per test with ``NullPool`` so asyncpg connections never outlive
-    the test's event loop - pytest-asyncio creates a fresh loop per test
-    under the default function scope, and a pooled connection opened on a
-    previous loop would otherwise raise "attached to a different loop" on
-    reuse. Depends on ``db_session`` so the docker stack is up and the sync
-    side has already created the schema before any async query runs.
-    """
+    """Create a per-test AsyncEngine against the docker-managed Postgres."""
 
     engine = create_async_engine(async_sqlalchemy_connect_url, poolclass=NullPool)
     yield engine
