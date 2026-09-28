@@ -3,6 +3,7 @@ from typing import Annotated
 import pytest
 
 from pydantic_encryption import BaseModel, BlindIndex, BlindIndexMethod
+from pydantic_encryption.config import settings
 from pydantic_encryption.types import BlindIndexValue
 
 
@@ -118,14 +119,21 @@ class TestBlindIndexAnnotationConfig:
     def test_missing_secret_key_raises_error(self, monkeypatch):
         """Test that BlindIndex without BLIND_INDEX_SECRET_KEY raises a clear error."""
 
-        from pydantic_encryption import config
-
-        monkeypatch.setattr(config.settings, "BLIND_INDEX_SECRET_KEY", None)
+        monkeypatch.setattr(settings, "BLIND_INDEX_SECRET_KEY", None)
 
         class UserModel(BaseModel):
             email_index: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
 
         with pytest.raises(ValueError, match="BLIND_INDEX_SECRET_KEY must be set"):
+            UserModel(email_index="test@example.com")
+
+    def test_uninstantiated_annotation_raises(self):
+        """Test that annotating a field with the BlindIndex class instead of an instance raises a clear error."""
+
+        class UserModel(BaseModel):
+            email_index: Annotated[bytes, BlindIndex]
+
+        with pytest.raises(TypeError, match="must be annotated with a BlindIndex"):
             UserModel(email_index="test@example.com")
 
     def test_none_value_stays_none(self):

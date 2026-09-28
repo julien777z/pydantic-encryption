@@ -1,6 +1,6 @@
 import asyncio
 import contextvars
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Coroutine, Iterable
 from typing import Any, ClassVar, Self
 
 from pydantic_super_model import AnnotatedFieldInfo, SuperModelPydanticMixin
@@ -11,7 +11,7 @@ from pydantic_encryption.adapters.registry import get_blind_index_backend, get_e
 from pydantic_encryption.config import settings
 from pydantic_encryption.context import derive_field_context
 from pydantic_encryption.normalization import normalize_value
-from pydantic_encryption.serialization import decode_value, encode_value
+from pydantic_encryption.serialization import EncryptableValue, decode_value, encode_value
 from pydantic_encryption.types import BlindIndex, BlindIndexValue, Encrypted, EncryptionMethod, Hashed
 
 __all__ = ["BaseModel", "SecureModel"]
@@ -127,9 +127,10 @@ class SecureModel:
             return None
 
         fields = self.nonempty_field_values(self.pending_hash_fields)
+
         return fields or None
 
-    def normalize_blind_index_value(self, annotation: BlindIndex, value: Any) -> str:
+    def normalize_blind_index_value(self, annotation: BlindIndex, value: str | bytes) -> str:
         """Decode bytes to str and apply the annotation's normalization flags."""
 
         if isinstance(value, bytes):
@@ -153,7 +154,10 @@ class SecureModel:
             if value is None or isinstance(value, BlindIndexValue):
                 continue
 
-            annotation: BlindIndex = annotated_field.matched_metadata[0]
+            annotation = annotated_field.matched_metadata[0]
+            if not isinstance(annotation, BlindIndex):
+                raise TypeError(f"Field {field_name!r} must be annotated with a BlindIndex(...) instance.")
+
             normalized = self.normalize_blind_index_value(annotation, value)
 
             if key_bytes is None:
@@ -164,7 +168,7 @@ class SecureModel:
 
         return tasks or None
 
-    async def async_apply(self, items: list[tuple[str, Awaitable[Any]]]) -> None:
+    async def async_apply(self, items: list[tuple[str, Coroutine[Any, Any, object]]]) -> None:
         """Await each coroutine under a TaskGroup and ``setattr`` its result onto ``self``."""
 
         if not items:
@@ -177,7 +181,7 @@ class SecureModel:
             setattr(self, name, task.result())
 
     @staticmethod
-    async def decode_awaited(plaintext: Awaitable[str]) -> Any:
+    async def decode_awaited(plaintext: Awaitable[str]) -> EncryptableValue:
         """Await a decryption and deserialize its plaintext back to the value that was encrypted."""
 
         return decode_value(await plaintext)
@@ -312,15 +316,16 @@ class SecureModel:
         self.blind_index_data()
 
     @staticmethod
-    async def async_post_init_nested(value: Any) -> None:
+    async def async_post_init_nested(value: object) -> None:
         """Recursively run ``async_post_init`` on nested ``SecureModel`` instances."""
 
         if isinstance(value, SecureModel):
             await value.async_post_init()
+
             return
 
         if isinstance(value, dict):
-            children: Any = value.values()
+            children: Iterable[object] = value.values()
         elif isinstance(value, (list, tuple, set, frozenset)):
             children = value
         else:
@@ -347,6 +352,8 @@ class BaseModel(SuperModelPydanticMixin, SecureModel):
     """Pydantic base model with automatic encryption, hashing, and blind indexing."""
 
     def model_post_init(self, context: Any, /) -> None:
+        """Encrypt, hash, and blind-index fields once validation completes."""
+
         self.default_post_init()
         super().model_post_init(context)
 
@@ -359,5 +366,7 @@ class BaseModel(SuperModelPydanticMixin, SecureModel):
             instance = cls(**data)
         finally:
             defer_crypto_to_async.reset(token)
+
         await instance.async_post_init()
+
         return instance

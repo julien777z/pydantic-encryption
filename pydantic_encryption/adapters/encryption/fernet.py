@@ -47,6 +47,8 @@ class FernetAdapter(EncryptionAdapter):
         key: str | None = None,
         associated_data: bytes,
     ) -> EncryptedValue:
+        """Encrypt plaintext under the key derived for its associated data."""
+
         if isinstance(plaintext, EncryptedValue):
             return plaintext
 
@@ -62,6 +64,8 @@ class FernetAdapter(EncryptionAdapter):
         key: str | None = None,
         associated_data: bytes,
     ) -> str:
+        """Decrypt ciphertext under the key derived for its associated data."""
+
         client = cls.get_client(key, associated_data)
 
         return client.decrypt(encode_text(ciphertext)).decode("utf-8")

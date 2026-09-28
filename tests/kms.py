@@ -1,10 +1,11 @@
 import secrets
-from typing import Any
+from typing import Any, Unpack
 
 import pytest
 
 from pydantic_encryption.adapters.encryption.aws import AWSAdapter
 from pydantic_encryption.config import settings
+from pydantic_encryption.models.kms import DataKeyDecryptRequest, GeneratedDataKey
 
 
 class FakeSyncKMSClient:
@@ -13,9 +14,9 @@ class FakeSyncKMSClient:
     def __init__(self) -> None:
         self.plaintext_keys: dict[bytes, bytes] = {}
         self.generate_calls: list[dict[str, Any]] = []
-        self.decrypt_calls: list[dict[str, Any]] = []
+        self.decrypt_calls: list[DataKeyDecryptRequest] = []
 
-    def generate_data_key(self, **kwargs: Any) -> dict[str, bytes]:
+    def generate_data_key(self, **kwargs: Any) -> GeneratedDataKey:
         """Return a fresh plaintext key wrapped under an identifier this fake can recover it by."""
 
         self.generate_calls.append(kwargs)
@@ -23,9 +24,9 @@ class FakeSyncKMSClient:
         wrapped = f"wrapped-{len(self.plaintext_keys) + 1}".encode("utf-8")
         self.plaintext_keys[wrapped] = plaintext
 
-        return {"Plaintext": plaintext, "CiphertextBlob": wrapped}
+        return GeneratedDataKey(Plaintext=plaintext, CiphertextBlob=wrapped)
 
-    def decrypt(self, **kwargs: Any) -> dict[str, bytes]:
+    def decrypt(self, **kwargs: Unpack[DataKeyDecryptRequest]) -> dict[str, bytes]:
         """Return the plaintext key the wrapped identifier stands for."""
 
         self.decrypt_calls.append(kwargs)

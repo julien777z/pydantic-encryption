@@ -1,36 +1,44 @@
-from typing import Any
+from typing import Any, Final, TypeVar
+from weakref import WeakSet
 
 from pydantic_encryption.lazy import require_optional_dependency
 
 require_optional_dependency("sqlalchemy", "sqlalchemy")
 
 from sqlalchemy import inspect as sa_inspect
+from sqlalchemy.orm import Mapper, Session
 from sqlalchemy.orm.attributes import set_committed_value
 
-PENDING_DECRYPT_KEY = "__pydantic_encryption_pending_decrypt__"
+from pydantic_encryption.serialization import EncryptableValue
+
+PENDING_DECRYPT_KEY: Final[str] = "__pydantic_encryption_pending_decrypt__"
+
+MappedT = TypeVar("MappedT")
 
 
-def read_raw_cell(row: Any, column_key: str) -> Any:
+def read_raw_cell(row: object, column_key: str) -> Any:
     """Read a column's stored value from ORM state, bypassing attribute descriptors."""
 
     state = sa_inspect(row, raiseerr=False)
     if state is not None and hasattr(state, "dict"):
         return state.dict.get(column_key)
+
     return getattr(row, column_key, None)
 
 
-def set_decrypted(row: Any, column_key: str, plaintext: Any) -> None:
+def set_decrypted(row: object, column_key: str, plaintext: EncryptableValue) -> None:
     """Commit a decrypted value on a row without marking it dirty for the next flush."""
 
     state = sa_inspect(row, raiseerr=False)
     if state is None or not hasattr(state, "mapper"):
         setattr(row, column_key, plaintext)
+
         return
 
     set_committed_value(row, column_key, plaintext)
 
 
-def row_key(mapper: Any, instance: Any) -> list[str]:
+def row_key(mapper: Mapper[MappedT], instance: MappedT) -> list[str]:
     """Return the primary key values identifying one row, one context segment each."""
 
     values: list[str] = []
@@ -49,13 +57,13 @@ def row_key(mapper: Any, instance: Any) -> list[str]:
     return values
 
 
-def pending_siblings(session: Any, cls: type) -> list[Any]:
+def pending_siblings(session: Session | None, cls: type[object]) -> list[object]:
     """Return pending-decrypt instances of ``cls`` bucketed in ``session`` (empty if none)."""
 
     if session is None:
         return []
 
-    bucket = getattr(session, "info", {}).get(PENDING_DECRYPT_KEY) or {}
+    bucket: dict[type[object], WeakSet[object]] = getattr(session, "info", {}).get(PENDING_DECRYPT_KEY) or {}
 
     return list(bucket.get(cls) or [])
 

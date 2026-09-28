@@ -7,21 +7,24 @@ from pydantic_encryption.lazy import require_optional_dependency
 
 require_optional_dependency("sqlalchemy", "sqlalchemy")
 
-from sqlalchemy import event
+from sqlalchemy import Connection, event
+from sqlalchemy.orm import Mapper, QueryContext
 from sqlalchemy.orm.attributes import get_history
 
-from pydantic_encryption.integrations.sqlalchemy.state import PENDING_DECRYPT_KEY, read_raw_cell, row_key
+from pydantic_encryption.integrations.sqlalchemy.state import (
+    PENDING_DECRYPT_KEY,
+    MappedT,
+    read_raw_cell,
+    row_key,
+)
 from pydantic_encryption.integrations.sqlalchemy.bulk import bulk_decrypt_entities
 from pydantic_encryption.integrations.sqlalchemy.descriptor import DecryptOnAccessDescriptor
-from pydantic_encryption.integrations.sqlalchemy.encryption import (
-    ContextBoundType,
-    SQLAlchemyEncryptedValue,
-)
+from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue
 from pydantic_encryption.serialization import decode_value
 from pydantic_encryption.types import EncryptedValue
 
 
-def install_descriptors(mapper: Any, class_: type) -> None:
+def install_descriptors(mapper: Mapper[MappedT], class_: type[MappedT]) -> None:
     """Mark encrypted columns deferred and wrap their class attrs with the on-access descriptor."""
 
     for column in mapper.columns:
@@ -47,17 +50,17 @@ def install_descriptors(mapper: Any, class_: type) -> None:
             continue
 
 
-def row_bound_columns(mapper: Any) -> list[Any]:
-    """Return the mapper's columns that bind each row's ciphertext separately."""
+def row_bound_columns(mapper: Mapper[Any]) -> list[tuple[str, SQLAlchemyEncryptedValue]]:
+    """Return the attribute key and type of each column that binds each row's ciphertext separately."""
 
     return [
-        column
+        (mapper.get_property_by_column(column).key, column.type)
         for column in mapper.columns
-        if isinstance(column.type, ContextBoundType) and column.type.row_bound
+        if isinstance(column.type, SQLAlchemyEncryptedValue) and column.type.row_bound
     ]
 
 
-def assign_client_side_primary_key(mapper: Any, target: Any) -> None:
+def assign_client_side_primary_key(mapper: Mapper[MappedT], target: MappedT) -> None:
     """Apply a primary key's client-side default early, so a row-bound cell can name its row."""
 
     for column in mapper.primary_key:
@@ -80,7 +83,7 @@ def assign_client_side_primary_key(mapper: Any, target: Any) -> None:
         setattr(target, attribute, default.arg(None) if default.is_callable else default.arg)
 
 
-def replaced_row_key(mapper: Any, target: Any) -> list[str] | None:
+def replaced_row_key(mapper: Mapper[MappedT], target: MappedT) -> list[str] | None:
     """Return the primary key a row is moving away from, or ``None`` where it keeps the one it had."""
 
     replaced: list[str] = []
@@ -97,7 +100,7 @@ def replaced_row_key(mapper: Any, target: Any) -> list[str] | None:
     return replaced if moved else None
 
 
-def encrypt_row_bound_cells(mapper: Any, connection: Any, target: Any) -> None:
+def encrypt_row_bound_cells(mapper: Mapper[MappedT], connection: Connection, target: MappedT) -> None:
     """Seal every row-bound cell on an instance under the context naming its row."""
 
     columns = row_bound_columns(mapper)
@@ -108,8 +111,7 @@ def encrypt_row_bound_cells(mapper: Any, connection: Any, target: Any) -> None:
     cell_key = row_key(mapper, target)
     replaced_key = replaced_row_key(mapper, target)
 
-    for column in columns:
-        attribute = mapper.get_property_by_column(column).key
+    for attribute, column_type in columns:
         value = read_raw_cell(target, attribute)
         if value is None:
             continue
@@ -119,17 +121,17 @@ def encrypt_row_bound_cells(mapper: Any, connection: Any, target: Any) -> None:
                 continue
 
             value = decode_value(
-                column.type.decrypt_cell(value, context=column.type.cell_context(*replaced_key))
+                column_type.decrypt_cell(value, context=column_type.cell_context(*replaced_key))
             )
 
         setattr(
             target,
             attribute,
-            column.type.encrypt_cell(value, context=column.type.cell_context(*cell_key)),
+            column_type.encrypt_cell(value, context=column_type.cell_context(*cell_key)),
         )
 
 
-def on_orm_load(instance: Any, context: Any) -> None:
+def on_orm_load(instance: object, context: QueryContext | None) -> None:
     """Add a freshly loaded instance to the session's pending-decrypt bucket."""
 
     if context is None:
@@ -139,11 +141,13 @@ def on_orm_load(instance: Any, context: Any) -> None:
     if session is None:
         return
 
-    bucket: dict[type, WeakSet] = session.info.setdefault(PENDING_DECRYPT_KEY, defaultdict(WeakSet))
+    bucket: dict[type[object], WeakSet[object]] = session.info.setdefault(
+        PENDING_DECRYPT_KEY, defaultdict(WeakSet)
+    )
     bucket[type(instance)].add(instance)
 
 
-def on_orm_refresh(instance: Any, context: Any, attrs: Any) -> None:
+def on_orm_refresh(instance: object, context: QueryContext | None, attrs: Iterable[str] | None) -> None:
     """Re-add a refreshed instance to the session's pending-decrypt bucket."""
 
     on_orm_load(instance, context)
@@ -168,7 +172,7 @@ class DeferredDecryptMixin:
         return self
 
     @classmethod
-    async def decrypt_many(cls, entities: Any | Iterable[Any] | None) -> None:
+    async def decrypt_many(cls, entities: object | Iterable[object] | None) -> None:
         """Decrypt every deferred encrypted column on the given entities and loaded relationships."""
 
         await bulk_decrypt_entities(entities)
