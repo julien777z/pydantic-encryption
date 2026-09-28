@@ -11,6 +11,7 @@ on:
       - "pyproject.toml"
       - "poetry.lock"
       - ".github/workflows/run_tests.yml"
+      - ".github/scripts/**"
       - ".github/actions/setup-python-poetry/**"
 
 jobs:
@@ -31,6 +32,9 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           post_setup_command: "poetry install --all-extras"
+
+      - name: Check public type completeness
+        run: poetry run python .github/scripts/check_type_completeness.py
 
       - name: Test with Pytest
         run: |
