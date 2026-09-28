@@ -1,17 +1,8 @@
+from argon2 import PasswordHasher
+from sqlalchemy.dialects import sqlite
+
 from pydantic_encryption.integrations.sqlalchemy.hashing import SQLAlchemyHashedValue
 from pydantic_encryption.types import HashedValue
-
-
-class LiteralProcessorDialect:
-    """Dialect stub exposing the ``literal_processor`` hook used by literal binds."""
-
-    def literal_processor(self, impl):
-        """Return a processor that renders a value as a quoted literal string."""
-
-        def process(value: bytes) -> str:
-            return repr(value)
-
-        return process
 
 
 class TestHashedValue:
@@ -42,17 +33,17 @@ class TestHashedValue:
         assert self.type_adapter.process_bind_param(None, None) is None
 
     def test_process_literal_param_hashes_value(self):
-        """Test that a literal value is hashed and rendered through the dialect."""
+        """Test that a literal value is hashed with Argon2 for a real dialect."""
 
-        result = self.type_adapter.process_literal_param("secret", LiteralProcessorDialect())
+        result = self.type_adapter.process_literal_param("secret", sqlite.dialect())
 
-        assert result is not None
-        assert "secret" not in str(result)
+        assert isinstance(result, HashedValue)
+        assert PasswordHasher().verify(result.decode("utf-8"), "secret")
 
     def test_process_literal_param_none_returns_none(self):
         """Test that a None literal value returns None."""
 
-        assert self.type_adapter.process_literal_param(None, LiteralProcessorDialect()) is None
+        assert self.type_adapter.process_literal_param(None, sqlite.dialect()) is None
 
     def test_process_result_value_wraps_hashed_value(self):
         """Test that a stored hash is wrapped as a HashedValue on read."""

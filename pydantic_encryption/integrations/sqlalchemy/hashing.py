@@ -32,7 +32,7 @@ class SQLAlchemyHashedValue(TypeDecorator):
         if value is None:
             return None
 
-        return dialect.literal_processor(self.impl)(self.hash(value))
+        return self.hash(value)
 
     def process_result_value(self, value: str | bytes | None, dialect) -> HashedValue | None:
         """Return the stored hash wrapped as a ``HashedValue``."""
