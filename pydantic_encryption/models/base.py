@@ -1,7 +1,7 @@
 import asyncio
 import contextvars
 from collections.abc import Awaitable, Coroutine, Iterable
-from typing import Any, ClassVar, Self
+from typing import TYPE_CHECKING, Any, ClassVar, Self
 
 from pydantic_super_model import AnnotatedFieldInfo, SuperModelPydanticMixin
 
@@ -74,6 +74,13 @@ class SecureModel:
             raise ValueError("BLIND_INDEX_SECRET_KEY must be set to use BlindIndex.")
 
         return key
+
+    if TYPE_CHECKING:
+
+        def get_annotated_fields(self, *annotations: object) -> dict[str, AnnotatedFieldInfo]:
+            """Return fields carrying any of the given annotations."""
+
+            ...
 
     @property
     def pending_encryption_fields(self) -> dict[str, AnnotatedFieldInfo]:
