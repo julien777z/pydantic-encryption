@@ -46,7 +46,6 @@ dev = [
     "psycopg2-binary>=2.9.12",
     "asyncpg>=0.31.0",
     "polyfactory>=3.3.0",
-    "pyright>=1.1.408",
 ]
 
 [tool.black]
