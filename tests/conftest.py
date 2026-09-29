@@ -39,7 +39,7 @@ def fake_sync_kms(monkeypatch: pytest.MonkeyPatch) -> Iterator[FakeSyncKMSClient
     configure_kms_settings(monkeypatch)
 
     client = FakeSyncKMSClient()
-    AWSAdapter._sync_client = client
+    monkeypatch.setattr(AWSAdapter, "_sync_client", client)
 
     yield client
 
@@ -49,10 +49,19 @@ def fake_sync_kms(monkeypatch: pytest.MonkeyPatch) -> Iterator[FakeSyncKMSClient
 @pytest.fixture
 def user() -> User:
     """Generate a User instance with encrypted address and hashed password."""
+
+    return UserFactory.build()
+
+
+@pytest.fixture
+def other_user() -> User:
+    """Generate a second User instance distinct from ``user``."""
+
     return UserFactory.build()
 
 
 @pytest.fixture
 def users_batch() -> list[User]:
     """Generate a batch of User instances."""
+
     return UserFactory.batch(5)

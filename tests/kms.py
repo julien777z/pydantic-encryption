@@ -1,12 +1,14 @@
 import secrets
 import time
-from typing import Unpack
+from typing import Final, Unpack
 
 import pytest
 
 from pydantic_encryption.adapters.encryption.aws import AWSAdapter
 from pydantic_encryption.config import settings
 from pydantic_encryption.models.kms import DataKeyDecryptRequest, DataKeyGenerateRequest, GeneratedDataKey
+
+KMS_TEST_CONTEXT: Final[bytes] = b"tests.kms.payload"
 
 
 class FakeSyncKMSClient:

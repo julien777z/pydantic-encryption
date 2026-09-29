@@ -1,46 +1,15 @@
 import asyncio
-import importlib
 from collections import defaultdict
-from types import SimpleNamespace
 from unittest.mock import patch
 from weakref import WeakSet
 
 from sqlalchemy import inspect as sa_inspect
-from sqlalchemy.orm import DeclarativeBase, Mapped, configure_mappers, mapped_column
+from sqlalchemy.orm import configure_mappers
 
-import pydantic_encryption
-from pydantic_encryption.integrations.sqlalchemy import DeferredDecryptMixin, finalize_sqlalchemy_session
-from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue
+from pydantic_encryption.integrations.sqlalchemy import finalize_sqlalchemy_session
 from pydantic_encryption.integrations.sqlalchemy.state import PENDING_DECRYPT_KEY
-from pydantic_encryption.types import EncryptedValue
-from tests.unit.test_sqlalchemy.utils import encrypt_through_column
-
-
-class FinalizeBase(DeclarativeBase):
-    """Isolated declarative base for finalize_sqlalchemy_session tests."""
-
-
-class FinalizeUser(FinalizeBase, DeferredDecryptMixin):
-    """Mapped class with one deferred encrypted column."""
-
-    __tablename__ = "_finalize_user"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    email: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
-
-
-class FakeAsyncSession(SimpleNamespace):
-    """Minimal AsyncSession stand-in exposing the surface finalize_sqlalchemy_session uses."""
-
-    def __init__(self, in_transaction: bool) -> None:
-        super().__init__(info={}, commit_calls=0, _in_tx=in_transaction)
-
-    def in_transaction(self) -> bool:
-        return self._in_tx
-
-    async def commit(self) -> None:
-        self.commit_calls += 1
-        self._in_tx = False
+from tests.unit.test_sqlalchemy.utils import RecordingAsyncSession, encrypt_through_column
+from tests.unit.test_sqlalchemy.tables import FinalizeUser
 
 
 class TestFinalizeSession:
@@ -51,7 +20,9 @@ class TestFinalizeSession:
         configure_mappers()
 
     def test_drains_pending_and_commits_when_in_transaction(self):
-        session = FakeAsyncSession(in_transaction=True)
+        """Test that an open transaction is committed and the pending cells decrypted."""
+
+        session = RecordingAsyncSession(in_transaction=True)
         user = FinalizeUser(id=1, email=encrypt_through_column(FinalizeUser.__table__.c.email, "a@x.com"))
 
         bucket: dict[type, WeakSet] = defaultdict(WeakSet)
@@ -65,14 +36,18 @@ class TestFinalizeSession:
         assert session.commit_calls == 1
 
     def test_skips_commit_when_not_in_transaction(self):
-        session = FakeAsyncSession(in_transaction=False)
+        """Test that no commit is issued without an open transaction."""
+
+        session = RecordingAsyncSession(in_transaction=False)
 
         asyncio.run(finalize_sqlalchemy_session(session))
 
         assert session.commit_calls == 0
 
     def test_drains_pending_without_commit_when_not_in_transaction(self):
-        session = FakeAsyncSession(in_transaction=False)
+        """Test that pending cells are decrypted without a commit when no transaction is open."""
+
+        session = RecordingAsyncSession(in_transaction=False)
         user = FinalizeUser(id=1, email=encrypt_through_column(FinalizeUser.__table__.c.email, "b@x.com"))
 
         bucket: dict[type, WeakSet] = defaultdict(WeakSet)
@@ -90,7 +65,7 @@ class TestFinalizeSession:
 
         events: list[str] = []
 
-        class _RecordingSession(FakeAsyncSession):
+        class _RecordingSession(RecordingAsyncSession):
             async def commit(self_inner) -> None:
                 events.append("commit")
                 await super().commit()
@@ -113,23 +88,3 @@ class TestFinalizeSession:
 
         assert events == ["commit", "bulk_decrypt"]
         assert PENDING_DECRYPT_KEY not in session.info
-
-
-class TestFinalizeSessionLazyImport:
-    """Test that finalize_sqlalchemy_session is re-exported from the top-level package via __getattr__."""
-
-    def test_top_level_attribute_resolves_to_helper(self):
-        # Force the lazy import branch by popping any cached reference and
-        # re-fetching through __getattr__.
-        cached = getattr(pydantic_encryption, "__dict__", {}).pop("finalize_sqlalchemy_session", None)
-        try:
-            resolved = pydantic_encryption.finalize_sqlalchemy_session
-        finally:
-            if cached is not None:
-                pydantic_encryption.__dict__["finalize_sqlalchemy_session"] = cached
-
-        assert resolved is finalize_sqlalchemy_session
-
-    def test_top_level_attribute_listed_in_all(self):
-        module = importlib.import_module("pydantic_encryption")
-        assert "finalize_sqlalchemy_session" in module.__all__

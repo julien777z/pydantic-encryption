@@ -206,6 +206,10 @@ tags: Mapped[list[str] | None] = mapped_column(SQLAlchemyPGEncryptedArray(), nul
 
 Each element is individually encrypted. Requires PostgreSQL.
 
+### Literal SQL
+
+A statement compiled with `literal_binds` renders encrypted, hashed and blind-index values as the dialect's binary literal on PostgreSQL, SQLite, MySQL, MariaDB, SQL Server and Oracle. Any other dialect raises `CompileError` instead of rendering the value.
+
 ### Async Decryption
 
 `TypeDecorator` is sync by contract, so slow backends (AWS KMS) can block the event loop. Two paths:

@@ -57,13 +57,10 @@ def row_key(mapper: Mapper[MappedT], instance: MappedT) -> list[str]:
     return values
 
 
-def pending_siblings(session: Session | None, cls: type[object]) -> list[object]:
-    """Return pending-decrypt instances of ``cls`` bucketed in ``session`` (empty if none)."""
+def pending_siblings(session: Session, cls: type[object]) -> list[object]:
+    """Return pending-decrypt instances of ``cls`` bucketed in ``session``."""
 
-    if session is None:
-        return []
-
-    bucket: dict[type[object], WeakSet[object]] = getattr(session, "info", {}).get(PENDING_DECRYPT_KEY) or {}
+    bucket: dict[type[object], WeakSet[object]] = session.info.get(PENDING_DECRYPT_KEY) or {}
 
     return list(bucket.get(cls) or [])
 

@@ -3,12 +3,13 @@ from pydantic_encryption.lazy import require_optional_dependency
 require_optional_dependency("sqlalchemy", "sqlalchemy")
 
 from sqlalchemy.engine import Dialect
-from sqlalchemy.types import LargeBinary, TypeDecorator, TypeEngine
+from sqlalchemy.types import TypeDecorator, TypeEngine
 
 from pydantic_encryption.adapters.blind_index import make_blind_index
 from pydantic_encryption.adapters.registry import get_blind_index_backend
 from pydantic_encryption.config import settings
 from pydantic_encryption.integrations.sqlalchemy.async_bridge import run_async_or_sync
+from pydantic_encryption.integrations.sqlalchemy.binary import BinaryStorage
 from pydantic_encryption.normalization import (
     NormalizationFlags,
     normalize_value,
@@ -20,7 +21,7 @@ from pydantic_encryption.types import BlindIndexMethod, BlindIndexValue
 class SQLAlchemyBlindIndexValue(TypeDecorator[str | bytes]):
     """SQLAlchemy column type that stores a deterministic blind index."""
 
-    impl: TypeEngine[bytes] | type[TypeEngine[bytes]] = LargeBinary
+    impl: TypeEngine[bytes] | type[TypeEngine[bytes]] = BinaryStorage
     cache_ok: bool | None = True
 
     def __init__(
@@ -108,13 +109,6 @@ class SQLAlchemyBlindIndexValue(TypeDecorator[str | bytes]):
         self, value: str | bytes | BlindIndexValue | None, dialect: Dialect
     ) -> bytes | None:
         """Compute the blind index before binding to the database."""
-
-        return self.process(value)
-
-    def process_literal_param(
-        self, value: str | bytes | BlindIndexValue | None, dialect: Dialect
-    ) -> bytes | None:
-        """Compute the blind index for literal SQL expressions."""
 
         return self.process(value)
 
