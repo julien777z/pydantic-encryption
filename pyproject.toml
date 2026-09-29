@@ -52,6 +52,10 @@ dev = [
 line-length = 110
 target-version = ["py311", "py312", "py313", "py314"]
 
+[tool.pyright]
+# botocore and boto3 ship no type information; read untyped packages as unknown instead of guessing from their source.
+useLibraryCodeForTypes = false
+
 [tool.isort]
 profile = "black"
 line_length = 110

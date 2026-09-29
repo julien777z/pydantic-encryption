@@ -1,4 +1,4 @@
-from typing import Self
+from typing import ClassVar, Self
 
 from pydantic import PositiveFloat, PositiveInt, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -68,11 +68,11 @@ class Settings(BaseSettings):
 
         return self
 
-    model_config = SettingsConfigDict(
+    model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(
         env_file=[".env.local", ".env"],
         case_sensitive=False,
         extra="ignore",
     )
 
 
-settings = Settings()
+settings: Settings = Settings()

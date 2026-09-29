@@ -1,10 +1,14 @@
 import secrets
-from typing import Any
+import time
+from typing import Final, Unpack
 
 import pytest
 
 from pydantic_encryption.adapters.encryption.aws import AWSAdapter
 from pydantic_encryption.config import settings
+from pydantic_encryption.models.kms import DataKeyDecryptRequest, DataKeyGenerateRequest, GeneratedDataKey
+
+KMS_TEST_CONTEXT: Final[bytes] = b"tests.kms.payload"
 
 
 class FakeSyncKMSClient:
@@ -12,10 +16,10 @@ class FakeSyncKMSClient:
 
     def __init__(self) -> None:
         self.plaintext_keys: dict[bytes, bytes] = {}
-        self.generate_calls: list[dict[str, Any]] = []
-        self.decrypt_calls: list[dict[str, Any]] = []
+        self.generate_calls: list[DataKeyGenerateRequest] = []
+        self.decrypt_calls: list[DataKeyDecryptRequest] = []
 
-    def generate_data_key(self, **kwargs: Any) -> dict[str, bytes]:
+    def generate_data_key(self, **kwargs: Unpack[DataKeyGenerateRequest]) -> GeneratedDataKey:
         """Return a fresh plaintext key wrapped under an identifier this fake can recover it by."""
 
         self.generate_calls.append(kwargs)
@@ -23,14 +27,32 @@ class FakeSyncKMSClient:
         wrapped = f"wrapped-{len(self.plaintext_keys) + 1}".encode("utf-8")
         self.plaintext_keys[wrapped] = plaintext
 
-        return {"Plaintext": plaintext, "CiphertextBlob": wrapped}
+        return GeneratedDataKey(Plaintext=plaintext, CiphertextBlob=wrapped)
 
-    def decrypt(self, **kwargs: Any) -> dict[str, bytes]:
+    def decrypt(self, **kwargs: Unpack[DataKeyDecryptRequest]) -> dict[str, bytes]:
         """Return the plaintext key the wrapped identifier stands for."""
 
         self.decrypt_calls.append(kwargs)
 
         return {"Plaintext": self.plaintext_keys[kwargs["CiphertextBlob"]]}
+
+
+class SlowFakeKMS(FakeSyncKMSClient):
+    """Fake KMS whose calls take long enough for racing threads to pile up behind one."""
+
+    def generate_data_key(self, **kwargs: Unpack[DataKeyGenerateRequest]) -> GeneratedDataKey:
+        """Mint a data key after a delay long enough for racing callers to queue."""
+
+        time.sleep(0.05)
+
+        return super().generate_data_key(**kwargs)
+
+    def decrypt(self, **kwargs: Unpack[DataKeyDecryptRequest]) -> dict[str, bytes]:
+        """Unwrap a data key after a delay long enough for racing callers to queue."""
+
+        time.sleep(0.05)
+
+        return super().decrypt(**kwargs)
 
 
 def reset_adapter_state() -> None:

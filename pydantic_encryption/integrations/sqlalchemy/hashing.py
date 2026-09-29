@@ -2,23 +2,27 @@ from pydantic_encryption.lazy import require_optional_dependency
 
 require_optional_dependency("sqlalchemy", "sqlalchemy")
 
-from sqlalchemy.types import LargeBinary, TypeDecorator
+from sqlalchemy.engine import Dialect
+from sqlalchemy.types import TypeDecorator, TypeEngine
 
 from pydantic_encryption.adapters.hashing.argon2 import Argon2Adapter
 from pydantic_encryption.integrations.sqlalchemy.async_bridge import run_async_or_sync
+from pydantic_encryption.integrations.sqlalchemy.binary import BinaryStorage
 from pydantic_encryption.types import HashedValue
 
 
-class SQLAlchemyHashedValue(TypeDecorator):
+class SQLAlchemyHashedValue(TypeDecorator[str | bytes]):
     """SQLAlchemy column type that Argon2-hashes strings on write."""
 
-    impl = LargeBinary
-    cache_ok = True
+    impl: TypeEngine[bytes] | type[TypeEngine[bytes]] = BinaryStorage
+    cache_ok: bool | None = True
 
     def hash(self, value: str | bytes) -> HashedValue:
+        """Hash a value with Argon2, through the greenlet bridge when one is running."""
+
         return run_async_or_sync(Argon2Adapter.async_hash, Argon2Adapter.hash, value)
 
-    def process_bind_param(self, value: str | bytes | None, dialect) -> bytes | None:
+    def process_bind_param(self, value: str | bytes | None, dialect: Dialect) -> bytes | None:
         """Hash a value before binding it to the database."""
 
         if value is None:
@@ -26,15 +30,7 @@ class SQLAlchemyHashedValue(TypeDecorator):
 
         return self.hash(value)
 
-    def process_literal_param(self, value: str | bytes | None, dialect) -> HashedValue | None:
-        """Hash a value for literal SQL expressions."""
-
-        if value is None:
-            return None
-
-        return dialect.literal_processor(self.impl)(self.hash(value))
-
-    def process_result_value(self, value: str | bytes | None, dialect) -> HashedValue | None:
+    def process_result_value(self, value: str | bytes | None, dialect: Dialect) -> HashedValue | None:
         """Return the stored hash wrapped as a ``HashedValue``."""
 
         if value is None:
@@ -43,7 +39,7 @@ class SQLAlchemyHashedValue(TypeDecorator):
         return HashedValue(value)
 
     @property
-    def python_type(self):
+    def python_type(self) -> type[bytes]:
         """Return the Python type this column is bound to."""
 
-        return self.impl.python_type
+        return self.impl_instance.python_type

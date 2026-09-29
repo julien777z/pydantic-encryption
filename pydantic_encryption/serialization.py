@@ -26,7 +26,7 @@ class TypePrefix(StrEnum):
     TIMEDELTA = "timedelta"
 
 
-def encode_value(value: EncryptableValue) -> str:
+def encode_value(value: object) -> str:
     """Serialize a Python value to a ``version:type:data`` string for encryption."""
 
     match value:
@@ -50,8 +50,10 @@ def encode_value(value: EncryptableValue) -> str:
             type_data = f"{TypePrefix.DECIMAL}:{value}"
         case UUID():
             type_data = f"{TypePrefix.UUID}:{value}"
-        case _:
+        case str():
             type_data = f"{TypePrefix.STR}:{value}"
+        case _:
+            raise TypeError(f"An encrypted value cannot hold type {type(value).__name__!r}.")
 
     return f"{VERSION_PREFIX}:{type_data}"
 

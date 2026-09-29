@@ -1,4 +1,5 @@
 from enum import Enum
+from typing import Self
 
 from pydantic_encryption.normalization import NormalizationFlags, validate_normalization_flags
 
@@ -32,9 +33,10 @@ class EncryptedValueAccessError(RuntimeError):
 class TaggedBytes(bytes):
     """Bytes subclass that UTF-8-encodes ``str`` inputs."""
 
-    def __new__(cls, value: str | bytes):
+    def __new__(cls, value: str | bytes) -> Self:
         if isinstance(value, str):
             value = value.encode("utf-8")
+
         return super().__new__(cls, value)
 
     def __repr__(self) -> str:
