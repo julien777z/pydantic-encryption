@@ -6,7 +6,7 @@ from sqlalchemy.dialects import sqlite
 from sqlalchemy.engine import Dialect
 from sqlalchemy.orm import Session
 
-from tests.unit.test_sqlalchemy.tables import AutoDecryptBase, LiteralBase, RowBoundBase
+from tests.unit.test_sqlalchemy.tables import AutoDecryptBase, DescriptorBase, LiteralBase, RowBoundBase
 
 
 @pytest.fixture
@@ -14,7 +14,7 @@ def sqlite_session() -> Iterator[Session]:
     """Open a session against a fresh in-memory database holding the unit suite's tables."""
 
     engine = create_engine("sqlite://")
-    for base in (AutoDecryptBase, LiteralBase, RowBoundBase):
+    for base in (AutoDecryptBase, DescriptorBase, LiteralBase, RowBoundBase):
         base.metadata.create_all(engine)
 
     with Session(engine) as open_session:

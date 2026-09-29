@@ -17,6 +17,8 @@ class TestFinalizeSession:
 
     @classmethod
     def setup_class(cls):
+        """Configure the mappers the rows are read through."""
+
         configure_mappers()
 
     def test_drains_pending_and_commits_when_in_transaction(self):
@@ -66,11 +68,17 @@ class TestFinalizeSession:
         events: list[str] = []
 
         class _RecordingSession(RecordingAsyncSession):
-            async def commit(self_inner) -> None:
+            """Session recording when its commit runs."""
+
+            async def commit(self) -> None:
+                """Record the commit before counting it."""
+
                 events.append("commit")
                 await super().commit()
 
         async def _recording_bulk_decrypt(_entities: object) -> None:
+            """Record when the bulk decrypt runs."""
+
             events.append("bulk_decrypt")
 
         session = _RecordingSession(in_transaction=True)

@@ -1,5 +1,9 @@
 import textwrap
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Final
+
+from pydantic_encryption.models.base import defer_crypto_to_async
 
 NO_SQLALCHEMY_SCRIPT: Final[str] = textwrap.dedent("""
     import sys
@@ -32,3 +36,14 @@ NO_SQLALCHEMY_SCRIPT: Final[str] = textwrap.dedent("""
     assert draft.dob == date(1990, 5, 4), draft.dob
     assert "sqlalchemy" not in sys.modules
     """)
+
+
+@contextmanager
+def deferred_crypto() -> Iterator[None]:
+    """Hold back the sync crypto a model runs on construction for the duration of the block."""
+
+    token = defer_crypto_to_async.set(True)
+    try:
+        yield
+    finally:
+        defer_crypto_to_async.reset(token)

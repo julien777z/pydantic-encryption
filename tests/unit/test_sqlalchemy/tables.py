@@ -1,8 +1,8 @@
 import uuid
 from typing import Self
 
-from sqlalchemy import Integer, String, Uuid, func
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy import ForeignKey, Integer, String, Uuid, func
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from pydantic_encryption.integrations.sqlalchemy import DeferredDecryptMixin
 from pydantic_encryption.integrations.sqlalchemy.blind_index import SQLAlchemyBlindIndexValue
@@ -218,3 +218,104 @@ class LiteralRecord(LiteralBase):
     email_index: Mapped[bytes | None] = mapped_column(
         SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256), nullable=True, default=None
     )
+
+
+class DescriptorBase(DeclarativeBase):
+    """Isolated declarative base for the descriptor-installation tests."""
+
+
+class MixedColumns(DescriptorBase, DeferredDecryptMixin):
+    """Mapped class carrying one encrypted column beside one that is not."""
+
+    __tablename__ = "mixed_columns"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str | None] = mapped_column(String, nullable=True, default=None)
+    secret: Mapped[bytes | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
+
+
+class RenamedColumnRow(DescriptorBase, DeferredDecryptMixin):
+    """Mapped class whose encrypted attribute is stored under a different column name."""
+
+    __tablename__ = "renamed_column_rows"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    secret: Mapped[str | None] = mapped_column(
+        "stored_secret", SQLAlchemyEncryptedValue(), nullable=True, default=None
+    )
+
+
+class DeferBase(DeclarativeBase):
+    """Isolated declarative base for mixin auto-defer tests."""
+
+
+class DeferMixed(DeferBase, DeferredDecryptMixin):
+    """Mapped class that inherits DeferredDecryptMixin."""
+
+    __tablename__ = "_defer_mixed"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    secret: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
+
+
+class DeferPlain(DeferBase):
+    """Mapped class that does NOT inherit DeferredDecryptMixin."""
+
+    __tablename__ = "_defer_plain"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    secret: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
+
+
+class DeferPair(DeferBase, DeferredDecryptMixin):
+    """Mapped class with two encrypted columns for the row-level bulk helpers."""
+
+    __tablename__ = "_defer_pair"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
+    secret: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
+
+    @classmethod
+    def from_plaintext(cls, email: str | None, secret: str | None) -> Self:
+        """Build a row whose cells hold the given values encrypted under their own columns."""
+
+        return cls(
+            email=None if email is None else encrypt_through_column(cls.__table__.c.email, email),
+            secret=None if secret is None else encrypt_through_column(cls.__table__.c.secret, secret),
+        )
+
+
+class ArrayRow(DeferBase):
+    """Mapped class with an encrypted array column."""
+
+    __tablename__ = "_array_row"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tags: Mapped[list[str] | None] = mapped_column(SQLAlchemyPGEncryptedArray(), nullable=True, default=None)
+
+
+class BulkBase(DeclarativeBase):
+    """Isolated declarative base for DeferredDecryptMixin tests."""
+
+
+class BulkOrg(BulkBase, DeferredDecryptMixin):
+    """Test ORM parent with no encrypted columns."""
+
+    __tablename__ = "_bulk_test_org"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str | None] = mapped_column(nullable=True, default=None)
+    members: Mapped[list["BulkMember"]] = relationship(back_populates="org")
+
+
+class BulkMember(BulkBase, DeferredDecryptMixin):
+    """Test ORM child with deferred encrypted columns."""
+
+    __tablename__ = "_bulk_test_member"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    org_id: Mapped[int | None] = mapped_column(ForeignKey("_bulk_test_org.id"), nullable=True, default=None)
+    first_name: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
+    last_name: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
+    org: Mapped["BulkOrg | None"] = relationship(back_populates="members")

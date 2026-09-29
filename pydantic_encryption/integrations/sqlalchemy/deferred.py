@@ -27,7 +27,7 @@ from pydantic_encryption.types import EncryptedValue
 def install_descriptors(mapper: Mapper[MappedT], class_: type[MappedT]) -> None:
     """Mark encrypted columns deferred and wrap their class attrs with the on-access descriptor."""
 
-    for column in mapper.columns:
+    for attribute, column in mapper.columns.items():
         if not isinstance(column.type, SQLAlchemyEncryptedValue):
             continue
 
@@ -35,19 +35,10 @@ def install_descriptors(mapper: Mapper[MappedT], class_: type[MappedT]) -> None:
             column.type = column.type.copy()
             column.type._deferred = True
 
-        column_key = column.key
-        existing = class_.__dict__.get(column_key)
-        if isinstance(existing, DecryptOnAccessDescriptor):
+        if isinstance(class_.__dict__.get(attribute), DecryptOnAccessDescriptor):
             continue
 
-        wrapped = getattr(class_, column_key, None)
-        if wrapped is None:
-            continue
-
-        try:
-            setattr(class_, column_key, DecryptOnAccessDescriptor(wrapped, class_, column_key))
-        except (AttributeError, TypeError):
-            continue
+        setattr(class_, attribute, DecryptOnAccessDescriptor(getattr(class_, attribute), class_, attribute))
 
 
 def assign_client_side_primary_key(mapper: Mapper[MappedT], target: MappedT) -> None:

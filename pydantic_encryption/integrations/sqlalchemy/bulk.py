@@ -190,13 +190,13 @@ def collect_encrypted_cells(
         if state is None or not hasattr(state, "mapper"):
             continue
 
-        for column in state.mapper.columns:
+        for attribute, column in state.mapper.columns.items():
             if not isinstance(column.type, SQLAlchemyEncryptedValue):
                 continue
             if not column.type._deferred:
                 continue
-            if isinstance(state.dict.get(column.key), EncryptedValue):
-                collected.setdefault((type(entity), column.key), []).append(entity)
+            if isinstance(state.dict.get(attribute), EncryptedValue):
+                collected.setdefault((type(entity), attribute), []).append(entity)
 
         unloaded = state.unloaded
         for relationship in state.mapper.relationships:

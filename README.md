@@ -349,7 +349,7 @@ from pydantic_encryption import BaseModel, BlindIndex, BlindIndexMethod
 
 
 class User(BaseModel):
-    email_index: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
+    email_index: Annotated[str | bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
 ```
 
 ### Methods
@@ -364,7 +364,7 @@ class User(BaseModel):
 Normalize values before hashing to ensure consistent lookups:
 
 ```python
-email_index: Annotated[bytes, BlindIndex(
+email_index: Annotated[str | bytes, BlindIndex(
     BlindIndexMethod.HMAC_SHA256,
     normalize_to_lowercase=True,
     strip_whitespace=True,
