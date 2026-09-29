@@ -42,8 +42,8 @@ class ContextBoundType(TypeDecorator[ColumnValueT]):
 
         super()._set_parent(parent, outer=outer, **kw)
 
-        if isinstance(parent, Column):
-            parent._on_table_attach(util.portable_instancemethod(self._set_table))
+        assert isinstance(parent, Column)
+        parent._on_table_attach(util.portable_instancemethod(self._set_table))
 
     def _set_table(self, column: Column[ColumnValueT], table: Table) -> None:
         """Derive the context from the column this type is attached to, unless one was declared."""
