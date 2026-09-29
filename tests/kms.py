@@ -1,11 +1,12 @@
 import secrets
-from typing import Any, Unpack
+import time
+from typing import Unpack
 
 import pytest
 
 from pydantic_encryption.adapters.encryption.aws import AWSAdapter
 from pydantic_encryption.config import settings
-from pydantic_encryption.models.kms import DataKeyDecryptRequest, GeneratedDataKey
+from pydantic_encryption.models.kms import DataKeyDecryptRequest, DataKeyGenerateRequest, GeneratedDataKey
 
 
 class FakeSyncKMSClient:
@@ -13,10 +14,10 @@ class FakeSyncKMSClient:
 
     def __init__(self) -> None:
         self.plaintext_keys: dict[bytes, bytes] = {}
-        self.generate_calls: list[dict[str, Any]] = []
+        self.generate_calls: list[DataKeyGenerateRequest] = []
         self.decrypt_calls: list[DataKeyDecryptRequest] = []
 
-    def generate_data_key(self, **kwargs: Any) -> GeneratedDataKey:
+    def generate_data_key(self, **kwargs: Unpack[DataKeyGenerateRequest]) -> GeneratedDataKey:
         """Return a fresh plaintext key wrapped under an identifier this fake can recover it by."""
 
         self.generate_calls.append(kwargs)
@@ -32,6 +33,24 @@ class FakeSyncKMSClient:
         self.decrypt_calls.append(kwargs)
 
         return {"Plaintext": self.plaintext_keys[kwargs["CiphertextBlob"]]}
+
+
+class SlowFakeKMS(FakeSyncKMSClient):
+    """Fake KMS whose calls take long enough for racing threads to pile up behind one."""
+
+    def generate_data_key(self, **kwargs: Unpack[DataKeyGenerateRequest]) -> GeneratedDataKey:
+        """Mint a data key after a delay long enough for racing callers to queue."""
+
+        time.sleep(0.05)
+
+        return super().generate_data_key(**kwargs)
+
+    def decrypt(self, **kwargs: Unpack[DataKeyDecryptRequest]) -> dict[str, bytes]:
+        """Unwrap a data key after a delay long enough for racing callers to queue."""
+
+        time.sleep(0.05)
+
+        return super().decrypt(**kwargs)
 
 
 def reset_adapter_state() -> None:

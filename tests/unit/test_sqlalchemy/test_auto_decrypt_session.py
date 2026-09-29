@@ -1,7 +1,6 @@
 import asyncio
 from collections import defaultdict
 from types import SimpleNamespace
-from typing import Any
 from unittest.mock import patch
 from weakref import WeakSet
 
@@ -141,7 +140,7 @@ class TestBytesColumnIdempotency:
         assert sa_inspect(blob).dict["payload"] == b"shh"
         assert not isinstance(sa_inspect(blob).dict["payload"], EncryptedValue)
 
-        collected: dict[tuple[type, str], list[Any]] = {}
+        collected: dict[tuple[type[object], str], list[object]] = {}
         visited: set[int] = set()
         collect_encrypted_cells(blob, collected, visited)
 

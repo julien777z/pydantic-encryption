@@ -1,5 +1,3 @@
-from typing import Any
-
 from pydantic_encryption.lazy import require_optional_dependency
 
 require_optional_dependency("sqlalchemy", "sqlalchemy")
@@ -22,7 +20,7 @@ from pydantic_encryption.types import BlindIndexMethod, BlindIndexValue
 class SQLAlchemyBlindIndexValue(TypeDecorator[str | bytes]):
     """SQLAlchemy column type that stores a deterministic blind index."""
 
-    impl: TypeEngine[Any] | type[TypeEngine[Any]] = LargeBinary
+    impl: TypeEngine[bytes] | type[TypeEngine[bytes]] = LargeBinary
     cache_ok: bool | None = True
 
     def __init__(

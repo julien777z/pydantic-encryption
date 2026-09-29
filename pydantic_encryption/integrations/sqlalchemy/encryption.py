@@ -1,4 +1,5 @@
-from typing import Any, Self, TypeVar, overload
+from collections.abc import Sequence
+from typing import Self, TypeVar, overload
 
 from pydantic_encryption.lazy import require_optional_dependency
 
@@ -6,6 +7,7 @@ require_optional_dependency("sqlalchemy", "sqlalchemy")
 
 from sqlalchemy import Column, Table, util
 from sqlalchemy.engine import Dialect
+from sqlalchemy.sql.base import SchemaEventTarget
 from sqlalchemy.types import ARRAY, LargeBinary, TypeDecorator, TypeEngine
 
 from pydantic_encryption.adapters.base import EncryptionAdapter, encode_text
@@ -27,7 +29,7 @@ class ContextBoundType(TypeDecorator[ColumnValueT]):
     """Column type that binds its ciphertexts to the table and column it is attached to."""
 
     def __init__(
-        self, context: str | bytes | None = None, row_bound: bool = False, *args: Any, **kwargs: Any
+        self, context: str | bytes | None = None, row_bound: bool = False, *args: object, **kwargs: object
     ) -> None:
         super().__init__(*args, **kwargs)
         self.declared_context: bytes | None = encode_text(context) if context is not None else None
@@ -35,13 +37,15 @@ class ContextBoundType(TypeDecorator[ColumnValueT]):
         self.row_bound: bool = row_bound
         self.bound_column: str | None = None
 
-    def _set_parent(self, parent: Any, outer: bool = False, **kw: Any) -> None:
+    def _set_parent(self, parent: SchemaEventTarget, outer: bool = False, **kw: object) -> None:
         """Wait for the column this type is attached to to join its table."""
 
         super()._set_parent(parent, outer=outer, **kw)
-        parent._on_table_attach(util.portable_instancemethod(self._set_table))
 
-    def _set_table(self, column: Column[Any], table: Table) -> None:
+        if isinstance(parent, Column):
+            parent._on_table_attach(util.portable_instancemethod(self._set_table))
+
+    def _set_table(self, column: Column[ColumnValueT], table: Table) -> None:
         """Derive the context from the column this type is attached to, unless one was declared."""
 
         attached = f"{table.fullname}.{column.name}"
@@ -57,7 +61,7 @@ class ContextBoundType(TypeDecorator[ColumnValueT]):
             self.context = derive_column_context(table.name, column.name, schema=table.schema)
             self.__dict__.pop("_static_cache_key", None)
 
-    def copy(self, **kw: Any) -> Self:
+    def copy(self, **kw: object) -> Self:
         """Copy this type unbound, so the column it lands on derives a context of its own."""
 
         duplicate = super().copy(**kw)
@@ -97,12 +101,9 @@ class ContextBoundType(TypeDecorator[ColumnValueT]):
 class SQLAlchemyEncryptedValue(ContextBoundType[EncryptableValue]):
     """SQLAlchemy column type that encrypts on write and decrypts on read, binding cells to ``context``."""
 
-    impl: TypeEngine[Any] | type[TypeEngine[Any]] = LargeBinary
+    impl: TypeEngine[bytes] | type[TypeEngine[bytes]] = LargeBinary
     cache_ok: bool | None = True
-
-    def __init__(self, context: str | bytes | None = None, *args: Any, **kwargs: Any) -> None:
-        super().__init__(context, *args, **kwargs)
-        self._deferred: bool = False
+    _deferred: bool = False
 
     @staticmethod
     def backend() -> type[EncryptionAdapter]:
@@ -113,9 +114,7 @@ class SQLAlchemyEncryptedValue(ContextBoundType[EncryptableValue]):
 
         return get_encryption_backend(settings.ENCRYPTION_METHOD)
 
-    def encrypt_cell(
-        self, value: EncryptableValue | EncryptedValue | None, *, context: bytes | None = None
-    ) -> EncryptedValue | None:
+    def encrypt_cell(self, value: object, *, context: bytes | None = None) -> EncryptedValue | None:
         """Encode + encrypt a single value, passing pre-encrypted values through."""
 
         if value is None:
@@ -184,11 +183,13 @@ class SQLAlchemyEncryptedValue(ContextBoundType[EncryptableValue]):
 class SQLAlchemyPGEncryptedArray(ContextBoundType[list[EncryptableValue | None]]):
     """SQLAlchemy column type that encrypts each element of a PostgreSQL array under ``context``."""
 
-    impl: TypeEngine[Any] | type[TypeEngine[Any]] = ARRAY(LargeBinary)
+    impl: TypeEngine[Sequence[bytes]] | type[TypeEngine[Sequence[bytes]]] = ARRAY(LargeBinary)
     cache_ok: bool | None = True
 
-    def __init__(self, context: str | bytes | None = None, *args: Any, **kwargs: Any) -> None:
-        super().__init__(context, *args, **kwargs)
+    def __init__(
+        self, context: str | bytes | None = None, row_bound: bool = False, *args: object, **kwargs: object
+    ) -> None:
+        super().__init__(context, row_bound, *args, **kwargs)
         self._element_type: SQLAlchemyEncryptedValue = SQLAlchemyEncryptedValue(context)
 
         if self.row_bound:
@@ -197,13 +198,13 @@ class SQLAlchemyPGEncryptedArray(ContextBoundType[list[EncryptableValue | None]]
                 "read path, where no row is in scope."
             )
 
-    def _set_table(self, column: Column[Any], table: Table) -> None:
+    def _set_table(self, column: Column[list[EncryptableValue | None]], table: Table) -> None:
         """Bind every element of this array to the context the column itself is bound to."""
 
         super()._set_table(column, table)
         self._element_type.context = self.context
 
-    def copy(self, **kw: Any) -> Self:
+    def copy(self, **kw: object) -> Self:
         """Copy this type with an element type of its own, so each column derives its own context."""
 
         duplicate = super().copy(**kw)

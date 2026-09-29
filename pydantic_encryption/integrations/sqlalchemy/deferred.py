@@ -1,6 +1,6 @@
 from collections import defaultdict
 from collections.abc import Iterable
-from typing import Any, Self
+from typing import Self
 from weakref import WeakSet
 
 from pydantic_encryption.lazy import require_optional_dependency
@@ -50,16 +50,6 @@ def install_descriptors(mapper: Mapper[MappedT], class_: type[MappedT]) -> None:
             continue
 
 
-def row_bound_columns(mapper: Mapper[Any]) -> list[tuple[str, SQLAlchemyEncryptedValue]]:
-    """Return the attribute key and type of each column that binds each row's ciphertext separately."""
-
-    return [
-        (mapper.get_property_by_column(column).key, column.type)
-        for column in mapper.columns
-        if isinstance(column.type, SQLAlchemyEncryptedValue) and column.type.row_bound
-    ]
-
-
 def assign_client_side_primary_key(mapper: Mapper[MappedT], target: MappedT) -> None:
     """Apply a primary key's client-side default early, so a row-bound cell can name its row."""
 
@@ -103,7 +93,12 @@ def replaced_row_key(mapper: Mapper[MappedT], target: MappedT) -> list[str] | No
 def encrypt_row_bound_cells(mapper: Mapper[MappedT], connection: Connection, target: MappedT) -> None:
     """Seal every row-bound cell on an instance under the context naming its row."""
 
-    columns = row_bound_columns(mapper)
+    columns = [
+        (mapper.get_property_by_column(column).key, column.type)
+        for column in mapper.columns
+        if isinstance(column.type, SQLAlchemyEncryptedValue) and column.type.row_bound
+    ]
+
     if not columns:
         return
 
@@ -156,7 +151,7 @@ def on_orm_refresh(instance: object, context: QueryContext | None, attrs: Iterab
 class DeferredDecryptMixin:
     """Defer encrypted-column decryption until first attribute access, batched per column."""
 
-    def __init_subclass__(cls, **kwargs: Any) -> None:
+    def __init_subclass__(cls, **kwargs: object) -> None:
         super().__init_subclass__(**kwargs)
         event.listen(cls, "mapper_configured", install_descriptors)
         event.listen(cls, "load", on_orm_load)

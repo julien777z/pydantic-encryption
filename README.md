@@ -129,6 +129,8 @@ Encrypted columns and `Encrypted` model fields alike preserve the Python type of
 
 `str`, `bytes`, `bool`, `int`, `float`, `Decimal`, `UUID`, `date`, `datetime`, `time`, `timedelta`
 
+A value of any other type raises `TypeError`, as does a `Hashed` or `BlindIndex` field holding neither `str` nor `bytes`.
+
 ## Async Models
 
 Use `async_init()` to construct models with async encryption, hashing, and blind indexing, and `async_decrypt_data()` for async decryption:

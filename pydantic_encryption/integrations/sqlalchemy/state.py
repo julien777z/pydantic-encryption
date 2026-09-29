@@ -1,4 +1,4 @@
-from typing import Any, Final, TypeVar
+from typing import Final, TypeVar
 from weakref import WeakSet
 
 from pydantic_encryption.lazy import require_optional_dependency
@@ -16,7 +16,7 @@ PENDING_DECRYPT_KEY: Final[str] = "__pydantic_encryption_pending_decrypt__"
 MappedT = TypeVar("MappedT")
 
 
-def read_raw_cell(row: object, column_key: str) -> Any:
+def read_raw_cell(row: object, column_key: str) -> object:
     """Read a column's stored value from ORM state, bypassing attribute descriptors."""
 
     state = sa_inspect(row, raiseerr=False)

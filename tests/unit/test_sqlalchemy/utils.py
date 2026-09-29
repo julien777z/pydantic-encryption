@@ -1,12 +1,10 @@
-from typing import Any
-
 from sqlalchemy.sql.elements import KeyedColumnElement
 
 from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue
 from pydantic_encryption.types import EncryptedValue
 
 
-def encrypt_through_column(column: KeyedColumnElement[Any], value: Any) -> EncryptedValue:
+def encrypt_through_column(column: KeyedColumnElement[object], value: object) -> EncryptedValue:
     """Encrypt a value through a mapped column's own type so it carries that column's context."""
 
     column_type = column.type

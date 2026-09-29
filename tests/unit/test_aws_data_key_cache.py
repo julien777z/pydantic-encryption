@@ -1,7 +1,6 @@
 import asyncio
-import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Final
+from typing import Final
 
 import pytest
 
@@ -9,7 +8,7 @@ pytest.importorskip("boto3")
 
 from pydantic_encryption.adapters.encryption.aws import AWSAdapter
 from pydantic_encryption.config import settings
-from tests.kms import FakeSyncKMSClient
+from tests.kms import FakeSyncKMSClient, SlowFakeKMS
 
 CONTEXT: Final[bytes] = b"tests.aws_data_key_cache"
 
@@ -77,20 +76,6 @@ class TestDataKeyReuse:
         assert held is not None
         assert "plaintext" not in repr(held)
         assert held.plaintext.hex() not in repr(held)
-
-
-class SlowFakeKMS(FakeSyncKMSClient):
-    """Fake KMS whose calls take long enough for racing threads to pile up behind one."""
-
-    def generate_data_key(self, **kwargs: Any) -> dict[str, bytes]:
-        time.sleep(0.05)
-
-        return super().generate_data_key(**kwargs)
-
-    def decrypt(self, **kwargs: Any) -> dict[str, bytes]:
-        time.sleep(0.05)
-
-        return super().decrypt(**kwargs)
 
 
 class TestSingleFlight:

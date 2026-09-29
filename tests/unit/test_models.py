@@ -282,6 +282,30 @@ class TestEdgeCases:
 
         assert model.data == original
 
+    @pytest.mark.parametrize(
+        "marker", [Hashed, BlindIndex(BlindIndexMethod.HMAC_SHA256)], ids=["hashed", "blind_index"]
+    )
+    def test_non_text_digest_field_refused(self, marker: object):
+        """Test that hashing or blind-indexing a field holding neither str nor bytes names the field it refused."""
+
+        class _Model(BaseModel):
+            pin: Annotated[int, marker]
+
+        with pytest.raises(TypeError, match="'pin'"):
+            _Model(pin=1234)
+
+    def test_non_text_ciphertext_refused(self):
+        """Test that decrypting a field reassigned to a non-ciphertext value names the field it refused."""
+
+        class _Model(BaseModel):
+            joined_on: Annotated[date, Encrypted]
+
+        model = _Model(joined_on=date(1990, 5, 4))
+        model.joined_on = date(1990, 5, 5)
+
+        with pytest.raises(TypeError, match="'joined_on'"):
+            model.decrypt_data()
+
 
 class TestEncryptedFieldTypes:
     """Test that an encrypted field returns the type it declares."""
@@ -347,6 +371,16 @@ class TestEncryptedFieldTypes:
         )
 
         assert result.returncode == 0, result.stderr
+
+    @pytest.mark.parametrize("value", [["secret"], {"secret": 1}], ids=["list", "dict"])
+    def test_unsupported_type_refused(self, value: object):
+        """Test that a value of a type no encrypted value holds is refused instead of stored as its repr."""
+
+        class _Model(BaseModel):
+            data: Annotated[object, Encrypted]
+
+        with pytest.raises(TypeError, match=repr(type(value).__name__)):
+            _Model(data=value)
 
 
 class TestModelLevelConfig:

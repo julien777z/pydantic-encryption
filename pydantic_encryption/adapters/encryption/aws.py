@@ -20,6 +20,7 @@ from pydantic_encryption.config import settings
 from pydantic_encryption.models.kms import (
     DataKey,
     DataKeyDecryptRequest,
+    DataKeyGenerateRequest,
     GeneratedDataKey,
     UnwrappedDataKey,
 )
@@ -243,7 +244,9 @@ class AWSAdapter(EncryptionAdapter):
 
         with cls.generation_lock:
             return cls.claim_encrypt_key() or cls.hold_encrypt_key(
-                cls.sync_kms().generate_data_key(KeyId=cls.encrypt_arn(), KeySpec=DATA_KEY_SPEC)
+                cls.sync_kms().generate_data_key(
+                    **DataKeyGenerateRequest(KeyId=cls.encrypt_arn(), KeySpec=DATA_KEY_SPEC)
+                )
             )
 
     @classmethod

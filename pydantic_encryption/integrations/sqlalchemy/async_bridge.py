@@ -1,5 +1,5 @@
 from collections.abc import Callable, Coroutine
-from typing import Any, ParamSpec, TypeVar
+from typing import Never, ParamSpec, TypeVar
 
 from sqlalchemy.exc import MissingGreenlet
 from sqlalchemy.util import await_only
@@ -9,7 +9,7 @@ T = TypeVar("T")
 
 
 def run_async_or_sync(
-    async_fn: Callable[P, Coroutine[Any, Any, T]],
+    async_fn: Callable[P, Coroutine[object, Never, T]],
     sync_fn: Callable[P, T],
     *args: P.args,
     **kwargs: P.kwargs,

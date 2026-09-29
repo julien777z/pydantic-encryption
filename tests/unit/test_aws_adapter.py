@@ -1,5 +1,5 @@
 import struct
-from typing import Any, Final
+from typing import Final
 
 from botocore.config import Config
 import pytest
@@ -15,6 +15,7 @@ from pydantic_encryption.adapters.encryption.aws import (
     AWSAdapter,
 )
 from pydantic_encryption.config import settings
+from pydantic_encryption.models.kms import DataKeyGenerateRequest
 from pydantic_encryption.types import EncryptedValue
 from tests.kms import FakeSyncKMSClient, configure_kms_settings, reset_adapter_state
 
@@ -42,8 +43,9 @@ class TestAWSAdapterEncrypt:
 
         AWSAdapter.encrypt(b"payload", associated_data=CONTEXT)
 
+        assert settings.AWS_KMS_KEY_ARN is not None
         assert fake_sync_kms.generate_calls == [
-            {"KeyId": "arn:aws:kms:us-east-1:000:key/test", "KeySpec": "AES_256"}
+            DataKeyGenerateRequest(KeyId=settings.AWS_KMS_KEY_ARN, KeySpec="AES_256")
         ]
 
     def test_encrypt_encodes_str_input(self, fake_sync_kms: FakeSyncKMSClient) -> None:
@@ -256,27 +258,31 @@ class TestAWSAdapterLazyInit:
 
         configure_kms_settings(monkeypatch)
 
-        captured_kwargs: list[dict[str, Any]] = []
+        captured_calls: list[tuple[str, Config, dict[str, str]]] = []
 
-        def fake_boto3_client(service: str, **kwargs: Any) -> Any:
-            captured_kwargs.append({"service": service, **kwargs})
+        def fake_boto3_client(service: str, *, config: Config, **kwargs: str) -> FakeSyncKMSClient:
+            captured_calls.append((service, config, kwargs))
+
             return FakeSyncKMSClient()
 
         monkeypatch.setattr("pydantic_encryption.adapters.encryption.aws.boto3.client", fake_boto3_client)
 
         AWSAdapter.encrypt(b"payload", associated_data=CONTEXT)
 
-        assert len(captured_kwargs) == 1
-        assert captured_kwargs[0]["service"] == "kms"
-        assert captured_kwargs[0]["region_name"] == "us-east-1"
-        assert isinstance(captured_kwargs[0]["config"], Config)
-        assert captured_kwargs[0]["config"].connect_timeout == 2
-        assert captured_kwargs[0]["config"].read_timeout == 5
-        assert captured_kwargs[0]["config"].retries == {"mode": "standard", "total_max_attempts": 2}
+        assert len(captured_calls) == 1
+
+        service, config, client_kwargs = captured_calls[0]
+
+        assert service == "kms"
+        assert client_kwargs["region_name"] == "us-east-1"
+        assert isinstance(config, Config)
+        assert config.connect_timeout == 2
+        assert config.read_timeout == 5
+        assert config.retries == {"mode": "standard", "total_max_attempts": 2}
         assert AWSAdapter._sync_client is not None
 
         AWSAdapter.encrypt(b"payload-2", associated_data=CONTEXT)
 
-        assert len(captured_kwargs) == 1
+        assert len(captured_calls) == 1
 
         reset_adapter_state()

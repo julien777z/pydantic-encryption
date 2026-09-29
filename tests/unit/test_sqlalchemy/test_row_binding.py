@@ -111,8 +111,11 @@ class TestRowBoundColumn:
         column_type = RowBoundRecord.__table__.c.secret.type
         expected = derive_row_context("row_bound_records", "secret", str(member.id))
 
+        cell = read_raw_cell(member, "secret")
+
         assert column_type.cell_context(str(member.id)) == expected
-        assert column_type.decrypt_cell(bytes(read_raw_cell(member, "secret")), context=expected)
+        assert isinstance(cell, EncryptedValue)
+        assert column_type.decrypt_cell(cell, context=expected)
 
     def test_ciphertext_moved_to_another_row_fails_to_open(self, session: Session):
         """Test that a cell carrying another row's ciphertext raises instead of decrypting."""
@@ -126,7 +129,10 @@ class TestRowBoundColumn:
         session.expunge_all()
 
         rows = {row.id: row for row in session.execute(select(RowBoundRecord)).scalars()}
-        stolen = EncryptedValue(bytes(read_raw_cell(rows[second_id], "secret")))
+        stolen = read_raw_cell(rows[second_id], "secret")
+
+        assert isinstance(stolen, EncryptedValue)
+
         victim = rows[first_id]
         victim.__dict__["secret"] = stolen
 

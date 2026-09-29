@@ -2,7 +2,6 @@ import asyncio
 import warnings
 from collections import defaultdict
 from types import SimpleNamespace
-from typing import Any
 from unittest.mock import patch
 from weakref import WeakSet
 

@@ -10,6 +10,13 @@ class GeneratedDataKey(TypedDict):
     CiphertextBlob: bytes
 
 
+class DataKeyGenerateRequest(TypedDict):
+    """Keyword arguments for a KMS ``GenerateDataKey`` call minting one data key."""
+
+    KeyId: str
+    KeySpec: str
+
+
 class DataKeyDecryptRequest(TypedDict):
     """Keyword arguments for a KMS ``Decrypt`` call unwrapping one data key."""
 

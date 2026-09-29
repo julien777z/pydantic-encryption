@@ -1,5 +1,3 @@
-from typing import Any
-
 from pydantic_encryption.lazy import require_optional_dependency
 
 require_optional_dependency("sqlalchemy", "sqlalchemy")
@@ -15,7 +13,7 @@ from pydantic_encryption.types import HashedValue
 class SQLAlchemyHashedValue(TypeDecorator[str | bytes]):
     """SQLAlchemy column type that Argon2-hashes strings on write."""
 
-    impl: TypeEngine[Any] | type[TypeEngine[Any]] = LargeBinary
+    impl: TypeEngine[bytes] | type[TypeEngine[bytes]] = LargeBinary
     cache_ok: bool | None = True
 
     def hash(self, value: str | bytes) -> HashedValue:

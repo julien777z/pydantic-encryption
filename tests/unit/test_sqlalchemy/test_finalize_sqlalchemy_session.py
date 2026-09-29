@@ -2,7 +2,6 @@ import asyncio
 import importlib
 from collections import defaultdict
 from types import SimpleNamespace
-from typing import Any
 from unittest.mock import patch
 from weakref import WeakSet
 
@@ -96,7 +95,7 @@ class TestFinalizeSession:
                 events.append("commit")
                 await super().commit()
 
-        async def _recording_bulk_decrypt(_entities: Any) -> None:
+        async def _recording_bulk_decrypt(_entities: object) -> None:
             events.append("bulk_decrypt")
 
         session = _RecordingSession(in_transaction=True)
