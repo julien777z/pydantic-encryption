@@ -1,6 +1,5 @@
-from typing import NotRequired, TypedDict
-
 from pydantic import BaseModel, Field
+from typing_extensions import NotRequired, TypedDict
 
 
 class GeneratedDataKey(TypedDict):

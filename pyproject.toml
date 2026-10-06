@@ -9,6 +9,7 @@ readme = "README.md"
 requires-python = ">=3.11,<3.15"
 dependencies = [
     "pydantic>=2.13.4",
+    "typing-extensions>=4.14.1",
     "pydantic-settings>=2.14.2",
     "pydantic-super-model>=2.0.0",
     "cryptography>=44.0.0",
