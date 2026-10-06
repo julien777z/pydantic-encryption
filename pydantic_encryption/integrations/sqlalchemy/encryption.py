@@ -115,6 +115,15 @@ class SQLAlchemyEncryptedValue(ContextBoundType[EncryptableValue]):
 
         return get_encryption_backend(settings.ENCRYPTION_METHOD)
 
+    @overload
+    def encrypt_cell(self, value: None, *, context: bytes | None = None) -> None: ...
+
+    @overload
+    def encrypt_cell(self, value: EncryptableValue, *, context: bytes | None = None) -> EncryptedValue: ...
+
+    @overload
+    def encrypt_cell(self, value: object, *, context: bytes | None = None) -> EncryptedValue | None: ...
+
     def encrypt_cell(self, value: object, *, context: bytes | None = None) -> EncryptedValue | None:
         """Encode + encrypt a single value, passing pre-encrypted values through."""
 
