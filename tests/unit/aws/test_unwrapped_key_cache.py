@@ -6,7 +6,9 @@ pytest.importorskip("boto3")
 
 from pydantic_encryption.adapters.encryption.aws import AWSAdapter
 from pydantic_encryption.config import settings
-from tests.kms import FakeSyncKMSClient, KMS_TEST_CONTEXT
+from tests.factories import User
+from tests.kms import KMS_TEST_CONTEXT
+from tests.models.kms import FakeSyncKMSClient
 
 
 class TestUnwrappedKeyCache:
@@ -59,15 +61,26 @@ class TestUnwrappedKeyCache:
 
         assert len(AWSAdapter.unwrapped_keys) == 2
 
-    def test_expired_key_unwrapped_again(
-        self, fake_sync_kms: FakeSyncKMSClient, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("asynchronous", [False, True], ids=["sync", "async"])
+    async def test_expired_key_unwrapped_again(
+        self,
+        fake_sync_kms: FakeSyncKMSClient,
+        monkeypatch: pytest.MonkeyPatch,
+        asynchronous: bool,
+        user: User,
     ) -> None:
         """Test that an unwrapped key past its retention goes back to KMS."""
 
         monkeypatch.setattr(settings, "AWS_KMS_UNWRAPPED_KEY_MAX_AGE_SECONDS", 0)
-        ciphertext = AWSAdapter.encrypt("value", associated_data=KMS_TEST_CONTEXT)
+        ciphertext = AWSAdapter.encrypt(user.username, associated_data=KMS_TEST_CONTEXT)
 
-        AWSAdapter.decrypt(ciphertext, associated_data=KMS_TEST_CONTEXT)
-        AWSAdapter.decrypt(ciphertext, associated_data=KMS_TEST_CONTEXT)
+        for _ in range(2):
+            if asynchronous:
+                plaintext = await AWSAdapter.async_decrypt(ciphertext, associated_data=KMS_TEST_CONTEXT)
+            else:
+                plaintext = AWSAdapter.decrypt(ciphertext, associated_data=KMS_TEST_CONTEXT)
+
+            assert plaintext == user.username
 
         assert len(fake_sync_kms.decrypt_calls) == 2

@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     AWS_KMS_DATA_KEY_MAX_USES: PositiveInt = 1000
     AWS_KMS_UNWRAPPED_KEY_CACHE_SIZE: PositiveInt = 512
     AWS_KMS_UNWRAPPED_KEY_MAX_AGE_SECONDS: PositiveFloat = 300
+    AWS_KMS_MAX_IN_FLIGHT_UNWRAPS: PositiveInt = 512
 
     BLIND_INDEX_SECRET_KEY: str | None = None
 

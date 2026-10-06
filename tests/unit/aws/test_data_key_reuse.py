@@ -6,17 +6,25 @@ pytest.importorskip("boto3")
 
 from pydantic_encryption.adapters.encryption.aws import AWSAdapter
 from pydantic_encryption.config import settings
-from tests.kms import FakeSyncKMSClient, KMS_TEST_CONTEXT
+from tests.kms import KMS_TEST_CONTEXT
+from tests.models.kms import FakeSyncKMSClient
 
 
 class TestDataKeyReuse:
     """Test that one KMS data key seals many values."""
 
-    def test_many_values_share_one_generated_data_key(self, fake_sync_kms: FakeSyncKMSClient) -> None:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("asynchronous", [False, True], ids=["sync", "async"])
+    async def test_many_values_share_one_generated_data_key(
+        self, fake_sync_kms: FakeSyncKMSClient, asynchronous: bool
+    ) -> None:
         """Test that encrypting many values calls KMS once rather than once per value."""
 
         for index in range(50):
-            AWSAdapter.encrypt(f"value-{index}", associated_data=KMS_TEST_CONTEXT)
+            if asynchronous:
+                await AWSAdapter.async_encrypt(f"value-{index}", associated_data=KMS_TEST_CONTEXT)
+            else:
+                AWSAdapter.encrypt(f"value-{index}", associated_data=KMS_TEST_CONTEXT)
 
         assert len(fake_sync_kms.generate_calls) == 1
 
@@ -33,40 +41,64 @@ class TestDataKeyReuse:
 
         assert len(fake_sync_kms.generate_calls) == 1
 
-    def test_values_round_trip_through_the_shared_key(self, fake_sync_kms: FakeSyncKMSClient) -> None:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("asynchronous", [False, True], ids=["sync", "async"])
+    async def test_values_round_trip_through_the_shared_key(
+        self, fake_sync_kms: FakeSyncKMSClient, asynchronous: bool
+    ) -> None:
         """Test that a value sealed under a reused key opens back to itself."""
 
         ciphertexts = [
-            AWSAdapter.encrypt(f"value-{index}", associated_data=KMS_TEST_CONTEXT) for index in range(5)
+            (
+                await AWSAdapter.async_encrypt(f"value-{index}", associated_data=KMS_TEST_CONTEXT)
+                if asynchronous
+                else AWSAdapter.encrypt(f"value-{index}", associated_data=KMS_TEST_CONTEXT)
+            )
+            for index in range(5)
         ]
 
         decrypted = [
-            AWSAdapter.decrypt(ciphertext, associated_data=KMS_TEST_CONTEXT) for ciphertext in ciphertexts
+            (
+                await AWSAdapter.async_decrypt(ciphertext, associated_data=KMS_TEST_CONTEXT)
+                if asynchronous
+                else AWSAdapter.decrypt(ciphertext, associated_data=KMS_TEST_CONTEXT)
+            )
+            for ciphertext in ciphertexts
         ]
 
         assert decrypted == [f"value-{index}" for index in range(5)]
 
-    def test_spent_use_budget_generates_fresh_key(
-        self, fake_sync_kms: FakeSyncKMSClient, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("asynchronous", [False, True], ids=["sync", "async"])
+    async def test_spent_use_budget_generates_fresh_key(
+        self, fake_sync_kms: FakeSyncKMSClient, monkeypatch: pytest.MonkeyPatch, asynchronous: bool
     ) -> None:
         """Test that the use bound is enforced instead of holding one key indefinitely."""
 
         monkeypatch.setattr(settings, "AWS_KMS_DATA_KEY_MAX_USES", 4)
 
         for index in range(9):
-            AWSAdapter.encrypt(f"value-{index}", associated_data=KMS_TEST_CONTEXT)
+            if asynchronous:
+                await AWSAdapter.async_encrypt(f"value-{index}", associated_data=KMS_TEST_CONTEXT)
+            else:
+                AWSAdapter.encrypt(f"value-{index}", associated_data=KMS_TEST_CONTEXT)
 
         assert len(fake_sync_kms.generate_calls) == 3
 
-    def test_expired_key_generates_fresh_key(
-        self, fake_sync_kms: FakeSyncKMSClient, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("asynchronous", [False, True], ids=["sync", "async"])
+    async def test_expired_key_generates_fresh_key(
+        self, fake_sync_kms: FakeSyncKMSClient, monkeypatch: pytest.MonkeyPatch, asynchronous: bool
     ) -> None:
         """Test that a data key past its maximum age is replaced."""
 
         monkeypatch.setattr(settings, "AWS_KMS_DATA_KEY_MAX_AGE_SECONDS", 0)
 
-        AWSAdapter.encrypt("first", associated_data=KMS_TEST_CONTEXT)
-        AWSAdapter.encrypt("second", associated_data=KMS_TEST_CONTEXT)
+        for value in ("first", "second"):
+            if asynchronous:
+                await AWSAdapter.async_encrypt(value, associated_data=KMS_TEST_CONTEXT)
+            else:
+                AWSAdapter.encrypt(value, associated_data=KMS_TEST_CONTEXT)
 
         assert len(fake_sync_kms.generate_calls) == 2
 

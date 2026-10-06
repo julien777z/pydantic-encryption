@@ -11,7 +11,8 @@ from pydantic_encryption.adapters.encryption.aws import (
     AWSAdapter,
 )
 from pydantic_encryption.config import settings
-from tests.kms import FakeSyncKMSClient, KMS_TEST_CONTEXT, reset_adapter_state
+from tests.kms import KMS_TEST_CONTEXT, reset_adapter_state
+from tests.models.kms import FakeSyncKMSClient
 
 
 class TestAWSAdapterValidation:

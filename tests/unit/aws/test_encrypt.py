@@ -6,7 +6,8 @@ from pydantic_encryption.adapters.encryption.aws import CIPHERTEXT_MAGIC, CIPHER
 from pydantic_encryption.config import settings
 from pydantic_encryption.models.kms import DataKeyGenerateRequest
 from pydantic_encryption.types import EncryptedValue
-from tests.kms import FakeSyncKMSClient, KMS_TEST_CONTEXT
+from tests.kms import KMS_TEST_CONTEXT
+from tests.models.kms import FakeSyncKMSClient
 
 
 class TestAWSAdapterEncrypt:

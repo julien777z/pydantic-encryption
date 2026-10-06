@@ -4,6 +4,7 @@ import struct
 import threading
 import time
 from collections import OrderedDict
+from concurrent.futures import Future
 from typing import ClassVar, Final
 
 from pydantic_encryption.lazy import require_optional_dependency
@@ -128,12 +129,14 @@ class AWSAdapter(EncryptionAdapter):
     """AWS KMS envelope encryption, reusing each data key across values within configured bounds."""
 
     _sync_client: ClassVar[BaseClient | None] = None
+    client_lock: ClassVar[threading.Lock] = threading.Lock()
 
     encrypt_key: ClassVar[DataKey | None] = None
     unwrapped_keys: ClassVar[OrderedDict[bytes, UnwrappedDataKey]] = OrderedDict()
     cache_lock: ClassVar[threading.Lock] = threading.Lock()
     generation_lock: ClassVar[threading.Lock] = threading.Lock()
-    unwrapping_lock: ClassVar[threading.Lock] = threading.Lock()
+    unwrapping_condition: ClassVar[threading.Condition] = threading.Condition()
+    unwrapping: ClassVar[dict[bytes, Future[bytes]]] = {}
 
     @classmethod
     def encrypt_arn(cls) -> str:
@@ -164,7 +167,9 @@ class AWSAdapter(EncryptionAdapter):
         """Return the lazily-built sync boto3 KMS client used by sync code paths."""
 
         if cls._sync_client is None:
-            cls._sync_client = boto3.client("kms", config=kms_transport_config(), **kms_kwargs())
+            with cls.client_lock:
+                if cls._sync_client is None:
+                    cls._sync_client = boto3.client("kms", config=kms_transport_config(), **kms_kwargs())
 
         return cls._sync_client
 
@@ -251,19 +256,46 @@ class AWSAdapter(EncryptionAdapter):
 
     @classmethod
     def unwrapped_key(cls, wrapped: bytes) -> bytes:
-        """Return the plaintext of a wrapped data key, unwrapping it through KMS once per process."""
+        """Share one bounded in-flight KMS unwrap per data key, keeping distinct keys concurrent."""
 
-        plaintext = cls.recall_unwrapped_key(wrapped)
-        if plaintext is not None:
+        with cls.unwrapping_condition:
+            while True:
+                plaintext = cls.recall_unwrapped_key(wrapped)
+
+                if plaintext is not None:
+                    return plaintext
+
+                pending = cls.unwrapping.get(wrapped)
+
+                if pending is not None:
+                    owns_unwrap = False
+                    break
+
+                if len(cls.unwrapping) < settings.AWS_KMS_MAX_IN_FLIGHT_UNWRAPS:
+                    pending = Future[bytes]()
+                    cls.unwrapping[wrapped] = pending
+                    owns_unwrap = True
+                    break
+
+                cls.unwrapping_condition.wait()
+
+        if not owns_unwrap:
+            return pending.result()
+
+        try:
+            plaintext = cls.sync_kms().decrypt(**cls.decrypt_kwargs(wrapped))["Plaintext"]
+            cls.remember_unwrapped_key(wrapped, plaintext)
+            pending.set_result(plaintext)
+
             return plaintext
+        except BaseException as exc:
+            pending.set_exception(exc)
 
-        with cls.unwrapping_lock:
-            plaintext = cls.recall_unwrapped_key(wrapped)
-            if plaintext is None:
-                plaintext = cls.sync_kms().decrypt(**cls.decrypt_kwargs(wrapped))["Plaintext"]
-                cls.remember_unwrapped_key(wrapped, plaintext)
-
-        return plaintext
+            raise
+        finally:
+            with cls.unwrapping_condition:
+                del cls.unwrapping[wrapped]
+                cls.unwrapping_condition.notify_all()
 
     @classmethod
     async def async_unwrapped_key(cls, wrapped: bytes) -> bytes:
