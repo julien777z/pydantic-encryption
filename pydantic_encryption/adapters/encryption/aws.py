@@ -4,20 +4,27 @@ import struct
 import threading
 import time
 from collections import OrderedDict
-from typing import Any, ClassVar, Final
-
-from pydantic import BaseModel, Field
+from concurrent.futures import Future
+from typing import ClassVar, Final
 
 from pydantic_encryption.lazy import require_optional_dependency
 
 require_optional_dependency("boto3", "aws")
 
 import boto3
+from botocore.client import BaseClient
 from botocore.config import Config
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from pydantic_encryption.adapters.base import EncryptionAdapter, encode_text
 from pydantic_encryption.config import settings
+from pydantic_encryption.models.kms import (
+    DataKey,
+    DataKeyDecryptRequest,
+    DataKeyGenerateRequest,
+    GeneratedDataKey,
+    UnwrappedDataKey,
+)
 from pydantic_encryption.types import EncryptedValue
 
 CIPHERTEXT_MAGIC: Final[int] = 0xC0
@@ -26,32 +33,6 @@ HEADER_PACK_FORMAT: Final[str] = ">BBH"
 HEADER_LENGTH: Final[int] = struct.calcsize(HEADER_PACK_FORMAT)
 NONCE_LENGTH: Final[int] = 12
 DATA_KEY_SPEC: Final[str] = "AES_256"
-
-
-class DataKey(BaseModel):
-    """A KMS data key held in memory, with how far its reuse has gone."""
-
-    plaintext: bytes = Field(repr=False)
-    wrapped: bytes = Field(repr=False)
-    issued_at: float
-    uses: int = 0
-
-    def is_spent(self, max_uses: int, max_age_seconds: float, now: float) -> bool:
-        """Return whether this key has exhausted either of its reuse bounds."""
-
-        return self.uses >= max_uses or now - self.issued_at >= max_age_seconds
-
-
-class UnwrappedDataKey(BaseModel):
-    """A data key KMS has unwrapped for this process, kept until it expires."""
-
-    plaintext: bytes = Field(repr=False)
-    unwrapped_at: float
-
-    def has_expired(self, max_age_seconds: float, now: float) -> bool:
-        """Return whether this unwrapped key has outlived its retention."""
-
-        return now - self.unwrapped_at >= max_age_seconds
 
 
 def to_bytes(ciphertext: bytes | str | EncryptedValue) -> bytes:
@@ -147,13 +128,15 @@ def open(blob: bytes) -> tuple[bytes, bytes, bytes]:
 class AWSAdapter(EncryptionAdapter):
     """AWS KMS envelope encryption, reusing each data key across values within configured bounds."""
 
-    _sync_client: ClassVar[Any | None] = None
+    _sync_client: ClassVar[BaseClient | None] = None
+    client_lock: ClassVar[threading.Lock] = threading.Lock()
 
     encrypt_key: ClassVar[DataKey | None] = None
     unwrapped_keys: ClassVar[OrderedDict[bytes, UnwrappedDataKey]] = OrderedDict()
     cache_lock: ClassVar[threading.Lock] = threading.Lock()
     generation_lock: ClassVar[threading.Lock] = threading.Lock()
-    unwrapping_lock: ClassVar[threading.Lock] = threading.Lock()
+    unwrapping_condition: ClassVar[threading.Condition] = threading.Condition()
+    unwrapping: ClassVar[dict[bytes, Future[bytes]]] = {}
 
     @classmethod
     def encrypt_arn(cls) -> str:
@@ -169,10 +152,10 @@ class AWSAdapter(EncryptionAdapter):
         return arn
 
     @classmethod
-    def decrypt_kwargs(cls, wrapped_data_key: bytes) -> dict[str, Any]:
+    def decrypt_kwargs(cls, wrapped_data_key: bytes) -> DataKeyDecryptRequest:
         """Build ``KMS.Decrypt`` kwargs, scoping by KeyId when one is configured."""
 
-        kwargs: dict[str, Any] = {"CiphertextBlob": wrapped_data_key}
+        kwargs = DataKeyDecryptRequest(CiphertextBlob=wrapped_data_key)
         decrypt_arn = settings.AWS_KMS_DECRYPT_KEY_ARN or settings.AWS_KMS_KEY_ARN
         if decrypt_arn:
             kwargs["KeyId"] = decrypt_arn
@@ -180,11 +163,13 @@ class AWSAdapter(EncryptionAdapter):
         return kwargs
 
     @classmethod
-    def sync_kms(cls) -> Any:
+    def sync_kms(cls) -> BaseClient:
         """Return the lazily-built sync boto3 KMS client used by sync code paths."""
 
         if cls._sync_client is None:
-            cls._sync_client = boto3.client("kms", config=kms_transport_config(), **kms_kwargs())
+            with cls.client_lock:
+                if cls._sync_client is None:
+                    cls._sync_client = boto3.client("kms", config=kms_transport_config(), **kms_kwargs())
 
         return cls._sync_client
 
@@ -206,7 +191,7 @@ class AWSAdapter(EncryptionAdapter):
             return held
 
     @classmethod
-    def hold_encrypt_key(cls, response: dict[str, Any]) -> DataKey:
+    def hold_encrypt_key(cls, response: GeneratedDataKey) -> DataKey:
         """Hold a freshly generated data key for reuse, counting its first use."""
 
         held = DataKey(
@@ -264,24 +249,53 @@ class AWSAdapter(EncryptionAdapter):
 
         with cls.generation_lock:
             return cls.claim_encrypt_key() or cls.hold_encrypt_key(
-                cls.sync_kms().generate_data_key(KeyId=cls.encrypt_arn(), KeySpec=DATA_KEY_SPEC)
+                cls.sync_kms().generate_data_key(
+                    **DataKeyGenerateRequest(KeyId=cls.encrypt_arn(), KeySpec=DATA_KEY_SPEC)
+                )
             )
 
     @classmethod
     def unwrapped_key(cls, wrapped: bytes) -> bytes:
-        """Return the plaintext of a wrapped data key, unwrapping it through KMS once per process."""
+        """Share one bounded in-flight KMS unwrap per data key, keeping distinct keys concurrent."""
 
-        plaintext = cls.recall_unwrapped_key(wrapped)
-        if plaintext is not None:
+        with cls.unwrapping_condition:
+            while True:
+                plaintext = cls.recall_unwrapped_key(wrapped)
+
+                if plaintext is not None:
+                    return plaintext
+
+                pending = cls.unwrapping.get(wrapped)
+
+                if pending is not None:
+                    owns_unwrap = False
+                    break
+
+                if len(cls.unwrapping) < settings.AWS_KMS_MAX_IN_FLIGHT_UNWRAPS:
+                    pending = Future[bytes]()
+                    cls.unwrapping[wrapped] = pending
+                    owns_unwrap = True
+                    break
+
+                cls.unwrapping_condition.wait()
+
+        if not owns_unwrap:
+            return pending.result()
+
+        try:
+            plaintext = cls.sync_kms().decrypt(**cls.decrypt_kwargs(wrapped))["Plaintext"]
+            cls.remember_unwrapped_key(wrapped, plaintext)
+            pending.set_result(plaintext)
+
             return plaintext
+        except BaseException as exc:
+            pending.set_exception(exc)
 
-        with cls.unwrapping_lock:
-            plaintext = cls.recall_unwrapped_key(wrapped)
-            if plaintext is None:
-                plaintext = cls.sync_kms().decrypt(**cls.decrypt_kwargs(wrapped))["Plaintext"]
-                cls.remember_unwrapped_key(wrapped, plaintext)
-
-        return plaintext
+            raise
+        finally:
+            with cls.unwrapping_condition:
+                del cls.unwrapping[wrapped]
+                cls.unwrapping_condition.notify_all()
 
     @classmethod
     async def async_unwrapped_key(cls, wrapped: bytes) -> bytes:
@@ -301,6 +315,8 @@ class AWSAdapter(EncryptionAdapter):
         key: str | None = None,
         associated_data: bytes,
     ) -> EncryptedValue:
+        """Seal plaintext under the held data key, bound to its associated data."""
+
         if isinstance(plaintext, EncryptedValue):
             return plaintext
 
@@ -316,6 +332,8 @@ class AWSAdapter(EncryptionAdapter):
         key: str | None = None,
         associated_data: bytes,
     ) -> EncryptedValue:
+        """Seal plaintext, generating a data key off the event loop only when one is needed."""
+
         if isinstance(plaintext, EncryptedValue):
             return plaintext
 
@@ -331,6 +349,8 @@ class AWSAdapter(EncryptionAdapter):
         key: str | None = None,
         associated_data: bytes,
     ) -> str:
+        """Open a sealed value, bound to its associated data."""
+
         wrapped, nonce, sealed = open(to_bytes(ciphertext))
 
         return unseal(cls.unwrapped_key(wrapped), nonce, sealed, associated_data)
@@ -343,6 +363,8 @@ class AWSAdapter(EncryptionAdapter):
         key: str | None = None,
         associated_data: bytes,
     ) -> str:
+        """Open a sealed value, unwrapping its data key off the event loop only when one is needed."""
+
         wrapped, nonce, sealed = open(to_bytes(ciphertext))
 
         return unseal(await cls.async_unwrapped_key(wrapped), nonce, sealed, associated_data)

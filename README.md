@@ -129,6 +129,8 @@ Encrypted columns and `Encrypted` model fields alike preserve the Python type of
 
 `str`, `bytes`, `bool`, `int`, `float`, `Decimal`, `UUID`, `date`, `datetime`, `time`, `timedelta`
 
+A value of any other type raises `TypeError`, as does a `Hashed` or `BlindIndex` field holding neither `str` nor `bytes`.
+
 ## Async Models
 
 Use `async_init()` to construct models with async encryption, hashing, and blind indexing, and `async_decrypt_data()` for async decryption:
@@ -203,6 +205,10 @@ tags: Mapped[list[str] | None] = mapped_column(SQLAlchemyPGEncryptedArray(), nul
 ```
 
 Each element is individually encrypted. Requires PostgreSQL.
+
+### Literal SQL
+
+A statement compiled with `literal_binds` renders encrypted, hashed and blind-index values as the dialect's binary literal on PostgreSQL, SQLite, MySQL, MariaDB, SQL Server and Oracle. Any other dialect raises `CompileError` instead of rendering the value.
 
 ### Async Decryption
 
@@ -343,7 +349,7 @@ from pydantic_encryption import BaseModel, BlindIndex, BlindIndexMethod
 
 
 class User(BaseModel):
-    email_index: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
+    email_index: Annotated[str | bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
 ```
 
 ### Methods
@@ -358,7 +364,7 @@ class User(BaseModel):
 Normalize values before hashing to ensure consistent lookups:
 
 ```python
-email_index: Annotated[bytes, BlindIndex(
+email_index: Annotated[str | bytes, BlindIndex(
     BlindIndexMethod.HMAC_SHA256,
     normalize_to_lowercase=True,
     strip_whitespace=True,

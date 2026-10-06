@@ -1,4 +1,4 @@
-from typing import Self
+from typing import ClassVar, Self
 
 from pydantic import PositiveFloat, PositiveInt, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     AWS_KMS_DATA_KEY_MAX_USES: PositiveInt = 1000
     AWS_KMS_UNWRAPPED_KEY_CACHE_SIZE: PositiveInt = 512
     AWS_KMS_UNWRAPPED_KEY_MAX_AGE_SECONDS: PositiveFloat = 300
+    AWS_KMS_MAX_IN_FLIGHT_UNWRAPS: PositiveInt = 512
 
     BLIND_INDEX_SECRET_KEY: str | None = None
 
@@ -68,11 +69,11 @@ class Settings(BaseSettings):
 
         return self
 
-    model_config = SettingsConfigDict(
+    model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(
         env_file=[".env.local", ".env"],
         case_sensitive=False,
         extra="ignore",
     )
 
 
-settings = Settings()
+settings: Settings = Settings()

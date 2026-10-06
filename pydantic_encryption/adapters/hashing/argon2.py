@@ -13,6 +13,8 @@ class Argon2Adapter(HashingAdapter):
 
     @classmethod
     def get_hasher(cls) -> PasswordHasher:
+        """Return the shared Argon2 password hasher."""
+
         if cls._hasher is None:
             cls._hasher = PasswordHasher()
 
