@@ -1,3 +1,5 @@
+import base64
+
 import pytest
 from cryptography.fernet import InvalidToken
 
@@ -153,3 +155,10 @@ class TestFernetAdapter:
 
         assert first == derive_context_key(fernet_key, SEALED_CONTEXT)
         assert first != derive_context_key(fernet_key, FOREIGN_CONTEXT)
+
+    async def test_context_key_derived_from_decoded_root_key(self):
+        """Test that a context's key is derived from the root key's decoded bytes, which stored tokens pin."""
+
+        root_key = base64.urlsafe_b64encode(bytes(32)).decode()
+
+        assert derive_context_key(root_key, SEALED_CONTEXT) == b"AsDVitAdPHhdZT87qf4tNDaZuPZ_YKxFsTKzCor3PRs="

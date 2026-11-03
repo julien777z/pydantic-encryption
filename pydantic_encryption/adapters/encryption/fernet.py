@@ -29,7 +29,7 @@ def derive_context_key(root_key: str, associated_data: bytes) -> bytes:
         length=FERNET_KEY_LENGTH,
         salt=None,
         info=associated_data,
-    ).derive(root_key.encode("utf-8"))
+    ).derive(base64.urlsafe_b64decode(root_key))
 
     return base64.urlsafe_b64encode(derived)
 
