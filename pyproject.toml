@@ -9,7 +9,6 @@ readme = "README.md"
 requires-python = ">=3.11,<3.15"
 dependencies = [
     "pydantic>=2.13.4",
-    "typing-extensions>=4.14.1",
     "pydantic-settings>=2.14.2",
     "pydantic-super-model>=2.0.0",
     "cryptography>=44.0.0",
@@ -47,6 +46,7 @@ dev = [
     "psycopg2-binary>=2.9.12",
     "asyncpg>=0.31.0",
     "polyfactory>=3.3.0",
+    "pyright>=1.1.410",
 ]
 
 [tool.black]
@@ -54,6 +54,7 @@ line-length = 110
 target-version = ["py311", "py312", "py313", "py314"]
 
 [tool.pyright]
+include = ["pydantic_encryption"]
 # botocore and boto3 ship no type information; read untyped packages as unknown instead of guessing from their source.
 useLibraryCodeForTypes = false
 

@@ -40,6 +40,9 @@ jobs:
           ENCRYPTION_METHOD: "fernet"
           BLIND_INDEX_SECRET_KEY: "test-blind-index-secret-key"
 
+      - name: Check Types with Pyright
+        run: poetry run pyright
+
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5
         with:
