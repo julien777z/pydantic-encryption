@@ -7,14 +7,13 @@ import threading
 import time
 from collections import OrderedDict
 from concurrent.futures import Future
-from typing import ClassVar, Final
+from typing import ClassVar, Final, cast
 
 from pydantic_encryption.lazy import require_optional_dependency
 
 require_optional_dependency("boto3", "aws")
 
 import boto3
-from botocore.client import BaseClient
 from botocore.config import Config
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
@@ -27,6 +26,7 @@ from pydantic_encryption.models.kms import (
     DecryptedDataKey,
     GeneratedDataKey,
     HeldDataKey,
+    KMSClient,
     KMSClientOptions,
 )
 from pydantic_encryption.types import EncryptedValue
@@ -127,7 +127,7 @@ def open(blob: bytes) -> tuple[bytes, bytes, bytes]:
 class AWSAdapter(EncryptionAdapter):
     """AWS KMS envelope encryption, reusing each data key across values within configured bounds."""
 
-    kms_client: ClassVar[BaseClient | None] = None
+    kms_client: ClassVar[KMSClient | None] = None
     client_lock: ClassVar[threading.Lock] = threading.Lock()
 
     encrypt_key: ClassVar[DataKey | None] = None
@@ -167,13 +167,13 @@ class AWSAdapter(EncryptionAdapter):
         return kwargs
 
     @classmethod
-    def client(cls) -> BaseClient:
+    def client(cls) -> KMSClient:
         """Return the lazily built boto3 KMS client."""
 
         if cls.kms_client is None:
             with cls.client_lock:
                 if cls.kms_client is None:
-                    cls.kms_client = boto3.client("kms", **kms_client_options())
+                    cls.kms_client = cast(KMSClient, boto3.client("kms", **kms_client_options()))
 
         return cls.kms_client
 

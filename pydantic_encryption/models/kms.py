@@ -1,4 +1,4 @@
-from typing import NotRequired, TypedDict
+from typing import NotRequired, Protocol, TypedDict, Unpack
 
 from botocore.config import Config
 from pydantic import BaseModel, Field
@@ -38,6 +38,14 @@ class DataKeyDecryptRequest(TypedDict):
 
     CiphertextBlob: bytes
     KeyId: NotRequired[str]
+
+
+class KMSClient(Protocol):
+    """The KMS client calls the AWS adapter makes, typed by the fields it sends and reads."""
+
+    def generate_data_key(self, **request: Unpack[DataKeyGenerateRequest]) -> GeneratedDataKey: ...
+
+    def decrypt(self, **request: Unpack[DataKeyDecryptRequest]) -> DecryptedDataKey: ...
 
 
 class HeldDataKey(BaseModel):
