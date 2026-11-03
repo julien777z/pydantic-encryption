@@ -312,9 +312,9 @@ Contexts are derived, so there is nothing to pass in the common case:
 | An array element | the context of the array column itself |
 | A model field | `\field.module.Model.field` |
 
-A column inherited from a mixin binds separately for each table that inherits it, and one type binds one column — a type already attached to a column refuses a second. Escaping doubles every backslash in a name and puts one before every separator, so a backslash that starts an escaped name is followed by another backslash or a separator, never a letter. A model field's context starts with `\field.`, so a model field never shares a context with a column, a row or another model field, and no two columns share one, however they are named.
+A column inherited from a mixin binds separately for each table that inherits it, and one type binds one column — a type already attached to a column refuses a second. Escaping doubles every backslash in a name and puts one before every separator, so a backslash that starts an escaped name is followed by another backslash or a separator, never a letter. A model field's context starts with `\field.`, so among the contexts derived from names, a model field never shares one with a column, a row or another model field, and no two columns share one, however they are named.
 
-Row binding needs a table that names a schema, so where its column derives its context, a row's context is `schema.table.column` followed by the row's primary key: four or more segments where a column's has two or three. A row never shares a context with a column, a model field or another row.
+Row binding needs a table that names a schema, so a row whose column derives its context binds to `schema.table.column` followed by its primary key: four or more segments, where a derived column context has two or three. Such a row never shares a context with a derived column, a model field or another such row.
 
 `derive_column_context`, `derive_row_context` and `derive_field_context` apply these rules, so a migration can name what a value binds to without reimplementing them:
 
