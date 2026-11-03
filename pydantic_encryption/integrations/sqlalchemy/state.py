@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Iterable
 from typing import Any, Final, TypeVar
 from weakref import WeakSet
 
@@ -23,6 +24,7 @@ def read_raw_cell(row: object, column_key: str) -> object:
     """Read a column's stored value from ORM state, bypassing attribute descriptors."""
 
     state = sa_inspect(row, raiseerr=False)
+
     if state is not None and hasattr(state, "dict"):
         return state.dict.get(column_key)
 
@@ -76,8 +78,10 @@ def row_key(mapper: Mapper[MappedT], instance: MappedT) -> list[str]:
     """Return the primary key values identifying one row, one canonical context segment each."""
 
     values: list[str] = []
+
     for column in mapper.primary_key:
         value = getattr(instance, mapper.get_property_by_column(column).key, None)
+
         if value is None:
             raise ValueError(
                 f"Row of {mapper.class_.__name__} has no {column.key} yet, so its cells cannot bind "
@@ -111,8 +115,19 @@ def pending_siblings(session: Session, cls: type[object]) -> list[object]:
     return [row for row in bucket.get(cls) or () if row in session]
 
 
+def drop_pending(session: Session, cls: type[object], rows: Iterable[object]) -> None:
+    """Remove rows from the pending-decrypt instances of ``cls`` bucketed in ``session``."""
+
+    bucket: dict[type[object], WeakSet[object]] = session.info.get(PENDING_DECRYPT_KEY) or {}
+    pending = bucket.get(cls)
+
+    if pending is not None:
+        pending.difference_update(rows)
+
+
 __all__ = [
     "PENDING_DECRYPT_KEY",
+    "drop_pending",
     "names_row_key",
     "pending_siblings",
     "read_raw_cell",

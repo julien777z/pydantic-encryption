@@ -68,10 +68,12 @@ def assign_client_side_primary_key(mapper: Mapper[MappedT], target: MappedT) -> 
 
     for column in mapper.primary_key:
         attribute = mapper.get_property_by_column(column).key
+
         if getattr(target, attribute, None) is not None:
             continue
 
         default = column.default
+
         if default is None or default.is_sequence or default.is_clause_element:
             continue
 
@@ -97,6 +99,7 @@ def read_stored_cells(
         .select_from(mapper.persist_selectable)
         .where(*(column == value for column, value in zip(mapper.primary_key, identity)))
     )
+
     stored = connection.execute(statement).one_or_none()
 
     if stored is None:
@@ -120,6 +123,7 @@ def seal_row_bound_cells(
     state = instance_state(target)
     identity = state.identity
     moved = identity is not None and sealed_row_key(mapper, target) != row_key(mapper, target)
+
     stored = (
         read_stored_cells(
             connection,

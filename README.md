@@ -226,7 +226,7 @@ A statement compiled with `literal_binds` renders encrypted, hashed and blind-in
 `TypeDecorator` is sync by contract, so slow backends (AWS KMS) can block the event loop. Two paths:
 
 - **Default.** Under `AsyncSession`, decryption uses SQLAlchemy's greenlet bridge so each call yields the event loop. Argon2 hashing and blind-indexing use the same bridge.
-- **On-access batch decrypt.** `DeferredDecryptMixin` defers each encrypted column until the first read, then batch-decrypts that column across every sibling instance loaded into the same session in a single `asyncio.TaskGroup`. Columns the caller never reads stay encrypted and cost nothing.
+- **On-access batch decrypt.** `DeferredDecryptMixin` defers each encrypted column until the first read, then batch-decrypts that column across every sibling instance loaded into the same session, decrypting and decoding each cell concurrently. Each cell opens or fails on its own, so one that fails never stops the others. Columns the caller never reads stay encrypted and cost nothing.
 
 Mix the helper into any model with encrypted columns and read as usual:
 
@@ -294,9 +294,11 @@ async with AsyncSession(engine) as session:
     await decrypt_values(ciphertexts, context=User.email)     # flat ciphertexts; preserves None positions
 ```
 
+Each helper writes back every cell that opens, then raises one `ExceptionGroup` holding every cell that failed to decrypt or decode. Each error carries a note naming its cell: the model, column and primary key for a row, or the position for `decrypt_values`.
+
 ### Catching Accidental Ciphertext Access
 
-Reads go through the on-access descriptor. When the underlying cell is still an `EncryptedValue`, the descriptor prefers an async batch decrypt over the session's pending siblings (via SQLAlchemy's greenlet bridge), and transparently falls back to a synchronous decrypt either when the read happens outside a greenlet or when the instance is detached from any session. Each cell in the batch opens or fails on its own: a sibling whose cell fails stays sealed and raises only when it is read itself.
+Reads go through the on-access descriptor. When the underlying cell is still an `EncryptedValue`, the descriptor prefers an async batch decrypt over the session's pending siblings (via SQLAlchemy's greenlet bridge), and transparently falls back to a synchronous decrypt either when the read happens outside a greenlet or when the instance is detached from any session. Each cell in the batch opens or fails on its own: a sibling whose cell fails stays sealed, leaves the session's batch so later reads do not retry it, and raises only when it is read itself.
 
 An `EncryptedValue` only reaches user code if something bypasses the descriptor entirely (raw `state.dict[col]`, a logged row). Coercing it via `str(value)` / `f"{value}"` / `"%s" % value` raises `EncryptedValueAccessError`. `repr(value)` is a safe `<EncryptedValue: N bytes>` marker, and `bytes(value)` returns the raw ciphertext. Use `is_encrypted(value)` to guard at a boundary.
 

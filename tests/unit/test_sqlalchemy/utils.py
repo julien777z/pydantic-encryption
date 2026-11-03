@@ -5,6 +5,7 @@ from weakref import WeakSet
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import KeyedColumnElement
 
+from pydantic_encryption.adapters.registry import configured_encryption_backend
 from pydantic_encryption.integrations.sqlalchemy.bulk import collect_encrypted_cells
 from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue
 from pydantic_encryption.integrations.sqlalchemy.state import PENDING_DECRYPT_KEY, read_raw_cell
@@ -63,6 +64,12 @@ def encrypt_through_column(column: KeyedColumnElement[object], value: Encryptabl
     """Encrypt a value through a mapped column's own type so it carries that column's context."""
 
     return column_type_of(column, SQLAlchemyEncryptedValue).encrypt_cell(value)
+
+
+def encrypt_unknown_format(context: bytes) -> EncryptedValue:
+    """Encrypt a plaintext written in a format version no reader knows, under the given context."""
+
+    return configured_encryption_backend().encrypt("v999:str:sample", associated_data=context)
 
 
 def collected_cells(entities: object) -> dict[tuple[type[object], str], list[object]]:

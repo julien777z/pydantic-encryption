@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import Awaitable, Callable
 from unittest.mock import patch
 
 import pytest
@@ -8,7 +9,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
-from pydantic_encryption.integrations.sqlalchemy import decrypt_pending_fields, decrypt_rows, decrypt_values
+from pydantic_encryption.integrations.sqlalchemy import (
+    decrypt_pending_fields,
+    decrypt_rows,
+    decrypt_values,
+    finalize_sqlalchemy_session,
+)
 from pydantic_encryption.integrations.sqlalchemy.bulk import decrypt_rows_sync
 from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue
 from pydantic_encryption.integrations.sqlalchemy.state import PENDING_DECRYPT_KEY
@@ -22,7 +28,13 @@ from tests.unit.test_sqlalchemy.tables import (
     RenamedColumnRow,
     SecretRow,
 )
-from tests.unit.test_sqlalchemy.utils import RecordingAsyncSession, collected_cells, encrypt_through_column
+from tests.unit.test_sqlalchemy.utils import (
+    RecordingAsyncSession,
+    collected_cells,
+    column_type_of,
+    encrypt_through_column,
+    encrypt_unknown_format,
+)
 from tests.unit.utils import ASYNC_PATHS, call_path
 
 
@@ -67,18 +79,64 @@ class TestBulk:
         assert [sa_inspect(row).dict["payload"] for row in rows] == [sample.payload, other_sample.payload]
 
     @ASYNC_PATHS
-    async def test_moved_ciphertext_refused(self, asynchronous: bool, sample: SampleRecord):
-        """Test that a cell holding another column's ciphertext raises, once every other cell has opened."""
+    @pytest.mark.parametrize(
+        ("unopenable", "error"),
+        [
+            (lambda: encrypt_through_column(Member.__table__.c.label, "moved label"), InvalidToken),
+            (
+                lambda: encrypt_unknown_format(
+                    column_type_of(Member.__table__.c.caption, SQLAlchemyEncryptedValue).bound_context()
+                ),
+                RuntimeError,
+            ),
+        ],
+        ids=["moved-ciphertext", "unknown-format"],
+    )
+    async def test_unopenable_cell_refused(
+        self,
+        asynchronous: bool,
+        unopenable: Callable[[], EncryptedValue],
+        error: type[Exception],
+        sample: SampleRecord,
+        other_sample: SampleRecord,
+    ):
+        """Test that a cell failing to decrypt or decode raises noted with its row, once every other cell opens."""
 
-        moved = Member(caption=encrypt_through_column(Member.__table__.c.label, sample.label))
-        intact = Member.sealed(None, sample.caption)
+        broken = Member(id=other_sample.id, caption=unopenable())
+        intact = Member.sealed(None, sample.caption, id=sample.id)
 
         with pytest.raises(BaseExceptionGroup) as raised:
-            await call_path(asynchronous, decrypt_rows_sync, decrypt_rows, [moved, intact], "caption")
+            await call_path(asynchronous, decrypt_rows_sync, decrypt_rows, [broken, intact], "caption")
 
-        assert raised.group_contains(InvalidToken)
-        assert isinstance(sa_inspect(moved).dict["caption"], EncryptedValue)
+        assert [(type(exc), exc.__notes__) for exc in raised.value.exceptions] == [
+            (error, [f"Cell Member.caption of the row with primary key ({other_sample.id},)"])
+        ]
+        assert isinstance(sa_inspect(broken).dict["caption"], EncryptedValue)
         assert sa_inspect(intact).dict["caption"] == sample.caption
+
+    async def test_cancelled_cell_raised_once_others_open(self, samples: list[SampleRecord]):
+        """Test that a cell whose decrypt is cancelled raises the cancellation once every other cell opens."""
+
+        rows = [Member.from_sample(sample) for sample in samples]
+        cancelled = sa_inspect(rows[0]).dict["label"]
+        original_decrypt = FernetAdapter.decrypt
+
+        async def cancel_one(ciphertext: bytes, *, key: str | None = None, associated_data: bytes) -> str:
+            """Cancel the first row's decrypt and decrypt every other cell."""
+
+            if ciphertext == cancelled:
+                raise asyncio.CancelledError
+
+            return original_decrypt(ciphertext, key=key, associated_data=associated_data)
+
+        with (
+            patch.object(FernetAdapter, "async_decrypt", side_effect=cancel_one),
+            pytest.raises(asyncio.CancelledError),
+        ):
+            await decrypt_rows(rows, "label")
+
+        assert isinstance(sa_inspect(rows[0]).dict["label"], EncryptedValue)
+        assert [sa_inspect(row).dict["label"] for row in rows[1:]] == [sample.label for sample in samples[1:]]
 
     @ASYNC_PATHS
     async def test_no_columns_leaves_rows_sealed(self, asynchronous: bool):
@@ -110,6 +168,26 @@ class TestBulk:
         values = [SQLAlchemyEncryptedValue(name).encrypt_cell("draft")]
 
         assert await decrypt_values(values, context="draft-payloads") == ["draft"]
+
+    async def test_values_raise_every_failure(self):
+        """Test that every value failing to decrypt or decode is raised in one group, noted with its position."""
+
+        values = [
+            encrypt_through_column(Member.__table__.c.label, "first"),
+            encrypt_through_column(Member.__table__.c.caption, "moved"),
+            encrypt_through_column(Member.__table__.c.label, "second"),
+            encrypt_unknown_format(
+                column_type_of(Member.__table__.c.label, SQLAlchemyEncryptedValue).bound_context()
+            ),
+        ]
+
+        with pytest.raises(ExceptionGroup) as raised:
+            await decrypt_values(values, context=Member.label)
+
+        assert [(type(exc), exc.__notes__) for exc in raised.value.exceptions] == [
+            (InvalidToken, ["Value at position 1"]),
+            (RuntimeError, ["Value at position 3"]),
+        ]
 
     @pytest.mark.parametrize("values", [[], [None, "plain", 42]], ids=["empty", "no-ciphertext"])
     async def test_values_without_ciphertext_returned(self, values: list[object]):
@@ -247,6 +325,23 @@ class TestBulk:
         assert sa_inspect(member).dict["label"] == sample.label
         assert sa_inspect(payload).dict["payload"] == sample.payload
         assert PENDING_DECRYPT_KEY not in session.info
+
+    @pytest.mark.parametrize(
+        "drain", [decrypt_pending_fields, finalize_sqlalchemy_session], ids=["drain", "finalize"]
+    )
+    async def test_drain_leaves_expunged_rows_sealed(self, drain: Callable[[AsyncSession], Awaitable[None]]):
+        """Test that draining a session decrypts the rows it holds and leaves a row expunged from it sealed."""
+
+        kept = SecretRow.sealed("first secret", id=1)
+        expunged = SecretRow.sealed("second secret", id=2)
+        session = RecordingAsyncSession(in_transaction=False, pending=[kept, expunged])
+
+        session.expunge(expunged)
+
+        await drain(session)
+
+        assert sa_inspect(kept).dict["secret"] == "first secret"
+        assert isinstance(sa_inspect(expunged).dict["secret"], EncryptedValue)
 
     async def test_drain_without_bucket_adds_none(self):
         """Test that draining a session with no bucket leaves it without one."""

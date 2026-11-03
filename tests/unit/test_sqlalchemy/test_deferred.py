@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Callable
 
 import pytest
 from cryptography.fernet import InvalidToken
@@ -24,7 +25,11 @@ from pydantic_encryption.integrations.sqlalchemy import DeferredDecryptMixin
 from pydantic_encryption.integrations.sqlalchemy.deferred import install_descriptors
 from pydantic_encryption.integrations.sqlalchemy.descriptor import DecryptOnAccessDescriptor
 from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue
-from pydantic_encryption.integrations.sqlalchemy.state import PENDING_DECRYPT_KEY, read_raw_cell
+from pydantic_encryption.integrations.sqlalchemy.state import (
+    PENDING_DECRYPT_KEY,
+    pending_siblings,
+    read_raw_cell,
+)
 from pydantic_encryption.serialization import decode_value
 from pydantic_encryption.types import EncryptedValue
 from tests.unit.test_sqlalchemy.tables import (
@@ -43,7 +48,7 @@ from tests.unit.test_sqlalchemy.tables import (
     TextUuidKeyedRow,
     UndeferredRow,
 )
-from tests.unit.test_sqlalchemy.utils import column_type_of
+from tests.unit.test_sqlalchemy.utils import column_type_of, encrypt_unknown_format
 
 
 class TestDeferredDecryptMixin:
@@ -192,20 +197,26 @@ class TestDeferredDecryptMixin:
         assert sqlite_session.execute(select(SecretRow)).scalar_one().secret == "secret data"
 
     @pytest.mark.parametrize(
-        ("loader", "read_first", "expire_after_move"),
+        ("loader", "read_first", "expire_after_move", "selects"),
         [
-            (None, False, False),
-            (None, True, False),
-            (load_only(RowBoundRecord.label), False, False),
-            (defer(RowBoundRecord.secret), False, False),
-            (None, False, True),
+            (None, False, False, 0),
+            (None, True, False, 0),
+            (load_only(RowBoundRecord.label), False, False, 1),
+            (defer(RowBoundRecord.secret), False, False, 1),
+            (None, False, True, 1),
         ],
         ids=["sealed", "read", "load-only", "defer", "expired-after-move"],
     )
     def test_cell_follows_new_primary_key(
-        self, sqlite_session: Session, loader: ORMOption | None, read_first: bool, expire_after_move: bool
+        self,
+        sqlite_session: Session,
+        executed_statements: list[str],
+        loader: ORMOption | None,
+        read_first: bool,
+        expire_after_move: bool,
+        selects: int,
     ):
-        """Test that changing a primary key re-seals the row's cells, whether sealed, read or not loaded."""
+        """Test that a primary key change re-seals the row's cells, reading the unloaded ones in one SELECT."""
 
         sqlite_session.add(RowBoundRecord(secret="secret data"))
         sqlite_session.flush()
@@ -222,14 +233,17 @@ class TestDeferredDecryptMixin:
         if expire_after_move:
             sqlite_session.expire(moved, ["secret"])
 
+        executed_statements.clear()
         sqlite_session.flush()
+        flush_selects = [statement for statement in executed_statements if statement.startswith("SELECT")]
         moved_id = moved.id
         sqlite_session.expunge_all()
 
         reloaded = sqlite_session.get(RowBoundRecord, moved_id)
 
+        assert len(flush_selects) == selects
         assert reloaded is not None
-        assert reloaded.secret == "secret data"
+        assert (reloaded.secret, reloaded.note) == ("secret data", None)
 
     @pytest.mark.parametrize("read_label", ["first", "second"], ids=["moved-row", "other-row"])
     def test_cell_reads_between_key_change_and_flush(
@@ -241,15 +255,45 @@ class TestDeferredDecryptMixin:
 
         assert stored_pair[read_label].secret == f"{read_label} secret"
 
-    def test_unreadable_cell_fails_only_its_own_row(self, stored_pair: dict[str, RowBoundRecord]):
-        """Test that a cell that fails to open leaves another row's read intact and raises on its own read."""
+    @pytest.mark.parametrize(
+        ("unreadable", "error"),
+        [
+            (lambda pair: read_raw_cell(pair["second"], "secret"), InvalidToken),
+            (
+                lambda pair: encrypt_unknown_format(
+                    column_type_of(RowBoundRecord.__table__.c.secret, SQLAlchemyEncryptedValue).context_for(
+                        pair["first"]
+                    )
+                ),
+                RuntimeError,
+            ),
+        ],
+        ids=["other-row-ciphertext", "unknown-format"],
+    )
+    def test_unreadable_cell_fails_only_its_own_row(
+        self,
+        stored_pair: dict[str, RowBoundRecord],
+        unreadable: Callable[[dict[str, RowBoundRecord]], object],
+        error: type[Exception],
+    ):
+        """Test that a cell failing to decrypt or decode leaves another row's read intact and raises on its own."""
+
+        sa_inspect(stored_pair["first"]).dict["secret"] = unreadable(stored_pair)
+
+        assert stored_pair["second"].secret == "second secret"
+
+        with pytest.raises(error):
+            stored_pair["first"].secret
+
+    def test_unreadable_row_leaves_batch(
+        self, sqlite_session: Session, stored_pair: dict[str, RowBoundRecord]
+    ):
+        """Test that a row whose cell fails to open in another row's batch is left out of later batches."""
 
         sa_inspect(stored_pair["first"]).dict["secret"] = read_raw_cell(stored_pair["second"], "secret")
 
         assert stored_pair["second"].secret == "second secret"
-
-        with pytest.raises(InvalidToken):
-            stored_pair["first"].secret
+        assert pending_siblings(sqlite_session, RowBoundRecord) == [stored_pair["second"]]
 
     def test_expunged_row_left_out_of_batch(
         self, sqlite_session: Session, stored_pair: dict[str, RowBoundRecord]

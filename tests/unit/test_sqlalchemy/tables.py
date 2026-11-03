@@ -114,7 +114,7 @@ class RenamedColumnRow(RecordBase, DeferredDecryptMixin):
 
 
 class RowBoundRecord(RecordBase, DeferredDecryptMixin):
-    """Row whose encrypted column binds each row separately."""
+    """Row whose two encrypted columns bind each row separately."""
 
     __tablename__ = "row_bound_records"
     __table_args__ = {"schema": "main"}
@@ -122,6 +122,9 @@ class RowBoundRecord(RecordBase, DeferredDecryptMixin):
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     label: Mapped[str | None] = mapped_column(String, nullable=True, default=None)
     secret: Mapped[str | None] = mapped_column(
+        SQLAlchemyEncryptedValue(row_bound=True), nullable=True, default=None
+    )
+    note: Mapped[str | None] = mapped_column(
         SQLAlchemyEncryptedValue(row_bound=True), nullable=True, default=None
     )
 
