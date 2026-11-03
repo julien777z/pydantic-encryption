@@ -48,6 +48,7 @@ class ContextBoundType(BinaryColumnType[ColumnValueT]):
         """Derive the context from the column this type is attached to, unless one was declared."""
 
         attached = f"{table.fullname}.{column.name}"
+
         if self.bound_column is not None and self.bound_column != attached:
             raise ValueError(
                 f"This encrypted type is already bound to {self.bound_column}, and one type binds one "

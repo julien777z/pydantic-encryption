@@ -533,6 +533,12 @@ class TestSecureModel:
             SampleRecord.__module__, "SampleRecord", "secret"
         )
 
+    async def test_undeclared_field_context_refused(self, sample: SampleRecord):
+        """Test that asking for the context of a field no class declares names the field it refused."""
+
+        with pytest.raises(TypeError, match="'missing'"):
+            sample.field_context("missing")
+
     async def test_ciphertext_bound_to_its_field(self, sample: SampleRecord):
         """Test that one field's ciphertext fails to open under a sibling field's context."""
 

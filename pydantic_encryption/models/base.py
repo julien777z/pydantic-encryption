@@ -217,7 +217,7 @@ class SecureModel(SuperModelMixin):
             if field_name in own_annotations(owner):
                 return unparametrized(owner)
 
-        return unparametrized(cls)
+        raise TypeError(f"No class of {cls.__name__} declares a field named {field_name!r}.")
 
     def field_context(self, field_name: str) -> bytes:
         """Bind a field's ciphertext to the class that declares the field and the field's name."""

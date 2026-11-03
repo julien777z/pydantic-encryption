@@ -46,9 +46,6 @@ def append_row_key(column_context: bytes, *row_key: str) -> bytes:
 def derive_row_context(table_name: str, column_name: str, *row_key: str, schema: str) -> bytes:
     """Return the context one row's cell in an encrypted column binds its ciphertext to."""
 
-    if schema == "":
-        raise ValueError("A schema naming a column's table cannot be empty; pass None where it names none.")
-
     if schema is None:
         raise ValueError(
             "A row-bound cell needs a schema naming its table, or its context could read the same as a "

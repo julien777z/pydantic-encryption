@@ -36,6 +36,7 @@ class BinaryStorage(TypeDecorator[bytes]):
         """Return a renderer of bytes as the dialect's binary literal."""
 
         template = BINARY_LITERAL_TEMPLATES.get(dialect.name)
+
         if template is None:
             raise CompileError(f"No binary literal syntax is known for the {dialect.name} dialect.")
 

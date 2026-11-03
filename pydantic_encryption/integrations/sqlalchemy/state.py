@@ -32,12 +32,6 @@ def read_raw_cell(row: object, column_key: str) -> object:
 def set_decrypted(row: object, column_key: str, plaintext: EncryptableValue) -> None:
     """Commit a decrypted value on a row without marking it dirty for the next flush."""
 
-    state = sa_inspect(row, raiseerr=False)
-    if state is None or not hasattr(state, "mapper"):
-        setattr(row, column_key, plaintext)
-
-        return
-
     set_committed_value(row, column_key, plaintext)
 
 

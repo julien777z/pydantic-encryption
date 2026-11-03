@@ -22,8 +22,6 @@ from pydantic_encryption.config import settings
 from pydantic_encryption.models.kms import (
     DataKey,
     DataKeyDecryptRequest,
-    DataKeyGenerateRequest,
-    DecryptedDataKey,
     GeneratedDataKey,
     HeldDataKey,
     KMSClient,
@@ -284,6 +282,7 @@ class AWSAdapter(EncryptionAdapter):
 
         with cls.cache_lock:
             held = cls.unwrapped_keys.get(wrapped)
+
             if held is None:
                 return None
 
@@ -309,9 +308,7 @@ class AWSAdapter(EncryptionAdapter):
 
         try:
             held = cls.hold_encrypt_key(
-                cls.client().generate_data_key(
-                    **DataKeyGenerateRequest(KeyId=cls.encrypt_arn(), KeySpec=DATA_KEY_SPEC)
-                )
+                cls.client().generate_data_key(KeyId=cls.encrypt_arn(), KeySpec=DATA_KEY_SPEC)
             )
         except BaseException as exc:
             cls.release_generation()
@@ -375,7 +372,7 @@ class AWSAdapter(EncryptionAdapter):
             return pending.result()
 
         try:
-            response: DecryptedDataKey = cls.client().decrypt(**cls.decrypt_kwargs(wrapped))
+            response = cls.client().decrypt(**cls.decrypt_kwargs(wrapped))
             plaintext = response["Plaintext"]
 
             cls.remember_unwrapped_key(wrapped, plaintext)
@@ -396,6 +393,7 @@ class AWSAdapter(EncryptionAdapter):
         """Return the plaintext of a wrapped data key, leaving the loop only for a cold KMS unwrap."""
 
         plaintext = cls.recall_unwrapped_key(wrapped)
+
         if plaintext is not None:
             return plaintext
 

@@ -42,6 +42,7 @@ def get_encryption_backend(method: EncryptionMethod) -> type[EncryptionAdapter]:
             return encryption_backends[method]
 
         factory = encryption_factories.get(method)
+
         if factory is not None:
             cls = factory()
             encryption_backends[method] = cls

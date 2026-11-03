@@ -39,15 +39,6 @@ class TestState:
         assert organization.name == "sample organization"
         assert not state.attrs.name.history.has_changes()
 
-    def test_unmapped_row_takes_value_by_assignment(self):
-        """Test that an object with no ORM state takes a decrypted value by plain assignment."""
-
-        row = UnmappedRow("sealed")
-
-        set_decrypted(row, "secret", "secret data")
-
-        assert row.secret == "secret data"
-
     def test_session_without_bucket_has_no_siblings(self):
         """Test that a session with no pending-decrypt bucket has no siblings."""
 
