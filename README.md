@@ -76,7 +76,7 @@ ENCRYPTION_METHOD=fernet
 ENCRYPTION_KEY=your_generated_key
 ```
 
-`ENCRYPTION_KEY` is the root key. Each context's key is derived from it with HKDF-SHA256 as the value is sealed or opened, so one key covers every column and a token still only opens under the context it was sealed for.
+`ENCRYPTION_KEY` is the root key, and must be a Fernet key such as the command above prints: any other value is refused when a value is sealed or opened. Each context's key is derived from it with HKDF-SHA256, so one key covers every column and a token still only opens under the context it was sealed for.
 
 ### AWS KMS
 
@@ -97,31 +97,42 @@ AWS_KMS_DECRYPT_KEY_ARN=arn:aws:kms:...decrypt-key
 
 Use one mode or the other — combining `AWS_KMS_KEY_ARN` with either split variant raises a validation error. A decrypt-only key alone is allowed (read-only workloads).
 
-One KMS data key seals many values, and an unwrapped data key opens many, so KMS is called once per key rather than once per value. The bounds on that reuse are settings:
+One KMS data key seals many values, and an unwrapped data key opens many, so KMS is called once per key rather than once per value. The bounds on that reuse, and on the calls themselves, are settings. Each process holds its own keys and its own limits:
 
 | Setting | Default | Bounds |
 |---------|---------|--------|
 | `AWS_KMS_DATA_KEY_MAX_USES` | `1000` | Values one data key seals before a fresh one is generated |
-| `AWS_KMS_DATA_KEY_MAX_AGE_SECONDS` | `300` | How long one data key seals values before a fresh one is generated |
+| `AWS_KMS_DATA_KEY_MAX_AGE_SECONDS` | `300` | How long one data key seals values; it is dropped from memory when this expires |
 | `AWS_KMS_UNWRAPPED_KEY_CACHE_SIZE` | `512` | Unwrapped data keys held in memory, least recently used evicted first |
-| `AWS_KMS_UNWRAPPED_KEY_MAX_AGE_SECONDS` | `300` | How long an unwrapped data key is held before KMS unwraps it again |
+| `AWS_KMS_UNWRAPPED_KEY_MAX_AGE_SECONDS` | `300` | How long an unwrapped data key is held; it is dropped from memory when this expires |
+| `AWS_KMS_MAX_IN_FLIGHT_UNWRAPS` | `512` | KMS unwraps one process runs at once; async callers are also bounded by the event loop's default executor |
+| `AWS_KMS_CONNECT_TIMEOUT_SECONDS` | `2` | How long one KMS connection attempt waits |
+| `AWS_KMS_READ_TIMEOUT_SECONDS` | `5` | How long one KMS call waits for its reply |
+| `AWS_KMS_MAX_ATTEMPTS` | `2` | KMS attempts per call, the first included, under the SDK's standard retry mode |
 
 Every value still carries its own nonce and its own context, so sharing a data key changes how often KMS is called and nothing about what a ciphertext opens under.
+
+A held key keeps sealing or opening values for up to its maximum age after KMS access is revoked, and a value opened with a held key makes no KMS call, so it leaves no KMS audit record of its own.
 
 ### Per Model
 
 Override encryption settings on a model instead of relying on environment variables:
 
 ```python
+import os
 from typing import Annotated
 from pydantic_encryption import BaseModel, Encrypted, EncryptionMethod
 
 
-class SpecialUser(BaseModel, encryption_method=EncryptionMethod.FERNET, encryption_key="my-key"):
+class SpecialUser(
+    BaseModel,
+    encryption_method=EncryptionMethod.FERNET,
+    encryption_key=os.environ["SPECIAL_USER_ENCRYPTION_KEY"],
+):
     email: Annotated[bytes, Encrypted]
 ```
 
-Supported kwargs: `encryption_method`, `encryption_key`, `blind_index_key`. Falls back to env vars if not set.
+Supported kwargs: `encryption_method`, `encryption_key`, `blind_index_key`. Falls back to env vars if not set. A Fernet `encryption_key` is a Fernet key, like `ENCRYPTION_KEY`.
 
 ## Supported Types
 
@@ -301,7 +312,7 @@ Contexts are derived, so there is nothing to pass in the common case:
 | An array element | the context of the array column itself |
 | A model field | `module.Model.field` |
 
-A column inherited from a mixin binds separately for each table that inherits it, and one type binds one column — a type already attached to a column refuses a second. A separator inside a name is escaped, so no two locations can share a context however they are named. `derive_column_context` and `derive_field_context` apply these rules, so a migration can name what a value binds to without reimplementing them:
+A column inherited from a mixin binds separately for each table that inherits it, and one type binds one column — a type already attached to a column refuses a second. A separator inside a name is escaped, so no two columns, rows or model fields share a context however they are named. A model field can share one with a column or a row only where its module, class and field read exactly as a schema, table and column, or a table, column and primary key. `derive_column_context` and `derive_field_context` apply these rules, so a migration can name what a value binds to without reimplementing them:
 
 ```python
 from pydantic_encryption import derive_column_context
@@ -333,7 +344,7 @@ Each cell then binds to `schema.table.column.<primary key>`, which `derive_row_c
 
 Changing a row's primary key re-seals its row-bound cells under the key it moves to, so the row keeps reading.
 
-Encrypted arrays decrypt on the read path, where no row is in scope, so they bind their column and refuse `row_bound`.
+Encrypted arrays decrypt on the read path, where no row is in scope, so they bind their column and take no `row_bound` argument.
 
 ### Backends
 
