@@ -9,9 +9,9 @@ from pydantic_encryption.lazy import require_optional_dependency
 
 require_optional_dependency("sqlalchemy", "sqlalchemy")
 
-from sqlalchemy import ColumnDefault, Connection, event
+from sqlalchemy import ColumnDefault, Connection, event, select
 from sqlalchemy.orm import Mapper, QueryContext
-from sqlalchemy.orm.attributes import get_history
+from sqlalchemy.orm.attributes import get_history, instance_state
 
 from pydantic_encryption.integrations.sqlalchemy.bulk import bulk_decrypt_entities
 from pydantic_encryption.integrations.sqlalchemy.descriptor import DecryptOnAccessDescriptor
@@ -83,25 +83,41 @@ def assign_client_side_primary_key(mapper: Mapper[MappedT], target: MappedT) -> 
             setattr(target, attribute, default.arg(None))
 
 
-def replaced_row_key(mapper: Mapper[MappedT], target: MappedT) -> list[str] | None:
-    """Return the primary key a row is moving away from, or ``None`` where it keeps the one it had."""
+def replaced_row_key(mapper: Mapper[MappedT], target: MappedT) -> list[object] | None:
+    """Return the key values a row is moving away from, or ``None`` where it keeps the ones it had."""
 
-    replaced: list[str] = []
+    replaced: list[object] = []
     moved = False
     for column in mapper.primary_key:
         attribute = mapper.get_property_by_column(column).key
         history = get_history(target, attribute)
 
         if history.deleted:
-            replaced.append(row_key_segment(column, history.deleted[0]))
+            replaced.append(history.deleted[0])
             moved = True
         else:
-            replaced.append(row_key_segment(column, getattr(target, attribute)))
+            replaced.append(getattr(target, attribute))
 
     return replaced if moved else None
 
 
-def seal_row_bound_cells(mapper: Mapper[MappedT], target: MappedT, *, updating: bool) -> None:
+def read_stored_cell(
+    connection: Connection, mapper: Mapper[MappedT], attribute: str, row_key_values: list[object]
+) -> object:
+    """Read a cell the row's ORM state has not loaded from the stored row its key values name."""
+
+    statement = (
+        select(mapper.columns[attribute])
+        .select_from(mapper.persist_selectable)
+        .where(*(column == value for column, value in zip(mapper.primary_key, row_key_values)))
+    )
+
+    return connection.execute(statement).scalar_one_or_none()
+
+
+def seal_row_bound_cells(
+    mapper: Mapper[MappedT], connection: Connection, target: MappedT, *, updating: bool
+) -> None:
     """Seal row-bound cells under the context naming their row, or only those an update changes."""
 
     columns = row_bound_columns(mapper)
@@ -110,10 +126,20 @@ def seal_row_bound_cells(mapper: Mapper[MappedT], target: MappedT, *, updating: 
         return
 
     assign_client_side_primary_key(mapper, target)
-    replaced_key = replaced_row_key(mapper, target) if updating else None
+    replaced_values = replaced_row_key(mapper, target) if updating else None
+    replaced_key = (
+        [row_key_segment(column, value) for column, value in zip(mapper.primary_key, replaced_values)]
+        if replaced_values is not None
+        else None
+    )
+    unloaded = instance_state(target).unloaded
 
     for attribute, column_type in columns:
-        value = read_raw_cell(target, attribute)
+        if replaced_values is not None and attribute in unloaded:
+            value = read_stored_cell(connection, mapper, attribute, replaced_values)
+        else:
+            value = read_raw_cell(target, attribute)
+
         if value is None:
             continue
 
@@ -137,7 +163,7 @@ def seal_row_bound_cells(mapper: Mapper[MappedT], target: MappedT, *, updating: 
 def encrypt_row_bound_cells(mapper: Mapper[MappedT], connection: Connection, target: MappedT) -> None:
     """Seal every row-bound cell of a row being inserted under the context naming its row."""
 
-    seal_row_bound_cells(mapper, target, updating=False)
+    seal_row_bound_cells(mapper, connection, target, updating=False)
 
 
 def reencrypt_changed_row_bound_cells(
@@ -145,7 +171,7 @@ def reencrypt_changed_row_bound_cells(
 ) -> None:
     """Seal the row-bound cells an update assigns, or every one where the row's primary key moves."""
 
-    seal_row_bound_cells(mapper, target, updating=True)
+    seal_row_bound_cells(mapper, connection, target, updating=True)
 
 
 def on_orm_load(instance: object, context: QueryContext | None) -> None:

@@ -10,9 +10,12 @@ from sqlalchemy.orm import (
     DeclarativeBase,
     Mapped,
     Session,
+    defer,
+    load_only,
     make_transient_to_detached,
     mapped_column,
 )
+from sqlalchemy.orm.interfaces import ORMOption
 from sqlalchemy.types import TypeEngine
 
 from pydantic_encryption.context import derive_row_context
@@ -174,15 +177,37 @@ class TestDeferredDecryptMixin:
 
         assert sqlite_session.execute(select(SecretRow)).scalar_one().secret == "secret data"
 
-    def test_cell_follows_new_primary_key(self, sqlite_session: Session):
-        """Test that changing a primary key re-seals the cells bound to the row it named."""
+    @pytest.mark.parametrize(
+        ("loader", "read_first", "expire_after_move"),
+        [
+            (None, False, False),
+            (None, True, False),
+            (load_only(RowBoundRecord.label), False, False),
+            (defer(RowBoundRecord.secret), False, False),
+            (None, False, True),
+        ],
+        ids=["sealed", "read", "load-only", "defer", "expired-after-move"],
+    )
+    def test_cell_follows_new_primary_key(
+        self, sqlite_session: Session, loader: ORMOption | None, read_first: bool, expire_after_move: bool
+    ):
+        """Test that changing a primary key re-seals the row's cells, whether sealed, read or not loaded."""
 
         sqlite_session.add(RowBoundRecord(secret="secret data"))
         sqlite_session.flush()
         sqlite_session.expunge_all()
 
-        moved = sqlite_session.execute(select(RowBoundRecord)).scalar_one()
+        query = select(RowBoundRecord) if loader is None else select(RowBoundRecord).options(loader)
+        moved = sqlite_session.execute(query).scalar_one()
+
+        if read_first:
+            assert moved.secret == "secret data"
+
         moved.id = uuid.uuid4()
+
+        if expire_after_move:
+            sqlite_session.expire(moved, ["secret"])
+
         sqlite_session.flush()
         moved_id = moved.id
         sqlite_session.expunge_all()
