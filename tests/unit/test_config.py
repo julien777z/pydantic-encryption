@@ -1,3 +1,5 @@
+import threading
+
 import pytest
 from pydantic import ValidationError
 
@@ -117,3 +119,12 @@ class TestSettings:
         settings = Settings(ENCRYPTION_METHOD=EncryptionMethod.FERNET, ENCRYPTION_KEY="test-key")
 
         assert settings.ENCRYPTION_METHOD is EncryptionMethod.FERNET
+
+    @pytest.mark.parametrize(
+        "setting", ["AWS_KMS_DATA_KEY_MAX_AGE_SECONDS", "AWS_KMS_UNWRAPPED_KEY_MAX_AGE_SECONDS"]
+    )
+    def test_key_lifetime_past_timer_limit_refused(self, setting: str):
+        """Test that a key lifetime longer than a timer can wait is refused rather than stopping expiry."""
+
+        with pytest.raises(ValidationError, match=setting):
+            Settings.model_validate({setting: threading.TIMEOUT_MAX * 2})
