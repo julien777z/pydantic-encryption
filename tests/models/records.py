@@ -1,8 +1,10 @@
-from typing import Annotated
+from typing import Annotated, Generic, TypeVar
 
 from pydantic import Field
 
 from pydantic_encryption import BaseModel, BlindIndex, BlindIndexMethod, Encrypted, Hashed
+
+ExtraT = TypeVar("ExtraT")
 
 
 class PlainRecord(BaseModel):
@@ -66,3 +68,24 @@ class NestedRecord(BaseModel):
     groups: list[list[EncryptedRecord]] = Field(default_factory=list)
     by_name: dict[str, EncryptedRecord] = Field(default_factory=dict)
     groups_by_name: dict[str, list[EncryptedRecord]] = Field(default_factory=dict)
+
+
+class SharedSecretRecord(BaseModel):
+    """Model declaring an encrypted field its subclasses inherit."""
+
+    secret: Annotated[object, Encrypted]
+
+
+class LeftSecretRecord(SharedSecretRecord):
+    """Subclass inheriting the shared encrypted field."""
+
+
+class RightSecretRecord(SharedSecretRecord):
+    """Sibling subclass inheriting the same shared encrypted field."""
+
+
+class GenericSecretRecord(BaseModel, Generic[ExtraT]):
+    """Generic model declaring an encrypted field beside a field of its type parameter."""
+
+    secret: Annotated[object, Encrypted]
+    extra: ExtraT | None = None

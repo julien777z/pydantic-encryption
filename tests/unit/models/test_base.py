@@ -22,13 +22,17 @@ from tests.factories import User
 from tests.models.records import (
     AnyEncryptedRecord,
     EncryptedRecord,
+    GenericSecretRecord,
     HashedRecord,
+    LeftSecretRecord,
     IndexedRecord,
     MixedRecord,
     NestedRecord,
     OptionalIndexedRecord,
     OptionalRecord,
     PlainRecord,
+    RightSecretRecord,
+    SharedSecretRecord,
 )
 from tests.unit.utils import ASYNC_PATHS, NO_SQLALCHEMY_SCRIPT, build, decrypt, deferred_crypto
 
@@ -187,6 +191,25 @@ class TestSecureModel:
         assert record.name == "sample name"
         assert isinstance(record.password, HashedValue)
         assert isinstance(record.secret, EncryptedValue)
+
+    @pytest.mark.parametrize(
+        ("writer", "reader"),
+        [
+            (LeftSecretRecord, RightSecretRecord),
+            (LeftSecretRecord, SharedSecretRecord),
+            (GenericSecretRecord[int], GenericSecretRecord[str]),
+            (GenericSecretRecord[int], GenericSecretRecord),
+        ],
+        ids=["sibling-subclass", "declaring-class", "other-parametrization", "generic-origin"],
+    )
+    async def test_inherited_field_shares_declaring_context(
+        self, writer: type[SharedSecretRecord], reader: type[SharedSecretRecord]
+    ):
+        """Test that a field sealed through one class opens through another sharing its declaring class."""
+
+        sealed = writer(secret="secret data").secret
+
+        assert reader(secret=sealed).decrypt_data().secret == "secret data"
 
     async def test_dump_carries_processed_values(self):
         """Test that a dump carries the ciphertext and hash rather than the plaintext."""

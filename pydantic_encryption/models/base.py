@@ -1,6 +1,7 @@
 import asyncio
 import contextvars
-from collections.abc import Awaitable, Coroutine, Iterable
+import sys
+from collections.abc import Awaitable, Coroutine, Iterable, Mapping
 from typing import ClassVar, Never, Self
 
 from pydantic_super_model import AnnotatedFieldInfo, SuperModelMixin, SuperModelPydanticMixin
@@ -22,11 +23,32 @@ from pydantic_encryption.types import (
     Hashed,
 )
 
+if sys.version_info >= (3, 14):
+    import annotationlib
+
 __all__ = ["BaseModel", "SecureModel"]
 
 defer_crypto_to_async: contextvars.ContextVar[bool] = contextvars.ContextVar(
     "defer_crypto_to_async", default=False
 )
+
+
+def own_annotations(owner: type) -> Mapping[str, object]:
+    """Return the annotations a class declares itself, leaving out those it inherits."""
+
+    if sys.version_info >= (3, 14):
+        return annotationlib.get_annotations(owner, format=annotationlib.Format.FORWARDREF)
+
+    return owner.__dict__.get("__annotations__", {})
+
+
+def unparametrized(owner: type) -> type:
+    """Return the generic class a parametrized model was made from, or the class itself."""
+
+    metadata: Mapping[str, object] = getattr(owner, "__pydantic_generic_metadata__", None) or {}
+    origin = metadata.get("origin")
+
+    return origin if isinstance(origin, type) else owner
 
 
 class SecureModel(SuperModelMixin):
@@ -187,10 +209,22 @@ class SecureModel(SuperModelMixin):
 
         return decode_value(await plaintext)
 
-    def field_context(self, field_name: str) -> bytes:
-        """Bind a field's ciphertext to the model and field it belongs to."""
+    @classmethod
+    def declaring_class(cls, field_name: str) -> type:
+        """Return the class that declares a field, which its subclasses and parametrizations share."""
 
-        return derive_field_context(type(self).__module__, type(self).__qualname__, field_name)
+        for owner in cls.__mro__:
+            if field_name in own_annotations(owner):
+                return unparametrized(owner)
+
+        return unparametrized(cls)
+
+    def field_context(self, field_name: str) -> bytes:
+        """Bind a field's ciphertext to the class that declares the field and the field's name."""
+
+        owner = self.declaring_class(field_name)
+
+        return derive_field_context(owner.__module__, owner.__qualname__, field_name)
 
     def encrypt_data(self) -> None:
         """Encrypt fields annotated with ``Encrypted`` in-place."""

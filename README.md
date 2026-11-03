@@ -310,7 +310,7 @@ Contexts are derived, so there is nothing to pass in the common case:
 |-------|---------|
 | A column | `table.column`, or `schema.table.column` where the table names a schema |
 | An array element | the context of the array column itself |
-| A model field | `\field.module.Model.field` |
+| A model field | `\field.module.Model.field`, naming the class that declares the field |
 
 A column inherited from a mixin binds separately for each table that inherits it, and one type binds one column — a type already attached to a column refuses a second. Escaping doubles every backslash in a name and puts one before every separator, so a backslash that starts an escaped name is followed by another backslash or a separator, never a letter. A model field's context starts with `\field.`, so among the contexts derived from names, a model field never shares one with a column, a row or another model field, and no two columns share one, however they are named.
 
@@ -327,7 +327,7 @@ derive_field_context("app", "User", "email")               # b"\\field.app.User.
 derive_row_context("users", "email", "42", schema="app")   # b"app.users.email.42"
 ```
 
-The context is authenticated but never written into the ciphertext, so it is part of the column's contract: renaming a table or column re-binds what it writes from then on, and values stored under the old name no longer open.
+The context is authenticated but never written into the ciphertext, so it is part of the stored contract: renaming a table or column re-binds what it writes from then on, and values stored under the old name no longer open. A model field binds to the module and qualified name of the class that declares it, so its subclasses and generic parametrizations share one context, and those names are part of the contract in the same way: renaming or moving the declaring class, or redeclaring the field in a subclass, re-binds it.
 
 Pass a context explicitly only where nothing can be derived, such as a value that never reaches a column:
 
