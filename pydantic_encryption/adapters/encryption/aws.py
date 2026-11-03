@@ -1,6 +1,8 @@
 import asyncio
+import os
 import secrets
 import struct
+import sys
 import threading
 import time
 from collections import OrderedDict
@@ -22,8 +24,10 @@ from pydantic_encryption.models.kms import (
     DataKey,
     DataKeyDecryptRequest,
     DataKeyGenerateRequest,
+    DecryptedDataKey,
     GeneratedDataKey,
-    UnwrappedDataKey,
+    HeldDataKey,
+    KMSClientOptions,
 )
 from pydantic_encryption.types import EncryptedValue
 
@@ -44,8 +48,8 @@ def to_bytes(ciphertext: bytes | str | EncryptedValue) -> bytes:
     return bytes(ciphertext)
 
 
-def kms_kwargs() -> dict[str, str]:
-    """Return boto3 kwargs for the configured KMS region and credentials."""
+def kms_client_options() -> KMSClientOptions:
+    """Return the boto3 KMS client options: the configured region, credentials and transport bounds."""
 
     has_key = settings.AWS_KMS_KEY_ARN or settings.AWS_KMS_ENCRYPT_KEY_ARN or settings.AWS_KMS_DECRYPT_KEY_ARN
     if not (
@@ -60,20 +64,15 @@ def kms_kwargs() -> dict[str, str]:
             "(AWS_KMS_KEY_ARN, AWS_KMS_ENCRYPT_KEY_ARN, or AWS_KMS_DECRYPT_KEY_ARN) to be set."
         )
 
-    return {
-        "region_name": settings.AWS_KMS_REGION,
-        "aws_access_key_id": settings.AWS_KMS_ACCESS_KEY_ID,
-        "aws_secret_access_key": settings.AWS_KMS_SECRET_ACCESS_KEY,
-    }
-
-
-def kms_transport_config() -> Config:
-    """Build the bounded KMS transport configuration."""
-
-    return Config(
-        connect_timeout=settings.AWS_KMS_CONNECT_TIMEOUT_SECONDS,
-        read_timeout=settings.AWS_KMS_READ_TIMEOUT_SECONDS,
-        retries={"mode": "standard", "total_max_attempts": settings.AWS_KMS_MAX_ATTEMPTS},
+    return KMSClientOptions(
+        region_name=settings.AWS_KMS_REGION,
+        aws_access_key_id=settings.AWS_KMS_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.AWS_KMS_SECRET_ACCESS_KEY,
+        config=Config(
+            connect_timeout=settings.AWS_KMS_CONNECT_TIMEOUT_SECONDS,
+            read_timeout=settings.AWS_KMS_READ_TIMEOUT_SECONDS,
+            retries={"mode": "standard", "total_max_attempts": settings.AWS_KMS_MAX_ATTEMPTS},
+        ),
     )
 
 
@@ -128,13 +127,18 @@ def open(blob: bytes) -> tuple[bytes, bytes, bytes]:
 class AWSAdapter(EncryptionAdapter):
     """AWS KMS envelope encryption, reusing each data key across values within configured bounds."""
 
-    _sync_client: ClassVar[BaseClient | None] = None
+    kms_client: ClassVar[BaseClient | None] = None
     client_lock: ClassVar[threading.Lock] = threading.Lock()
 
     encrypt_key: ClassVar[DataKey | None] = None
-    unwrapped_keys: ClassVar[OrderedDict[bytes, UnwrappedDataKey]] = OrderedDict()
+    unwrapped_keys: ClassVar[OrderedDict[bytes, HeldDataKey]] = OrderedDict()
     cache_lock: ClassVar[threading.Lock] = threading.Lock()
+    expiry_timer: ClassVar[threading.Timer | None] = None
+    expiry_due: ClassVar[float] = 0.0
+
     generation_lock: ClassVar[threading.Lock] = threading.Lock()
+    generating: ClassVar[Future[None] | None] = None
+
     unwrapping_condition: ClassVar[threading.Condition] = threading.Condition()
     unwrapping: ClassVar[dict[bytes, Future[bytes]]] = {}
 
@@ -163,30 +167,78 @@ class AWSAdapter(EncryptionAdapter):
         return kwargs
 
     @classmethod
-    def sync_kms(cls) -> BaseClient:
-        """Return the lazily-built sync boto3 KMS client used by sync code paths."""
+    def client(cls) -> BaseClient:
+        """Return the lazily built boto3 KMS client."""
 
-        if cls._sync_client is None:
+        if cls.kms_client is None:
             with cls.client_lock:
-                if cls._sync_client is None:
-                    cls._sync_client = boto3.client("kms", config=kms_transport_config(), **kms_kwargs())
+                if cls.kms_client is None:
+                    cls.kms_client = boto3.client("kms", **kms_client_options())
 
-        return cls._sync_client
+        return cls.kms_client
+
+    @classmethod
+    def schedule_expiry(cls) -> None:
+        """Arrange for the soonest-expiring held key to be dropped when it expires; needs ``cache_lock``."""
+
+        expiries = [held.expires_at for held in cls.unwrapped_keys.values()]
+
+        if cls.encrypt_key is not None:
+            expiries.append(cls.encrypt_key.expires_at)
+
+        if not expiries:
+            return
+
+        due = min(expiries)
+
+        if cls.expiry_timer is not None:
+            if cls.expiry_due <= due:
+                return
+
+            cls.expiry_timer.cancel()
+
+        timer = threading.Timer(max(due - time.monotonic(), 0.0), cls.drop_expired_keys)
+        timer.daemon = True
+
+        cls.expiry_timer = timer
+        cls.expiry_due = due
+
+        timer.start()
+
+    @classmethod
+    def drop_expired_keys(cls) -> None:
+        """Drop every held data key past its lifetime, then wait for the next one to expire."""
+
+        with cls.cache_lock:
+            now = time.monotonic()
+
+            if cls.encrypt_key is not None and cls.encrypt_key.has_expired(now):
+                cls.encrypt_key = None
+
+            for wrapped in [wrapped for wrapped, held in cls.unwrapped_keys.items() if held.has_expired(now)]:
+                del cls.unwrapped_keys[wrapped]
+
+            if cls.expiry_timer is threading.current_thread():
+                cls.expiry_timer = None
+
+            cls.schedule_expiry()
 
     @classmethod
     def claim_encrypt_key(cls) -> DataKey | None:
-        """Return the held data key and count this use, or ``None`` once it is spent."""
+        """Return the held data key and count this use, or ``None`` once it is spent, dropping a spent key."""
 
         with cls.cache_lock:
             held = cls.encrypt_key
-            if held is None or held.is_spent(
-                settings.AWS_KMS_DATA_KEY_MAX_USES,
-                settings.AWS_KMS_DATA_KEY_MAX_AGE_SECONDS,
-                time.monotonic(),
-            ):
+
+            if held is None or held.has_expired(time.monotonic()):
+                cls.encrypt_key = None
+
                 return None
 
-            held.uses += 1
+            held.uses_left -= 1
+
+            if not held.uses_left:
+                cls.encrypt_key = None
 
             return held
 
@@ -197,12 +249,14 @@ class AWSAdapter(EncryptionAdapter):
         held = DataKey(
             plaintext=response["Plaintext"],
             wrapped=response["CiphertextBlob"],
-            issued_at=time.monotonic(),
-            uses=1,
+            expires_at=time.monotonic() + settings.AWS_KMS_DATA_KEY_MAX_AGE_SECONDS,
+            uses_left=settings.AWS_KMS_DATA_KEY_MAX_USES - 1,
         )
 
-        with cls.cache_lock:
-            cls.encrypt_key = held
+        if held.uses_left:
+            with cls.cache_lock:
+                cls.encrypt_key = held
+                cls.schedule_expiry()
 
         return held
 
@@ -210,49 +264,87 @@ class AWSAdapter(EncryptionAdapter):
     def remember_unwrapped_key(cls, wrapped: bytes, plaintext: bytes) -> None:
         """Keep an unwrapped data key, evicting the least recently used once the cache is full."""
 
+        held = HeldDataKey(
+            plaintext=plaintext,
+            expires_at=time.monotonic() + settings.AWS_KMS_UNWRAPPED_KEY_MAX_AGE_SECONDS,
+        )
+
         with cls.cache_lock:
-            cls.unwrapped_keys[wrapped] = UnwrappedDataKey(plaintext=plaintext, unwrapped_at=time.monotonic())
+            cls.unwrapped_keys[wrapped] = held
             cls.unwrapped_keys.move_to_end(wrapped)
 
             while len(cls.unwrapped_keys) > settings.AWS_KMS_UNWRAPPED_KEY_CACHE_SIZE:
                 cls.unwrapped_keys.popitem(last=False)
+
+            cls.schedule_expiry()
 
     @classmethod
     def recall_unwrapped_key(cls, wrapped: bytes) -> bytes | None:
         """Return a still-fresh unwrapped data key, marking it most recently used."""
 
         with cls.cache_lock:
-            unwrapped = cls.unwrapped_keys.get(wrapped)
-            if unwrapped is None:
+            held = cls.unwrapped_keys.get(wrapped)
+            if held is None:
                 return None
 
-            if unwrapped.has_expired(settings.AWS_KMS_UNWRAPPED_KEY_MAX_AGE_SECONDS, time.monotonic()):
+            if held.has_expired(time.monotonic()):
                 del cls.unwrapped_keys[wrapped]
 
                 return None
 
             cls.unwrapped_keys.move_to_end(wrapped)
 
-            return unwrapped.plaintext
+            return held.plaintext
 
     @classmethod
-    def reset_cache(cls) -> None:
-        """Drop every held key so the next call goes back to KMS."""
-
-        with cls.cache_lock:
-            cls.encrypt_key = None
-            cls.unwrapped_keys.clear()
-
-    @classmethod
-    def generated_encrypt_key(cls) -> DataKey:
-        """Return the data key to seal with, generating one through KMS only once it is spent."""
+    def release_generation(cls) -> None:
+        """Mark that no data key generation is in flight, so the next caller starts one."""
 
         with cls.generation_lock:
-            return cls.claim_encrypt_key() or cls.hold_encrypt_key(
-                cls.sync_kms().generate_data_key(
+            cls.generating = None
+
+    @classmethod
+    def generated_encrypt_key(cls, pending: Future[None]) -> DataKey:
+        """Generate a data key through KMS, then settle the generation its waiting callers share."""
+
+        try:
+            held = cls.hold_encrypt_key(
+                cls.client().generate_data_key(
                     **DataKeyGenerateRequest(KeyId=cls.encrypt_arn(), KeySpec=DATA_KEY_SPEC)
                 )
             )
+        except BaseException as exc:
+            cls.release_generation()
+            pending.set_exception(exc)
+
+            raise
+
+        cls.release_generation()
+        pending.set_result(None)
+
+        return held
+
+    @classmethod
+    def encrypt_key_for_use(cls) -> DataKey:
+        """Return the data key to seal with, sharing one KMS generation and its outcome among callers."""
+
+        while True:
+            with cls.generation_lock:
+                held = cls.claim_encrypt_key()
+
+                if held is not None:
+                    return held
+
+                pending = cls.generating
+                owns_generation = pending is None
+
+                if pending is None:
+                    pending = cls.generating = Future[None]()
+
+            if owns_generation:
+                return cls.generated_encrypt_key(pending)
+
+            pending.result()
 
     @classmethod
     def unwrapped_key(cls, wrapped: bytes) -> bytes:
@@ -283,7 +375,9 @@ class AWSAdapter(EncryptionAdapter):
             return pending.result()
 
         try:
-            plaintext = cls.sync_kms().decrypt(**cls.decrypt_kwargs(wrapped))["Plaintext"]
+            response: DecryptedDataKey = cls.client().decrypt(**cls.decrypt_kwargs(wrapped))
+            plaintext = response["Plaintext"]
+
             cls.remember_unwrapped_key(wrapped, plaintext)
             pending.set_result(plaintext)
 
@@ -308,6 +402,24 @@ class AWSAdapter(EncryptionAdapter):
         return await asyncio.to_thread(cls.unwrapped_key, wrapped)
 
     @classmethod
+    def reset_after_fork(cls) -> None:
+        """Give a forked child fresh locks and none of the keys, client or calls its parent held."""
+
+        cls.kms_client = None
+        cls.client_lock = threading.Lock()
+
+        cls.encrypt_key = None
+        cls.unwrapped_keys = OrderedDict()
+        cls.cache_lock = threading.Lock()
+        cls.expiry_timer = None
+
+        cls.generation_lock = threading.Lock()
+        cls.generating = None
+
+        cls.unwrapping_condition = threading.Condition()
+        cls.unwrapping = {}
+
+    @classmethod
     def encrypt(
         cls,
         plaintext: bytes | str | EncryptedValue,
@@ -320,7 +432,7 @@ class AWSAdapter(EncryptionAdapter):
         if isinstance(plaintext, EncryptedValue):
             return plaintext
 
-        held = cls.claim_encrypt_key() or cls.generated_encrypt_key()
+        held = cls.encrypt_key_for_use()
 
         return seal(held.plaintext, held.wrapped, encode_text(plaintext), associated_data)
 
@@ -337,7 +449,7 @@ class AWSAdapter(EncryptionAdapter):
         if isinstance(plaintext, EncryptedValue):
             return plaintext
 
-        held = cls.claim_encrypt_key() or await asyncio.to_thread(cls.generated_encrypt_key)
+        held = cls.claim_encrypt_key() or await asyncio.to_thread(cls.encrypt_key_for_use)
 
         return seal(held.plaintext, held.wrapped, encode_text(plaintext), associated_data)
 
@@ -368,3 +480,7 @@ class AWSAdapter(EncryptionAdapter):
         wrapped, nonce, sealed = open(to_bytes(ciphertext))
 
         return unseal(await cls.async_unwrapped_key(wrapped), nonce, sealed, associated_data)
+
+
+if sys.platform != "win32":
+    os.register_at_fork(after_in_child=AWSAdapter.reset_after_fork)

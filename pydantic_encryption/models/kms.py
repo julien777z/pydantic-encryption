@@ -1,5 +1,16 @@
+from typing import NotRequired, TypedDict
+
+from botocore.config import Config
 from pydantic import BaseModel, Field
-from typing_extensions import NotRequired, TypedDict
+
+
+class KMSClientOptions(TypedDict):
+    """Keyword arguments for the boto3 KMS client: its region, credentials and transport bounds."""
+
+    region_name: str
+    aws_access_key_id: str
+    aws_secret_access_key: str
+    config: Config
 
 
 class GeneratedDataKey(TypedDict):
@@ -7,6 +18,12 @@ class GeneratedDataKey(TypedDict):
 
     Plaintext: bytes
     CiphertextBlob: bytes
+
+
+class DecryptedDataKey(TypedDict):
+    """The field read from a KMS ``Decrypt`` response unwrapping one data key."""
+
+    Plaintext: bytes
 
 
 class DataKeyGenerateRequest(TypedDict):
@@ -23,27 +40,20 @@ class DataKeyDecryptRequest(TypedDict):
     KeyId: NotRequired[str]
 
 
-class DataKey(BaseModel):
-    """A KMS data key held in memory, with how far its reuse has gone."""
+class HeldDataKey(BaseModel):
+    """A plaintext data key held in memory until it expires."""
 
     plaintext: bytes = Field(repr=False)
+    expires_at: float
+
+    def has_expired(self, now: float) -> bool:
+        """Return whether this key has reached the end of its lifetime."""
+
+        return now >= self.expires_at
+
+
+class DataKey(HeldDataKey):
+    """A KMS data key sealing values, with how many more values it may seal."""
+
     wrapped: bytes = Field(repr=False)
-    issued_at: float
-    uses: int = 0
-
-    def is_spent(self, max_uses: int, max_age_seconds: float, now: float) -> bool:
-        """Return whether this key has exhausted either of its reuse bounds."""
-
-        return self.uses >= max_uses or now - self.issued_at >= max_age_seconds
-
-
-class UnwrappedDataKey(BaseModel):
-    """A data key KMS has unwrapped for this process, kept until it expires."""
-
-    plaintext: bytes = Field(repr=False)
-    unwrapped_at: float
-
-    def has_expired(self, max_age_seconds: float, now: float) -> bool:
-        """Return whether this unwrapped key has outlived its retention."""
-
-        return now - self.unwrapped_at >= max_age_seconds
+    uses_left: int

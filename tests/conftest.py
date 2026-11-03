@@ -1,7 +1,6 @@
+from collections import OrderedDict
 from collections.abc import Iterator
-from concurrent.futures import Future
 from pathlib import Path
-from threading import Condition, Lock
 
 import pytest
 from botocore.exceptions import ClientError
@@ -11,8 +10,17 @@ from pydantic_encryption.adapters.encryption.aws import AWSAdapter
 from pydantic_encryption.config import Settings, settings
 from pydantic_encryption.types import EncryptionMethod
 from tests.factories import User, UserFactory
-from tests.kms import configure_kms_settings, reset_adapter_state
-from tests.models.kms import ControlledKMSClient, FakeSyncKMSClient, KMSClientFactory
+from tests.models.kms import (
+    KMS_KEY_ARN,
+    KMS_REGION,
+    ControlledKMSClient,
+    FakeSyncKMSClient,
+    KMSClientFactory,
+    ObservedCondition,
+    ObservedFuture,
+    ObservedLock,
+    SlowFakeKMS,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -36,34 +44,61 @@ def fernet_key() -> str:
 
 
 @pytest.fixture
-def fake_sync_kms(monkeypatch: pytest.MonkeyPatch) -> Iterator[FakeSyncKMSClient]:
-    """Install a fake KMS client and set AWS settings for the test process."""
+def aws_adapter_state(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Give the AWS adapter no client, no held keys and no calls in flight, with KMS settings set."""
 
-    reset_adapter_state()
+    monkeypatch.setattr(settings, "AWS_KMS_KEY_ARN", KMS_KEY_ARN)
+    monkeypatch.setattr(settings, "AWS_KMS_ENCRYPT_KEY_ARN", None)
+    monkeypatch.setattr(settings, "AWS_KMS_DECRYPT_KEY_ARN", None)
+    monkeypatch.setattr(settings, "AWS_KMS_REGION", KMS_REGION)
+    monkeypatch.setattr(settings, "AWS_KMS_ACCESS_KEY_ID", "sample-access-key")
+    monkeypatch.setattr(settings, "AWS_KMS_SECRET_ACCESS_KEY", "sample-secret-key")
 
-    configure_kms_settings(monkeypatch)
+    monkeypatch.setattr(AWSAdapter, "kms_client", None)
+    monkeypatch.setattr(AWSAdapter, "encrypt_key", None)
+    monkeypatch.setattr(AWSAdapter, "unwrapped_keys", OrderedDict())
+    monkeypatch.setattr(AWSAdapter, "expiry_timer", None)
+    monkeypatch.setattr(AWSAdapter, "generating", None)
+    monkeypatch.setattr(AWSAdapter, "unwrapping", {})
 
-    client = FakeSyncKMSClient()
-    monkeypatch.setattr(AWSAdapter, "_sync_client", client)
+    yield
 
-    yield client
-
-    reset_adapter_state()
+    with AWSAdapter.cache_lock:
+        if AWSAdapter.expiry_timer is not None:
+            AWSAdapter.expiry_timer.cancel()
 
 
 @pytest.fixture
-def kms_client_factory(monkeypatch: pytest.MonkeyPatch) -> Iterator[KMSClientFactory]:
-    """Capture the real adapter's SDK client construction and clean up its lifecycle."""
+def fake_sync_kms(aws_adapter_state: None, monkeypatch: pytest.MonkeyPatch) -> FakeSyncKMSClient:
+    """Install a fake KMS client as the adapter's client."""
 
-    reset_adapter_state()
-    configure_kms_settings(monkeypatch)
+    client = FakeSyncKMSClient()
+
+    monkeypatch.setattr(AWSAdapter, "kms_client", client)
+
+    return client
+
+
+@pytest.fixture
+def slow_kms(aws_adapter_state: None, monkeypatch: pytest.MonkeyPatch) -> SlowFakeKMS:
+    """Install a fake KMS client slow enough for racing callers to queue behind one call."""
+
+    client = SlowFakeKMS()
+
+    monkeypatch.setattr(AWSAdapter, "kms_client", client)
+
+    return client
+
+
+@pytest.fixture
+def kms_client_factory(aws_adapter_state: None, monkeypatch: pytest.MonkeyPatch) -> KMSClientFactory:
+    """Capture the real adapter's SDK client construction."""
+
     factory = KMSClientFactory()
 
     monkeypatch.setattr("pydantic_encryption.adapters.encryption.aws.boto3.client", factory)
 
-    yield factory
-
-    reset_adapter_state()
+    return factory
 
 
 @pytest.fixture
@@ -73,26 +108,8 @@ def concurrent_kms_client_factory(
     """Hold SDK construction while observing callers at the real initialization lock."""
 
     kms_client_factory.hold_creation = True
-    lock = Lock()
 
-    class _ObservedLock:
-        """Count attempts while preserving native mutex acquisition and release."""
-
-        def __enter__(self) -> None:
-            """Observe an initialization contender before acquiring the real mutex."""
-
-            with kms_client_factory.condition:
-                kms_client_factory.client_requests += 1
-                kms_client_factory.condition.notify_all()
-
-            lock.acquire()
-
-        def __exit__(self, *_exc: object) -> None:
-            """Release the mutex using the native lock operation."""
-
-            lock.release()
-
-    monkeypatch.setattr(AWSAdapter, "client_lock", _ObservedLock())
+    monkeypatch.setattr(AWSAdapter, "client_lock", ObservedLock(kms_client_factory))
 
     yield kms_client_factory
 
@@ -100,40 +117,19 @@ def concurrent_kms_client_factory(
 
 
 @pytest.fixture
-def controlled_kms(fake_sync_kms: FakeSyncKMSClient, monkeypatch: pytest.MonkeyPatch) -> ControlledKMSClient:
-    """Install a controllable KMS boundary and measure real synchronization waits."""
+def controlled_kms(aws_adapter_state: None, monkeypatch: pytest.MonkeyPatch) -> Iterator[ControlledKMSClient]:
+    """Install a controllable KMS boundary and observe waits on the adapter's real primitives."""
 
     control = ControlledKMSClient()
-    monkeypatch.setattr(AWSAdapter, "_sync_client", control)
 
-    class _ObservedFuture(Future[bytes]):
-        """Measure a caller waiting on the real shared future."""
+    monkeypatch.setattr(AWSAdapter, "kms_client", control)
+    monkeypatch.setattr(AWSAdapter, "unwrapping_condition", ObservedCondition(control))
+    monkeypatch.setattr(ObservedFuture, "control", control)
+    monkeypatch.setattr("pydantic_encryption.adapters.encryption.aws.Future", ObservedFuture)
 
-        def result(self, timeout: float | None = None) -> bytes:
-            """Record a joining caller and delegate to the native future."""
+    yield control
 
-            with control.condition:
-                control.waiters += 1
-                control.condition.notify_all()
-
-            return super().result(timeout)
-
-    class _ObservedCondition(Condition):
-        """Measure actual admission waits without changing condition behavior."""
-
-        def wait(self, timeout: float | None = None) -> bool:
-            """Record a capacity waiter and delegate to the native condition."""
-
-            with control.condition:
-                control.admission_waiters += 1
-                control.condition.notify_all()
-
-            return super().wait(timeout)
-
-    monkeypatch.setattr(AWSAdapter, "unwrapping_condition", _ObservedCondition())
-    monkeypatch.setattr("pydantic_encryption.adapters.encryption.aws.Future", _ObservedFuture)
-
-    return control
+    control.release.set()
 
 
 @pytest.fixture
