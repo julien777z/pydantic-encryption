@@ -101,7 +101,7 @@ One KMS data key seals many values, and an unwrapped data key opens many, so KMS
 
 | Setting | Default | Bounds |
 |---------|---------|--------|
-| `AWS_KMS_DATA_KEY_MAX_USES` | `1000` | Values one data key seals before a fresh one is generated |
+| `AWS_KMS_DATA_KEY_MAX_USES` | `1000` | Values one data key seals before a fresh one is generated, at most `2**32` |
 | `AWS_KMS_DATA_KEY_MAX_AGE_SECONDS` | `300` | How long one data key seals values; the adapter stops holding it when this expires |
 | `AWS_KMS_UNWRAPPED_KEY_CACHE_SIZE` | `512` | Unwrapped data keys held in memory, least recently used evicted first |
 | `AWS_KMS_UNWRAPPED_KEY_MAX_AGE_SECONDS` | `300` | How long an unwrapped data key is reused; the adapter stops holding it when this expires |
@@ -153,7 +153,7 @@ user = await User.async_init(
 await user.async_decrypt_data()
 ```
 
-All phases (encrypt, hash, blind-index) run concurrently via `asyncio.gather`, and nested `BaseModel` instances — including those inside `list`, `tuple`, `dict`, and `set` containers — are processed recursively.
+All phases (encrypt, hash, blind-index) run concurrently in an `asyncio.TaskGroup`, and nested `BaseModel` instances — including those inside `list`, `tuple`, `dict`, and `set` containers — are processed recursively.
 
 ## SQLAlchemy Integration
 
@@ -226,7 +226,7 @@ A statement compiled with `literal_binds` renders encrypted, hashed and blind-in
 `TypeDecorator` is sync by contract, so slow backends (AWS KMS) can block the event loop. Two paths:
 
 - **Default.** Under `AsyncSession`, decryption uses SQLAlchemy's greenlet bridge so each call yields the event loop. Argon2 hashing and blind-indexing use the same bridge.
-- **On-access batch decrypt.** `DeferredDecryptMixin` defers each encrypted column until the first read, then batch-decrypts that column across every sibling instance loaded into the same session via a single `asyncio.gather`. Columns the caller never reads stay encrypted and cost nothing.
+- **On-access batch decrypt.** `DeferredDecryptMixin` defers each encrypted column until the first read, then batch-decrypts that column across every sibling instance loaded into the same session in a single `asyncio.TaskGroup`. Columns the caller never reads stay encrypted and cost nothing.
 
 Mix the helper into any model with encrypted columns and read as usual:
 
@@ -358,7 +358,7 @@ Encrypted arrays decrypt on the read path, where no row is in scope, so they bin
 
 ### Backends
 
-Both backends bind, and one whose primitive could not authenticate a context raises rather than ignoring it. AWS KMS authenticates the context in the AES-GCM tag. A Fernet token has no field for it, so Fernet binds by key separation instead: each context gets its own key derived from `ENCRYPTION_KEY`, and a token carried into another context fails its authentication check there.
+Both backends bind. AWS KMS authenticates the context in the AES-GCM tag. A Fernet token has no field for it, so Fernet binds by key separation instead: each context gets its own key derived from `ENCRYPTION_KEY`, and a token carried into another context fails its authentication check there.
 
 ## Blind Indexes
 
@@ -456,9 +456,10 @@ To implement a new backend instead of replacing the per-model path, subclass one
 ## Local Development
 
 ```bash
-pip install -e ".[dev]"   # install with the development dependencies
-pytest -v                 # run the unit tests
-black .                   # format
+pip install -e ".[dev,all]"   # install with the development and optional dependencies
+pytest -v                     # run the tests
+black .                       # format
+pyright                       # check types
 ```
 
 The integration tier runs against a Docker-managed PostgreSQL, so Docker must be available to run the full suite.

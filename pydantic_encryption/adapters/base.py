@@ -31,7 +31,7 @@ class EncryptionAdapter(ABC):
         key: str | None = None,
         associated_data: bytes,
     ) -> EncryptedValue:
-        """Encrypt plaintext data, binding it to associated data when given."""
+        """Encrypt plaintext data, binding it to its associated data."""
 
     @classmethod
     @abstractmethod
