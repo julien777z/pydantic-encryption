@@ -19,11 +19,13 @@ from pydantic_encryption.context import derive_field_context
 from pydantic_encryption.serialization import decode_value
 from pydantic_encryption.types import BlindIndexValue, EncryptedValue, HashedValue
 from tests.models.records import (
+    AgedRecord,
     AnyEncryptedRecord,
     Argon2Record,
     BareIndexRecord,
     DeclaredIndexRecord,
     EncryptedRecord,
+    ExtendedRecord,
     GenericSecretRecord,
     HashedRecord,
     IndexedRecord,
@@ -187,11 +189,7 @@ class TestSecureModel:
     async def test_inherited_fields_processed(self):
         """Test that a subclass encrypts and hashes the annotated fields it declares beside inherited ones."""
 
-        class SecretRecord(PlainRecord):
-            password: Annotated[str, Hashed]
-            secret: Annotated[str, Encrypted]
-
-        record = SecretRecord(name="sample name", password="sample password", secret="secret data")
+        record = ExtendedRecord(name="sample name", password="sample password", secret="secret data")
 
         assert record.name == "sample name"
         assert isinstance(record.password, HashedValue)
@@ -320,9 +318,6 @@ class TestSecureModel:
 
     async def test_async_init_validates_input(self):
         """Test that async construction still validates its input."""
-
-        class AgedRecord(EncryptedRecord):
-            age: int
 
         with pytest.raises(ValidationError):
             await AgedRecord.async_init(age="not a number", secret="secret data")

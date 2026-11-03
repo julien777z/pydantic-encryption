@@ -20,6 +20,19 @@ class EncryptedRecord(BaseModel):
     secret: Annotated[str, Encrypted]
 
 
+class ExtendedRecord(PlainRecord):
+    """Subclass declaring a hashed and an encrypted field beside the plain field it inherits."""
+
+    password: Annotated[str, Hashed]
+    secret: Annotated[str, Encrypted]
+
+
+class AgedRecord(EncryptedRecord):
+    """Subclass adding an integer field beside the encrypted field it inherits."""
+
+    age: int
+
+
 class AnyEncryptedRecord(BaseModel):
     """Model holding one encrypted field of any type an encrypted value can hold."""
 
