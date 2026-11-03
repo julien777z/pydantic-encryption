@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import NullPool
 from sqlalchemy_utils import create_database, database_exists
 
-from tests.integration.database.tables import Base, User
+from tests.integration.database.tables import Base, Record
 
 DATABASE_CONNECTION_MAX_TRIES: Final[int] = 10
 
@@ -100,15 +100,15 @@ async def async_session(async_engine: AsyncEngine) -> AsyncIterator[AsyncSession
 
 
 @pytest.fixture
-def create_user(db_session: Session) -> Callable[[User], User]:
-    """Store users and return each as read back from the database."""
+def store_record(db_session: Session) -> Callable[[Record], Record]:
+    """Store records and return each as read back from the database."""
 
-    def _build(user: User) -> User:
-        """Store one user and read it back."""
+    def _build(sample: Record) -> Record:
+        """Store one sample and read it back."""
 
-        db_session.add(user)
+        db_session.add(sample)
         db_session.commit()
 
-        return db_session.scalars(select(User).where(User.id == user.id)).one()
+        return db_session.scalars(select(Record).where(Record.id == sample.id)).one()
 
     return _build

@@ -18,7 +18,7 @@ from pydantic_encryption.config import settings
 from pydantic_encryption.context import derive_field_context
 from pydantic_encryption.serialization import decode_value
 from pydantic_encryption.types import BlindIndexValue, EncryptedValue, HashedValue
-from tests.factories import User
+from tests.factories import SampleRecord
 from tests.models.records import (
     AnyEncryptedRecord,
     EncryptedRecord,
@@ -42,23 +42,23 @@ class TestSecureModel:
     """Test how a model encrypts, hashes, blind-indexes and decrypts its annotated fields."""
 
     @ASYNC_PATHS
-    async def test_annotated_fields_processed(self, asynchronous: bool, user: User):
+    async def test_annotated_fields_processed(self, asynchronous: bool, sample: SampleRecord):
         """Test that construction encrypts, hashes and indexes annotated fields but not plain ones."""
 
         record = await build(
             MixedRecord,
             asynchronous,
-            name=user.first_name,
-            secret=user.last_name,
-            password=user.last_name,
-            email_index=user.username,
+            name=sample.label,
+            secret=sample.caption,
+            password=sample.caption,
+            lookup_index=sample.name,
         )
 
-        assert record.name == user.first_name
+        assert record.name == sample.label
         assert isinstance(record.secret, EncryptedValue)
         assert isinstance(record.password, HashedValue)
         assert record.password.startswith(b"$argon2")
-        assert isinstance(record.email_index, BlindIndexValue)
+        assert isinstance(record.lookup_index, BlindIndexValue)
 
     async def test_sync_construction_seals_after_async_init(self):
         """Test that async construction leaves later sync construction sealing as before."""
@@ -215,7 +215,7 @@ class TestSecureModel:
         """Test that a dump carries the ciphertext and hash rather than the plaintext."""
 
         record = MixedRecord(
-            name="sample name", secret="secret data", password="secret data", email_index="sample"
+            name="sample name", secret="secret data", password="secret data", lookup_index="sample"
         )
         dumped = record.model_dump()
 
@@ -248,7 +248,7 @@ class TestSecureModel:
         [
             (EncryptedRecord, {"secret": "secret data"}, "async_encrypt_data", EncryptedValue),
             (HashedRecord, {"password": "secret data"}, "async_hash_data", HashedValue),
-            (IndexedRecord, {"email_index": "sample"}, "async_blind_index_data", BlindIndexValue),
+            (IndexedRecord, {"lookup_index": "sample"}, "async_blind_index_data", BlindIndexValue),
         ],
         ids=["encrypt", "hash", "blind-index"],
     )
@@ -273,14 +273,14 @@ class TestSecureModel:
 
         with deferred_crypto():
             record = MixedRecord(
-                name="sample name", secret="secret data", password="secret", email_index="sample"
+                name="sample name", secret="secret data", password="secret", lookup_index="sample"
             )
 
         await record.async_post_init()
 
         assert isinstance(record.secret, EncryptedValue)
         assert isinstance(record.password, HashedValue)
-        assert isinstance(record.email_index, BlindIndexValue)
+        assert isinstance(record.lookup_index, BlindIndexValue)
 
     @pytest.mark.parametrize(
         "phase", ["async_encrypt_data", "async_decrypt_data", "async_hash_data", "async_blind_index_data"]
@@ -325,55 +325,55 @@ class TestSecureModel:
     @ASYNC_PATHS
     @pytest.mark.parametrize("method", list(BlindIndexMethod))
     async def test_blind_index_is_deterministic_digest(
-        self, asynchronous: bool, method: BlindIndexMethod, user: User, other_user: User
+        self, asynchronous: bool, method: BlindIndexMethod, sample: SampleRecord, other_sample: SampleRecord
     ):
         """Test that a value indexes to the same 32-byte digest on both paths, and another value differs."""
 
         class MethodRecord(BaseModel):
-            email_index: Annotated[str | bytes, BlindIndex(method)]
+            lookup_index: Annotated[str | bytes, BlindIndex(method)]
 
-        first = (await build(MethodRecord, asynchronous, email_index=user.username)).email_index
+        first = (await build(MethodRecord, asynchronous, lookup_index=sample.name)).lookup_index
 
         assert isinstance(first, BlindIndexValue)
         assert len(first) == 32
-        assert first == MethodRecord(email_index=user.username).email_index
-        assert first != MethodRecord(email_index=other_user.username).email_index
+        assert first == MethodRecord(lookup_index=sample.name).lookup_index
+        assert first != MethodRecord(lookup_index=other_sample.name).lookup_index
 
-    async def test_blind_index_reads_bytes_as_text(self, user: User):
+    async def test_blind_index_reads_bytes_as_text(self, sample: SampleRecord):
         """Test that UTF-8 bytes index the same as the text they encode."""
 
         assert (
-            IndexedRecord(email_index=user.username.encode("utf-8")).email_index
-            == IndexedRecord(email_index=user.username).email_index
+            IndexedRecord(lookup_index=sample.name.encode("utf-8")).lookup_index
+            == IndexedRecord(lookup_index=sample.name).lookup_index
         )
 
-    async def test_blind_index_methods_differ(self, user: User):
+    async def test_blind_index_methods_differ(self, sample: SampleRecord):
         """Test that the two methods index one value differently."""
 
         class Argon2Record(BaseModel):
-            email_index: Annotated[str | bytes, BlindIndex(BlindIndexMethod.ARGON2)]
+            lookup_index: Annotated[str | bytes, BlindIndex(BlindIndexMethod.ARGON2)]
 
         assert (
-            IndexedRecord(email_index=user.username).email_index
-            != Argon2Record(email_index=user.username).email_index
+            IndexedRecord(lookup_index=sample.name).lookup_index
+            != Argon2Record(lookup_index=sample.name).lookup_index
         )
 
-    async def test_blind_index_kept_as_given(self, user: User):
+    async def test_blind_index_kept_as_given(self, sample: SampleRecord):
         """Test that a field already holding a blind index is not indexed again."""
 
-        index = IndexedRecord(email_index=user.username).email_index
+        index = IndexedRecord(lookup_index=sample.name).lookup_index
 
-        assert IndexedRecord(email_index=index).email_index == index
+        assert IndexedRecord(lookup_index=index).lookup_index == index
 
-    async def test_text_only_field_indexed(self, user: User):
+    async def test_text_only_field_indexed(self, sample: SampleRecord):
         """Test that a field declared as text alone is indexed through the async path."""
 
         class TextIndexedRecord(BaseModel):
-            email_index: Annotated[str, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
+            lookup_index: Annotated[str, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
 
-        record = await TextIndexedRecord.async_init(email_index=user.username)
+        record = await TextIndexedRecord.async_init(lookup_index=sample.name)
 
-        assert record.email_index == IndexedRecord(email_index=user.username).email_index
+        assert record.lookup_index == IndexedRecord(lookup_index=sample.name).lookup_index
 
     @ASYNC_PATHS
     async def test_missing_index_key_refused(self, monkeypatch: pytest.MonkeyPatch, asynchronous: bool):
@@ -381,10 +381,10 @@ class TestSecureModel:
 
         monkeypatch.setattr(settings, "BLIND_INDEX_SECRET_KEY", None)
 
-        assert (await build(OptionalIndexedRecord, asynchronous)).email_index is None
+        assert (await build(OptionalIndexedRecord, asynchronous)).lookup_index is None
 
         with deferred_crypto():
-            record = IndexedRecord(email_index="sample")
+            record = IndexedRecord(lookup_index="sample")
 
         with pytest.raises(ValueError, match="BLIND_INDEX_SECRET_KEY must be set"):
             if asynchronous:
@@ -396,10 +396,10 @@ class TestSecureModel:
         """Test that annotating with the BlindIndex class instead of an instance raises."""
 
         class BareIndexRecord(BaseModel):
-            email_index: Annotated[str | bytes, BlindIndex]
+            lookup_index: Annotated[str | bytes, BlindIndex]
 
         with pytest.raises(TypeError, match="must be annotated with a BlindIndex"):
-            BareIndexRecord(email_index="sample")
+            BareIndexRecord(lookup_index="sample")
 
     @pytest.mark.parametrize(
         ("flags", "message"),
@@ -435,11 +435,11 @@ class TestSecureModel:
         """Test that a raw value indexes the same as its normalized form."""
 
         class NormalizedRecord(BaseModel):
-            email_index: Annotated[str | bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256, **flags)]
+            lookup_index: Annotated[str | bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256, **flags)]
 
         assert (
-            NormalizedRecord(email_index=raw).email_index
-            == NormalizedRecord(email_index=normalized).email_index
+            NormalizedRecord(lookup_index=raw).lookup_index
+            == NormalizedRecord(lookup_index=normalized).lookup_index
         )
 
     @pytest.mark.parametrize(
@@ -508,15 +508,15 @@ class TestSecureModel:
         assert decode_value(plaintext) == "secret data"
         assert record.decrypt_data().secret == "secret data"
 
-    async def test_declared_index_key_used(self, user: User):
+    async def test_declared_index_key_used(self, sample: SampleRecord):
         """Test that a model declaring a blind index key indexes under it, not BLIND_INDEX_SECRET_KEY."""
 
         class DeclaredIndexRecord(BaseModel, blind_index_key="sample-model-index-key"):
-            email_index: Annotated[str | bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
+            lookup_index: Annotated[str | bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
 
         assert DeclaredIndexRecord(
-            email_index=user.username
-        ).email_index == HMACSHA256Adapter.compute_blind_index(user.username, b"sample-model-index-key")
+            lookup_index=sample.name
+        ).lookup_index == HMACSHA256Adapter.compute_blind_index(sample.name, b"sample-model-index-key")
 
     async def test_undeclared_model_reads_settings(self):
         """Test that a model declaring no settings seals under the configured method and key."""
@@ -526,15 +526,17 @@ class TestSecureModel:
 
         assert decode_value(plaintext) == "secret data"
 
-    async def test_field_context_names_model_and_field(self, user: User):
+    async def test_field_context_names_model_and_field(self, sample: SampleRecord):
         """Test that a field's context spells out its module, class and field name."""
 
-        assert user.field_context("address") == derive_field_context(User.__module__, "User", "address")
+        assert sample.field_context("secret") == derive_field_context(
+            SampleRecord.__module__, "SampleRecord", "secret"
+        )
 
-    async def test_ciphertext_bound_to_its_field(self, user: User):
+    async def test_ciphertext_bound_to_its_field(self, sample: SampleRecord):
         """Test that one field's ciphertext fails to open under a sibling field's context."""
 
-        assert user.field_context("address") != user.field_context("username")
+        assert sample.field_context("secret") != sample.field_context("name")
 
         with pytest.raises(InvalidToken):
-            FernetAdapter.decrypt(user.address, associated_data=user.field_context("username"))
+            FernetAdapter.decrypt(sample.secret, associated_data=sample.field_context("name"))

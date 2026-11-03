@@ -12,7 +12,7 @@ from pydantic_encryption.integrations.sqlalchemy import decrypt_pending_fields, 
 from pydantic_encryption.integrations.sqlalchemy.bulk import decrypt_rows_sync
 from pydantic_encryption.integrations.sqlalchemy.state import PENDING_DECRYPT_KEY
 from pydantic_encryption.types import EncryptedValue
-from tests.factories import User
+from tests.factories import SampleRecord
 from tests.unit.test_sqlalchemy.tables import (
     Member,
     Organization,
@@ -29,34 +29,32 @@ from tests.unit.utils import ASYNC_PATHS, call_path
 class TestBulk:
     """Test the bulk paths that decrypt deferred cells across rows, values and loaded relationships."""
 
-    async def test_rows_decrypt_across_columns(self, users_batch: list[User]):
+    async def test_rows_decrypt_across_columns(self, samples: list[SampleRecord]):
         """Test that every named column of every row is decrypted, leaving empty cells empty."""
 
-        rows = [Member.from_user(user) for user in users_batch] + [Member.sealed(None, None)]
+        rows = [Member.from_sample(sample) for sample in samples] + [Member.sealed(None, None)]
 
-        await decrypt_rows(rows, "first_name", Member.last_name)
+        await decrypt_rows(rows, "label", Member.caption)
 
-        assert [(row.first_name, row.last_name) for row in rows] == [
-            *((user.first_name, user.last_name) for user in users_batch),
+        assert [(row.label, row.caption) for row in rows] == [
+            *((sample.label, sample.caption) for sample in samples),
             (None, None),
         ]
 
-    async def test_rows_decrypt_named_columns_only(self, users_batch: list[User]):
+    async def test_rows_decrypt_named_columns_only(self, samples: list[SampleRecord]):
         """Test that decrypting one column leaves the others sealed."""
 
-        rows = [Member.from_user(user) for user in users_batch]
+        rows = [Member.from_sample(sample) for sample in samples]
 
-        await decrypt_rows(rows, "first_name")
+        await decrypt_rows(rows, "label")
 
-        assert [sa_inspect(row).dict["first_name"] for row in rows] == [
-            user.first_name for user in users_batch
-        ]
-        assert all(isinstance(sa_inspect(row).dict["last_name"], EncryptedValue) for row in rows)
+        assert [sa_inspect(row).dict["label"] for row in rows] == [sample.label for sample in samples]
+        assert all(isinstance(sa_inspect(row).dict["caption"], EncryptedValue) for row in rows)
 
-    async def test_rows_decrypt_once_per_row(self, user: User, other_user: User):
+    async def test_rows_decrypt_once_per_row(self, sample: SampleRecord, other_sample: SampleRecord):
         """Test that one decrypt call is issued per sealed cell, skipping cells already decrypted."""
 
-        rows = [PayloadRow.from_user(user), PayloadRow.from_user(other_user)]
+        rows = [PayloadRow.from_sample(sample), PayloadRow.from_sample(other_sample)]
         original_decrypt = FernetAdapter.async_decrypt
 
         await decrypt_rows(rows[:1], "payload")
@@ -65,15 +63,15 @@ class TestBulk:
             await decrypt_rows(rows, "payload")
 
         assert counted.call_count == 1
-        assert [sa_inspect(row).dict["payload"] for row in rows] == [user.payload, other_user.payload]
+        assert [sa_inspect(row).dict["payload"] for row in rows] == [sample.payload, other_sample.payload]
 
-    async def test_moved_ciphertext_refused(self, user: User):
+    async def test_moved_ciphertext_refused(self, sample: SampleRecord):
         """Test that a cell holding another column's ciphertext raises instead of decrypting."""
 
-        row = Member(last_name=encrypt_through_column(Member.__table__.c.first_name, user.first_name))
+        row = Member(caption=encrypt_through_column(Member.__table__.c.label, sample.label))
 
         with pytest.raises(BaseExceptionGroup) as raised:
-            await decrypt_rows([row], "last_name")
+            await decrypt_rows([row], "caption")
 
         assert raised.group_contains(InvalidToken)
 
@@ -87,18 +85,16 @@ class TestBulk:
 
         assert isinstance(sa_inspect(row).dict["secret"], EncryptedValue)
 
-    @pytest.mark.parametrize(
-        "context", [Member.first_name, "members.first_name"], ids=["column", "written-out"]
-    )
+    @pytest.mark.parametrize("context", [Member.label, "members.label"], ids=["column", "written-out"])
     async def test_values_decrypt_in_place(self, context: object):
         """Test that ciphertexts decrypt in place while other values keep their positions."""
 
         values = [
-            encrypt_through_column(Member.__table__.c.first_name, "first"),
+            encrypt_through_column(Member.__table__.c.label, "first"),
             None,
             42,
             "plain",
-            encrypt_through_column(Member.__table__.c.first_name, "second"),
+            encrypt_through_column(Member.__table__.c.label, "second"),
         ]
 
         assert await decrypt_values(values, context=context) == ["first", None, 42, "plain", "second"]
@@ -107,12 +103,12 @@ class TestBulk:
     async def test_values_without_ciphertext_returned(self, values: list[object]):
         """Test that a list holding no ciphertext comes back as it was."""
 
-        assert await decrypt_values(values, context=Member.first_name) == values
+        assert await decrypt_values(values, context=Member.label) == values
 
     async def test_plain_column_context_refused(self):
         """Test that naming a plain column as the context raises rather than binding nothing."""
 
-        values = [encrypt_through_column(Member.__table__.c.first_name, "first")]
+        values = [encrypt_through_column(Member.__table__.c.label, "first")]
 
         with pytest.raises(ValueError, match="does not encrypt its values"):
             await decrypt_values(values, context=Member.id)
@@ -123,35 +119,35 @@ class TestBulk:
 
         assert await Member.decrypt_many(members) is None
 
-    async def test_mixin_decrypts_instance(self, user: User):
+    async def test_mixin_decrypts_instance(self, sample: SampleRecord):
         """Test that decrypting one instance restores every column and returns it."""
 
-        member = Member.from_user(user)
+        member = Member.from_sample(sample)
 
         assert await member.decrypt() is member
-        assert (member.first_name, member.last_name) == (user.first_name, user.last_name)
+        assert (member.label, member.caption) == (sample.label, sample.caption)
 
-    async def test_mixin_decrypts_many(self, users_batch: list[User]):
+    async def test_mixin_decrypts_many(self, samples: list[SampleRecord]):
         """Test that decrypting many instances, from any iterable, restores each one's columns."""
 
-        members = [Member.from_user(user) for user in users_batch]
+        members = [Member.from_sample(sample) for sample in samples]
 
         await Member.decrypt_many(member for member in members)
 
-        assert [(m.first_name, m.last_name) for m in members] == [
-            (user.first_name, user.last_name) for user in users_batch
+        assert [(m.label, m.caption) for m in members] == [
+            (sample.label, sample.caption) for sample in samples
         ]
 
-    async def test_mixin_walks_loaded_relationships(self, user: User):
+    async def test_mixin_walks_loaded_relationships(self, sample: SampleRecord):
         """Test that decrypting a parent decrypts the loaded children it holds."""
 
         organization = Organization(id=1, name="sample organization")
-        member = Member.from_user(user)
+        member = Member.from_sample(sample)
         organization.members = [member]
 
         await organization.decrypt()
 
-        assert member.first_name == user.first_name
+        assert member.label == sample.label
 
     async def test_renamed_column_decrypted(self, sqlite_session: Session):
         """Test that an attribute stored under another column name is decrypted in bulk."""
@@ -166,17 +162,17 @@ class TestBulk:
 
         assert sa_inspect(row).dict["secret"] == "secret data"
 
-    async def test_decrypted_cells_stay_clean(self, user: User):
+    async def test_decrypted_cells_stay_clean(self, sample: SampleRecord):
         """Test that decrypting a cell does not mark it dirty for the next flush."""
 
-        member = Member.from_user(user)
+        member = Member.from_sample(sample)
         state = sa_inspect(member)
         state._commit_all(state.dict)
 
         await Member.decrypt_many([member])
 
-        assert sa_inspect(member).dict["first_name"] == user.first_name
-        assert "first_name" not in state.committed_state
+        assert sa_inspect(member).dict["label"] == sample.label
+        assert "label" not in state.committed_state
 
     @pytest.mark.parametrize("entities", [[None], [object()]], ids=["absent", "unmapped"])
     async def test_walk_skips_entities_without_cells(self, entities: list[object]):
@@ -193,51 +189,51 @@ class TestBulk:
 
         assert collected_cells(row) == {}
 
-    async def test_walk_skips_decrypted_cells(self, user: User):
+    async def test_walk_skips_decrypted_cells(self, sample: SampleRecord):
         """Test that a cell already decrypted is not collected again."""
 
-        row = PayloadRow.from_user(user)
+        row = PayloadRow.from_sample(sample)
 
         await PayloadRow.decrypt_many([row])
 
         assert collected_cells(row) == {}
 
-    async def test_walk_follows_loaded_relationships(self, user: User):
+    async def test_walk_follows_loaded_relationships(self, sample: SampleRecord):
         """Test that the walk collects cells through loaded relationships, in either direction."""
 
         organization = Organization(
             id=1, secret=encrypt_through_column(Organization.__table__.c.secret, "secret")
         )
-        member = Member.from_user(user)
+        member = Member.from_sample(sample)
         organization.members = [member]
 
-        expected = {(Organization, "secret"), (Member, "first_name"), (Member, "last_name")}
+        expected = {(Organization, "secret"), (Member, "label"), (Member, "caption")}
 
         assert set(collected_cells(organization)) == expected
         assert set(collected_cells(member)) == expected
 
-    async def test_walk_skips_empty_relationships(self, user: User):
+    async def test_walk_skips_empty_relationships(self, sample: SampleRecord):
         """Test that a relationship holding nothing, or loaded as absent, is not walked into."""
 
         organization = Organization(
             id=1, secret=encrypt_through_column(Organization.__table__.c.secret, "secret"), members=[]
         )
-        member = Member.sealed(user.first_name, None, organization=None)
+        member = Member.sealed(sample.label, None, organization=None)
 
         assert list(collected_cells(organization)) == [(Organization, "secret")]
-        assert list(collected_cells(member)) == [(Member, "first_name")]
+        assert list(collected_cells(member)) == [(Member, "label")]
 
-    async def test_pending_fields_drained(self, user: User):
+    async def test_pending_fields_drained(self, sample: SampleRecord):
         """Test that draining a session decrypts the pending cells of every class and empties its bucket."""
 
-        member = Member.from_user(user)
-        payload = PayloadRow.from_user(user)
+        member = Member.from_sample(sample)
+        payload = PayloadRow.from_sample(sample)
         session = RecordingAsyncSession(in_transaction=False, pending=[member, payload])
 
         await decrypt_pending_fields(session)
 
-        assert sa_inspect(member).dict["first_name"] == user.first_name
-        assert sa_inspect(payload).dict["payload"] == user.payload
+        assert sa_inspect(member).dict["label"] == sample.label
+        assert sa_inspect(payload).dict["payload"] == sample.payload
         assert PENDING_DECRYPT_KEY not in session.info
 
     async def test_drain_without_bucket_adds_none(self):
@@ -249,10 +245,10 @@ class TestBulk:
 
         assert PENDING_DECRYPT_KEY not in session.info
 
-    async def test_drain_decrypts_classes_concurrently(self, user: User):
+    async def test_drain_decrypts_classes_concurrently(self, sample: SampleRecord):
         """Test that the drain keeps decrypts of different classes in flight together."""
 
-        rows = [Member.from_user(user), PayloadRow.from_user(user)]
+        rows = [Member.from_sample(sample), PayloadRow.from_sample(sample)]
         session = RecordingAsyncSession(in_transaction=False, pending=rows)
         original_decrypt = FernetAdapter.decrypt
         live_overlap = 0
@@ -278,5 +274,5 @@ class TestBulk:
         with patch.object(FernetAdapter, "async_decrypt", side_effect=overlapping_decrypt):
             await decrypt_pending_fields(session)
 
-        assert sa_inspect(rows[0]).dict["first_name"] == user.first_name
+        assert sa_inspect(rows[0]).dict["label"] == sample.label
         assert peak_overlap >= 2

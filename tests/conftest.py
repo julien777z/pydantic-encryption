@@ -9,7 +9,7 @@ from cryptography.fernet import Fernet
 from pydantic_encryption.adapters.encryption.aws import AWSAdapter
 from pydantic_encryption.config import Settings, settings
 from pydantic_encryption.types import EncryptionMethod
-from tests.factories import User, UserFactory
+from tests.factories import SampleRecord, SampleRecordFactory
 from tests.models.kms import (
     KMS_KEY_ARN,
     KMS_REGION,
@@ -138,24 +138,24 @@ def kms_failure() -> ClientError:
 
 
 @pytest.fixture
-def user() -> User:
-    """Generate a User instance with encrypted address and hashed password."""
+def sample() -> SampleRecord:
+    """Generate a SampleRecord instance with encrypted secret and hashed password."""
 
-    return UserFactory.build()
-
-
-@pytest.fixture
-def other_user() -> User:
-    """Generate a second User instance distinct from ``user``."""
-
-    return UserFactory.build()
+    return SampleRecordFactory.build()
 
 
 @pytest.fixture
-def users_batch() -> list[User]:
-    """Generate a batch of User instances."""
+def other_sample() -> SampleRecord:
+    """Generate a second SampleRecord instance distinct from ``sample``."""
 
-    return UserFactory.batch(5)
+    return SampleRecordFactory.build()
+
+
+@pytest.fixture
+def samples() -> list[SampleRecord]:
+    """Generate a batch of SampleRecord instances."""
+
+    return SampleRecordFactory.batch(5)
 
 
 @pytest.fixture

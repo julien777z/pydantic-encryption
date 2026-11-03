@@ -16,7 +16,7 @@ from tests.unit.test_sqlalchemy.tables import (
     ArrayRow,
     ContextBase,
     ContextRecord,
-    ContextUser,
+    ExtendedContextRecord,
     Member,
     Organization,
     PublicEntry,
@@ -30,10 +30,10 @@ class TestEncryptedColumnTypes:
     @pytest.mark.parametrize(
         ("column", "expected"),
         [
-            (ContextUser.__table__.c.email, b"context_users.email"),
-            (ContextUser.__table__.c.secret, b"context_users.secret"),
+            (ExtendedContextRecord.__table__.c.note, b"extended_context_records.note"),
+            (ExtendedContextRecord.__table__.c.secret, b"extended_context_records.secret"),
             (ContextRecord.__table__.c.secret, b"context_records.secret"),
-            (ContextUser.__table__.c.envelope, derive_declared_context("records.draft")),
+            (ExtendedContextRecord.__table__.c.envelope, derive_declared_context("records.draft")),
             (ArchivedEntry.__table__.c.note, b"archive.entries.note"),
         ],
         ids=["column", "mixin-first-table", "mixin-second-table", "declared", "schema"],
@@ -46,8 +46,8 @@ class TestEncryptedColumnTypes:
     @pytest.mark.parametrize(
         ("column", "expected"),
         [
-            (ContextUser.__table__.c.tags, b"context_users.tags"),
-            (ContextUser.__table__.c.aliases, b"context_users.aliases"),
+            (ExtendedContextRecord.__table__.c.tags, b"extended_context_records.tags"),
+            (ExtendedContextRecord.__table__.c.aliases, b"extended_context_records.aliases"),
             (ContextRecord.__table__.c.aliases, b"context_records.aliases"),
             (ArchivedEntry.__table__.c.tags, b"archive.entries.tags"),
         ],
@@ -64,17 +64,17 @@ class TestEncryptedColumnTypes:
     def test_mixin_array_gets_element_type_per_table(self):
         """Test that an inherited array column gives each table an element type of its own."""
 
-        user_type = column_type_of(ContextUser.__table__.c.aliases, SQLAlchemyPGEncryptedArray)
+        extended_type = column_type_of(ExtendedContextRecord.__table__.c.aliases, SQLAlchemyPGEncryptedArray)
         record_type = column_type_of(ContextRecord.__table__.c.aliases, SQLAlchemyPGEncryptedArray)
 
-        assert user_type.element_type is not record_type.element_type
+        assert extended_type.element_type is not record_type.element_type
 
     @pytest.mark.parametrize(
         ("mapped_class", "table", "schema"),
         [
             (ArchivedEntry, "entries", "archive"),
             (PublicEntry, "entries", "public"),
-            (ContextUser, "context_users", None),
+            (ExtendedContextRecord, "extended_context_records", None),
         ],
         ids=["archive", "public", "unqualified"],
     )
@@ -83,7 +83,7 @@ class TestEncryptedColumnTypes:
     ):
         """Test that the documented helper names the context a column derives itself."""
 
-        column_name = "email" if schema is None else "note"
+        column_name = "note"
         column_type = column_type_of(mapped_class.__table__.c[column_name], SQLAlchemyEncryptedValue)
 
         assert column_type.context == derive_column_context(table, column_name, schema=schema)
@@ -97,7 +97,7 @@ class TestEncryptedColumnTypes:
     @pytest.mark.parametrize(
         ("column", "context"),
         [
-            (Member.__table__.c.first_name, b"members.first_name"),
+            (Member.__table__.c.label, b"members.label"),
             (ArrayRow.__table__.c.tags, b"array_rows.tags"),
         ],
         ids=["value", "array"],
@@ -117,13 +117,13 @@ class TestEncryptedColumnTypes:
         """Test that asking a row-bound column for a single context raises rather than binding the column."""
 
         with pytest.raises(ValueError, match="binds each row separately"):
-            SQLAlchemyEncryptedValue("users.secret", row_bound=True).bound_context()
+            SQLAlchemyEncryptedValue("records.secret", row_bound=True).bound_context()
 
     def test_array_refuses_row_binding(self):
         """Test that an encrypted array refuses row binding rather than binding its column instead."""
 
         with pytest.raises(TypeError, match="row_bound"):
-            SQLAlchemyPGEncryptedArray("users.tags", row_bound=True)
+            SQLAlchemyPGEncryptedArray("records.tags", row_bound=True)
 
     @pytest.mark.parametrize("schema", [None, ""], ids=["no-schema", "empty-schema"])
     def test_row_binding_refuses_table_without_schema(self, schema: str | None):
@@ -142,10 +142,10 @@ class TestEncryptedColumnTypes:
         ("first", "second"),
         [
             (
-                SQLAlchemyEncryptedValue("users.secret"),
-                SQLAlchemyEncryptedValue("users.secret", row_bound=True),
+                SQLAlchemyEncryptedValue("records.secret"),
+                SQLAlchemyEncryptedValue("records.secret", row_bound=True),
             ),
-            (SQLAlchemyPGEncryptedArray("users.tags"), SQLAlchemyPGEncryptedArray("records.tags")),
+            (SQLAlchemyPGEncryptedArray("records.tags"), SQLAlchemyPGEncryptedArray("entries.tags")),
         ],
         ids=["row-binding", "array-context"],
     )

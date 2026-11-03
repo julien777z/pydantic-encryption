@@ -13,7 +13,7 @@ from pydantic_encryption.integrations.sqlalchemy.encryption import (
 )
 from pydantic_encryption.integrations.sqlalchemy.hashing import SQLAlchemyHashedValue
 from pydantic_encryption.types import BlindIndexMethod
-from tests.factories import User
+from tests.factories import SampleRecord
 from tests.unit.test_sqlalchemy.utils import encrypt_through_column
 
 
@@ -41,29 +41,25 @@ class Member(RecordBase, DeferredDecryptMixin):
     organization_id: Mapped[int | None] = mapped_column(
         ForeignKey("organizations.id"), nullable=True, default=None
     )
-    first_name: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
-    last_name: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
+    label: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
+    caption: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
     organization: Mapped[Organization | None] = relationship(back_populates="members")
 
     @classmethod
-    def sealed(cls, first_name: str | None, last_name: str | None, **kwargs: object) -> Self:
+    def sealed(cls, label: str | None, caption: str | None, **kwargs: object) -> Self:
         """Build a row whose cells hold the given names encrypted under their own columns."""
 
         return cls(
-            first_name=(
-                None if first_name is None else encrypt_through_column(cls.__table__.c.first_name, first_name)
-            ),
-            last_name=(
-                None if last_name is None else encrypt_through_column(cls.__table__.c.last_name, last_name)
-            ),
+            label=(None if label is None else encrypt_through_column(cls.__table__.c.label, label)),
+            caption=(None if caption is None else encrypt_through_column(cls.__table__.c.caption, caption)),
             **kwargs,
         )
 
     @classmethod
-    def from_user(cls, user: User) -> Self:
-        """Build a row holding a user's names encrypted."""
+    def from_sample(cls, sample: SampleRecord) -> Self:
+        """Build a row holding a sample's names encrypted."""
 
-        return cls.sealed(user.first_name, user.last_name, id=user.id)
+        return cls.sealed(sample.label, sample.caption, id=sample.id)
 
 
 class SecretRow(RecordBase, DeferredDecryptMixin):
@@ -90,10 +86,10 @@ class PayloadRow(RecordBase, DeferredDecryptMixin):
     payload: Mapped[bytes | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
 
     @classmethod
-    def from_user(cls, user: User) -> Self:
-        """Build a row holding a user's payload encrypted."""
+    def from_sample(cls, sample: SampleRecord) -> Self:
+        """Build a row holding a sample's payload encrypted."""
 
-        return cls(id=user.id, payload=encrypt_through_column(cls.__table__.c.payload, user.payload))
+        return cls(id=sample.id, payload=encrypt_through_column(cls.__table__.c.payload, sample.payload))
 
 
 class PlainSecretRow(RecordBase):
@@ -204,7 +200,7 @@ class LiteralRecord(RecordBase):
     id: Mapped[int] = mapped_column(primary_key=True)
     secret: Mapped[bytes | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
     password: Mapped[bytes | None] = mapped_column(SQLAlchemyHashedValue(), nullable=True, default=None)
-    email_index: Mapped[bytes | None] = mapped_column(
+    lookup_index: Mapped[bytes | None] = mapped_column(
         SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256), nullable=True, default=None
     )
 
@@ -238,13 +234,13 @@ class SecretMixin:
     )
 
 
-class ContextUser(ContextBase, SecretMixin):
+class ExtendedContextRecord(ContextBase, SecretMixin):
     """Table carrying the mixin columns plus columns of its own."""
 
-    __tablename__ = "context_users"
+    __tablename__ = "extended_context_records"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    email: Mapped[bytes | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
+    note: Mapped[bytes | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
     tags: Mapped[list[str] | None] = mapped_column(SQLAlchemyPGEncryptedArray(), nullable=True, default=None)
     envelope: Mapped[bytes | None] = mapped_column(
         SQLAlchemyEncryptedValue("records.draft"), nullable=True, default=None

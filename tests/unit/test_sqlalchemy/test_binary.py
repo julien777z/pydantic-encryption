@@ -18,7 +18,7 @@ from pydantic_encryption.integrations.sqlalchemy.encryption import (
 )
 from pydantic_encryption.integrations.sqlalchemy.hashing import SQLAlchemyHashedValue
 from pydantic_encryption.types import BlindIndexMethod
-from tests.factories import User
+from tests.factories import SampleRecord
 from tests.unit.test_sqlalchemy.tables import LiteralRecord
 from tests.unit.test_sqlalchemy.utils import column_type_of
 
@@ -54,30 +54,30 @@ class TestBinaryLiteral:
 
         assert "00ff" not in str(refusal.value)
 
-    def test_literal_round_trip(self, sqlite_session: Session, user: User):
+    def test_literal_round_trip(self, sqlite_session: Session, sample: SampleRecord):
         """Test that each column type written and queried through literal SQL reads back as bound SQL."""
 
         dialect = sqlite_session.get_bind().dialect
-        email_index_type = column_type_of(LiteralRecord.__table__.c.email_index, SQLAlchemyBlindIndexValue)
+        lookup_index_type = column_type_of(LiteralRecord.__table__.c.lookup_index, SQLAlchemyBlindIndexValue)
         insert_statement = insert(LiteralRecord).values(
-            id=user.id, secret=user.first_name, password=user.last_name, email_index=user.username
+            id=sample.id, secret=sample.label, password=sample.caption, lookup_index=sample.name
         )
 
         sqlite_session.execute(
             text(str(insert_statement.compile(dialect=dialect, compile_kwargs={"literal_binds": True})))
         )
 
-        lookup = select(LiteralRecord).where(LiteralRecord.email_index == user.username)
+        lookup = select(LiteralRecord).where(LiteralRecord.lookup_index == sample.name)
         record = sqlite_session.scalars(
             select(LiteralRecord).from_statement(
                 text(str(lookup.compile(dialect=dialect, compile_kwargs={"literal_binds": True})))
             )
         ).one()
 
-        assert record.secret == user.first_name
+        assert record.secret == sample.label
         assert record.password is not None
-        assert PasswordHasher().verify(record.password.decode("utf-8"), user.last_name)
-        assert record.email_index == email_index_type.compute_blind_index(user.username)
+        assert PasswordHasher().verify(record.password.decode("utf-8"), sample.caption)
+        assert record.lookup_index == lookup_index_type.compute_blind_index(sample.name)
 
     @pytest.mark.parametrize(
         "column_type",

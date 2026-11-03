@@ -8,25 +8,25 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from pydantic_encryption.types import BlindIndexValue, HashedValue
-from tests.factories import User as SampleUser
-from tests.integration.database import User
+from tests.factories import SampleRecord
+from tests.integration.database import Record
 
 
 class TestIntegrationSQLAlchemy:
     """Test that encrypted, hashed and blind-index columns round-trip through Postgres."""
 
-    def test_secure_fields(self, create_user: Callable[[User], User], user: SampleUser):
+    def test_secure_fields(self, store_record: Callable[[Record], Record], sample: SampleRecord):
         """Test that an encrypted column reads back as its plaintext and a hashed one as a hash."""
 
-        stored = create_user(User(username=user.username, email=user.first_name, password=user.last_name))
+        stored = store_record(Record(name=sample.name, note=sample.label, password=sample.caption))
 
-        assert stored.email == user.first_name
+        assert stored.note == sample.label
         assert isinstance(stored.password, HashedValue)
 
     @pytest.mark.parametrize(
         ("column", "value"),
         [
-            ("email", "sample text"),
+            ("note", "sample text"),
             ("birth_date", date(1990, 5, 15)),
             ("birth_date", None),
             ("last_login", datetime(2025, 1, 21, 14, 30, 45)),
@@ -77,66 +77,64 @@ class TestIntegrationSQLAlchemy:
         ],
     )
     def test_value_round_trip(
-        self, create_user: Callable[[User], User], user: SampleUser, column: str, value: object
+        self, store_record: Callable[[Record], Record], sample: SampleRecord, column: str, value: object
     ):
         """Test that a value written to an encrypted column reads back equal and of the same type."""
 
-        written = User(username=user.username, password=user.last_name)
+        written = Record(name=sample.name, password=sample.caption)
         setattr(written, column, value)
 
-        stored = getattr(create_user(written), column)
+        stored = getattr(store_record(written), column)
 
         assert stored == value
         assert type(stored) is type(value)
 
-    @pytest.mark.parametrize("column", ["blind_index_email", "blind_index_email_argon2"])
-    def test_blind_index_stored(self, create_user: Callable[[User], User], user: SampleUser, column: str):
+    @pytest.mark.parametrize("column", ["blind_index_note", "blind_index_note_argon2"])
+    def test_blind_index_stored(
+        self, store_record: Callable[[Record], Record], sample: SampleRecord, column: str
+    ):
         """Test that a blind-index column stores a 32-byte index."""
 
-        written = User(username=user.username, password=user.last_name)
-        setattr(written, column, user.first_name)
+        written = Record(name=sample.name, password=sample.caption)
+        setattr(written, column, sample.label)
 
-        stored = getattr(create_user(written), column)
+        stored = getattr(store_record(written), column)
 
         assert isinstance(stored, BlindIndexValue)
         assert len(stored) == 32
 
-    def test_blind_index_none(self, create_user: Callable[[User], User], user: SampleUser):
+    def test_blind_index_none(self, store_record: Callable[[Record], Record], sample: SampleRecord):
         """Test that blind-index columns left unset store nothing."""
 
-        stored = create_user(User(username=user.username, password=user.last_name))
+        stored = store_record(Record(name=sample.name, password=sample.caption))
 
-        assert stored.blind_index_email is None
-        assert stored.blind_index_email_argon2 is None
+        assert stored.blind_index_note is None
+        assert stored.blind_index_note_argon2 is None
 
     def test_blind_index_query(
-        self, create_user: Callable[[User], User], db_session: Session, user: SampleUser
+        self, store_record: Callable[[Record], Record], db_session: Session, sample: SampleRecord
     ):
         """Test that querying a blind-index column by plaintext finds the row it indexes."""
 
-        create_user(User(username=user.username, password=user.last_name, blind_index_email=user.first_name))
+        store_record(Record(name=sample.name, password=sample.caption, blind_index_note=sample.label))
 
-        found = db_session.scalars(select(User).where(User.blind_index_email == user.first_name)).first()
+        found = db_session.scalars(select(Record).where(Record.blind_index_note == sample.label)).first()
 
         assert found is not None
-        assert found.username == user.username
+        assert found.name == sample.name
 
     def test_blind_index_follows_value(
-        self, create_user: Callable[[User], User], user: SampleUser, other_user: SampleUser
+        self, store_record: Callable[[Record], Record], sample: SampleRecord, other_sample: SampleRecord
     ):
         """Test that equal values share one index across rows and different values do not."""
 
-        first = create_user(
-            User(username=user.username, password=user.last_name, blind_index_email=user.first_name)
+        first = store_record(Record(name=sample.name, password=sample.caption, blind_index_note=sample.label))
+        same = store_record(
+            Record(name=other_sample.name, password=sample.caption, blind_index_note=sample.label)
         )
-        same = create_user(
-            User(username=other_user.username, password=user.last_name, blind_index_email=user.first_name)
-        )
-        different = create_user(
-            User(
-                username=other_user.username, password=user.last_name, blind_index_email=other_user.first_name
-            )
+        different = store_record(
+            Record(name=other_sample.name, password=sample.caption, blind_index_note=other_sample.label)
         )
 
-        assert first.blind_index_email == same.blind_index_email
-        assert first.blind_index_email != different.blind_index_email
+        assert first.blind_index_note == same.blind_index_note
+        assert first.blind_index_note != different.blind_index_note

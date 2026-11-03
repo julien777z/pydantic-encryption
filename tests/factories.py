@@ -4,41 +4,41 @@ from polyfactory.factories.pydantic_factory import ModelFactory
 
 from pydantic_encryption import BaseModel, Encrypted, Hashed
 
-__all__ = ["User", "UserFactory"]
+__all__ = ["SampleRecord", "SampleRecordFactory"]
 
 
-class User(BaseModel):
-    """Faker-backed test user covering encryption, hashing, and SA row fields."""
+class SampleRecord(BaseModel):
+    """Faker-backed test sample covering encryption, hashing, and SA row fields."""
 
     id: int
-    username: str
-    first_name: str
-    last_name: str
+    name: str
+    label: str
+    caption: str
     payload: bytes
-    address: Annotated[str | bytes, Encrypted]
+    secret: Annotated[str | bytes, Encrypted]
     password: Annotated[str | bytes, Hashed]
 
 
-class UserFactory(ModelFactory[User]):
-    """Factory for User with faker-backed values for every field."""
+class SampleRecordFactory(ModelFactory[SampleRecord]):
+    """Factory for SampleRecord with faker-backed values for every field."""
 
-    __model__ = User
-
-    @classmethod
-    def first_name(cls) -> str:
-        return cls.__faker__.first_name()
+    __model__ = SampleRecord
 
     @classmethod
-    def last_name(cls) -> str:
-        return cls.__faker__.last_name()
+    def label(cls) -> str:
+        return cls.__faker__.word()
+
+    @classmethod
+    def caption(cls) -> str:
+        return cls.__faker__.sentence(nb_words=3)
 
     @classmethod
     def payload(cls) -> bytes:
         return cls.__faker__.binary(length=16)
 
     @classmethod
-    def address(cls) -> str:
-        return cls.__faker__.address()
+    def secret(cls) -> str:
+        return cls.__faker__.sentence()
 
     @classmethod
     def password(cls) -> str:

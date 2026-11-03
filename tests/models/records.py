@@ -41,13 +41,13 @@ class HashedRecord(BaseModel):
 class IndexedRecord(BaseModel):
     """Model holding one HMAC-SHA256 blind-indexed field."""
 
-    email_index: Annotated[str | bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
+    lookup_index: Annotated[str | bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
 
 
 class OptionalIndexedRecord(BaseModel):
     """Model whose blind-indexed field may be left empty."""
 
-    email_index: Annotated[str | bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)] | None = None
+    lookup_index: Annotated[str | bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)] | None = None
 
 
 class MixedRecord(BaseModel):
@@ -56,7 +56,7 @@ class MixedRecord(BaseModel):
     name: str
     secret: Annotated[str, Encrypted]
     password: Annotated[str, Hashed]
-    email_index: Annotated[str | bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
+    lookup_index: Annotated[str | bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
 
 
 class NestedRecord(BaseModel):

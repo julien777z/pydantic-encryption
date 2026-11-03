@@ -7,65 +7,65 @@ from sqlalchemy.orm import Session
 
 from pydantic_encryption.integrations.sqlalchemy.descriptor import DecryptOnAccessDescriptor
 from pydantic_encryption.types import EncryptedValue
-from tests.factories import User
+from tests.factories import SampleRecord
 from tests.unit.test_sqlalchemy.tables import Member, RenamedColumnRow
 
 
 class TestDecryptOnAccessDescriptor:
     """Test the descriptor that decrypts an encrypted attribute when it is read."""
 
-    def test_class_access_returns_instrumented_attribute(self, user: User):
+    def test_class_access_returns_instrumented_attribute(self, sample: SampleRecord):
         """Test that reading the attribute from the class returns SQLAlchemy's attribute for queries."""
 
-        attribute = Member.first_name
-        statement = select(Member).where(Member.first_name == user.first_name)
+        attribute = Member.label
+        statement = select(Member).where(Member.label == sample.label)
 
         assert not isinstance(attribute, DecryptOnAccessDescriptor)
-        assert attribute.key == "first_name"
-        assert "first_name" in str(statement.compile())
+        assert attribute.key == "label"
+        assert "label" in str(statement.compile())
 
     def test_descriptor_exposes_wrapped_key(self):
         """Test that the descriptor exposes the wrapped attribute's column key."""
 
-        assert Member.__dict__["first_name"].key == "first_name"
+        assert Member.__dict__["label"].key == "label"
 
-    def test_assignment_stores_on_row_state(self, user: User):
+    def test_assignment_stores_on_row_state(self, sample: SampleRecord):
         """Test that assigning through the descriptor stores the value on the row's state."""
 
-        member = Member(id=user.id)
-        member.first_name = user.first_name
+        member = Member(id=sample.id)
+        member.label = sample.label
 
-        assert sa_inspect(member).dict["first_name"] == user.first_name
+        assert sa_inspect(member).dict["label"] == sample.label
 
-    def test_deletion_removes_from_row_state(self, user: User):
+    def test_deletion_removes_from_row_state(self, sample: SampleRecord):
         """Test that deleting through the descriptor removes the value from the row's state."""
 
-        member = Member.from_user(user)
+        member = Member.from_sample(sample)
 
-        del member.first_name
+        del member.label
 
-        assert "first_name" not in sa_inspect(member).dict
+        assert "label" not in sa_inspect(member).dict
 
-    def test_detached_read_decrypts_only_that_column(self, user: User):
+    def test_detached_read_decrypts_only_that_column(self, sample: SampleRecord):
         """Test that reading one column of a detached row decrypts it in place, leaving siblings sealed."""
 
-        member = Member.from_user(user)
+        member = Member.from_sample(sample)
 
-        assert member.first_name == user.first_name
-        assert sa_inspect(member).dict["first_name"] == user.first_name
-        assert isinstance(sa_inspect(member).dict["last_name"], EncryptedValue)
+        assert member.label == sample.label
+        assert sa_inspect(member).dict["label"] == sample.label
+        assert isinstance(sa_inspect(member).dict["caption"], EncryptedValue)
 
-    def test_plaintext_reads_unchanged(self, user: User):
+    def test_plaintext_reads_unchanged(self, sample: SampleRecord):
         """Test that values that are not ciphertext read back as they are."""
 
-        member = Member(id=user.id, first_name=user.first_name, last_name=None)
+        member = Member(id=sample.id, label=sample.label, caption=None)
 
-        assert (member.id, member.first_name, member.last_name) == (user.id, user.first_name, None)
+        assert (member.id, member.label, member.caption) == (sample.id, sample.label, None)
 
-    def test_session_read_outside_greenlet_decrypts_synchronously(self, user: User):
+    def test_session_read_outside_greenlet_decrypts_synchronously(self, sample: SampleRecord):
         """Test that a session row read outside a greenlet decrypts synchronously, leaving no coroutine."""
 
-        member = Member.from_user(user)
+        member = Member.from_sample(sample)
 
         with (
             patch(
@@ -76,7 +76,7 @@ class TestDecryptOnAccessDescriptor:
         ):
             warnings.simplefilter("always")
 
-            assert member.first_name == user.first_name
+            assert member.label == sample.label
 
         assert not any("never awaited" in str(warning.message).lower() for warning in caught)
 

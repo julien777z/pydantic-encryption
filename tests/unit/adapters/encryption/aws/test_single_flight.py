@@ -12,7 +12,7 @@ from pydantic_encryption.adapters.encryption.aws import AWSAdapter
 from pydantic_encryption.config import settings
 from pydantic_encryption.types import EncryptedValue
 from tests.cases import CALLER_CONTEXT, FOREIGN_CONTEXT, SEALED_CONTEXT
-from tests.factories import User
+from tests.factories import SampleRecord
 from tests.models.kms import ControlledKMSClient
 from tests.unit.utils import ASYNC_PATHS
 
@@ -101,12 +101,15 @@ class TestSingleFlight:
 
     @pytest.mark.asyncio
     async def test_distinct_cold_keys_overlap(
-        self, controlled_kms: ControlledKMSClient, users_batch: list[User], monkeypatch: pytest.MonkeyPatch
+        self,
+        controlled_kms: ControlledKMSClient,
+        samples: list[SampleRecord],
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Test that unrelated cold keys reach KMS concurrently and all decrypt correctly."""
 
         monkeypatch.setattr(settings, "AWS_KMS_DATA_KEY_MAX_USES", 1)
-        values = [user.username for user in users_batch[:3]]
+        values = [sample.name for sample in samples[:3]]
         ciphertexts = [
             await AWSAdapter.async_encrypt(value, associated_data=SEALED_CONTEXT) for value in values
         ]
@@ -127,11 +130,11 @@ class TestSingleFlight:
 
     @pytest.mark.asyncio
     async def test_failed_unwrap_reaches_every_waiter(
-        self, controlled_kms: ControlledKMSClient, kms_failure: ClientError, user: User
+        self, controlled_kms: ControlledKMSClient, kms_failure: ClientError, sample: SampleRecord
     ) -> None:
         """Test that one failed KMS reply reaches all waiters and a later call retries."""
 
-        ciphertext = await AWSAdapter.async_encrypt(user.username, associated_data=SEALED_CONTEXT)
+        ciphertext = await AWSAdapter.async_encrypt(sample.name, associated_data=SEALED_CONTEXT)
         controlled_kms.error = kms_failure
         tasks = [
             asyncio.create_task(AWSAdapter.async_decrypt(ciphertext, associated_data=SEALED_CONTEXT))
@@ -150,19 +153,22 @@ class TestSingleFlight:
 
         controlled_kms.error = None
 
-        assert await AWSAdapter.async_decrypt(ciphertext, associated_data=SEALED_CONTEXT) == user.username
+        assert await AWSAdapter.async_decrypt(ciphertext, associated_data=SEALED_CONTEXT) == sample.name
         assert controlled_kms.calls == 2
 
     @pytest.mark.asyncio
     async def test_concurrent_misses_respect_capacity(
-        self, controlled_kms: ControlledKMSClient, users_batch: list[User], monkeypatch: pytest.MonkeyPatch
+        self,
+        controlled_kms: ControlledKMSClient,
+        samples: list[SampleRecord],
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Test that distinct unwraps wait for capacity independently of cached-key retention."""
 
         monkeypatch.setattr(settings, "AWS_KMS_DATA_KEY_MAX_USES", 1)
         monkeypatch.setattr(settings, "AWS_KMS_MAX_IN_FLIGHT_UNWRAPS", 2)
         monkeypatch.setattr(settings, "AWS_KMS_UNWRAPPED_KEY_CACHE_SIZE", 1)
-        values = [user.username for user in users_batch[:3]]
+        values = [sample.name for sample in samples[:3]]
         ciphertexts = [
             await AWSAdapter.async_encrypt(value, associated_data=SEALED_CONTEXT) for value in values
         ]
@@ -188,11 +194,11 @@ class TestSingleFlight:
 
     @pytest.mark.asyncio
     async def test_cancelling_owner_keeps_shared_unwrap_alive(
-        self, controlled_kms: ControlledKMSClient, user: User
+        self, controlled_kms: ControlledKMSClient, sample: SampleRecord
     ) -> None:
         """Test that cancelling one caller preserves its KMS context and another caller's reply."""
 
-        ciphertext = await AWSAdapter.async_encrypt(user.username, associated_data=SEALED_CONTEXT)
+        ciphertext = await AWSAdapter.async_encrypt(sample.name, associated_data=SEALED_CONTEXT)
         context_token = controlled_kms.invocation_context.set(CALLER_CONTEXT)
         owner = asyncio.create_task(AWSAdapter.async_decrypt(ciphertext, associated_data=SEALED_CONTEXT))
         tasks = [owner]
@@ -219,7 +225,7 @@ class TestSingleFlight:
             controlled_kms.invocation_context.reset(context_token)
 
         assert isinstance(results[0], asyncio.CancelledError)
-        assert results[1] == user.username
+        assert results[1] == sample.name
         assert controlled_kms.observed_contexts == [CALLER_CONTEXT]
         assert AWSAdapter.unwrapping == {}
 
@@ -227,11 +233,11 @@ class TestSingleFlight:
     @pytest.mark.parametrize("source", [b"", SEALED_CONTEXT], ids=["unbound", "bound"])
     @ASYNC_PATHS
     async def test_shared_unwrap_authenticates_each_callers_context(
-        self, controlled_kms: ControlledKMSClient, user: User, source: bytes, asynchronous: bool
+        self, controlled_kms: ControlledKMSClient, sample: SampleRecord, source: bytes, asynchronous: bool
     ) -> None:
         """Test that a shared KMS reply never authenticates a caller using the wrong context."""
 
-        ciphertext = await AWSAdapter.async_encrypt(user.username, associated_data=source)
+        ciphertext = await AWSAdapter.async_encrypt(sample.name, associated_data=source)
         tasks = [
             asyncio.create_task(
                 AWSAdapter.async_decrypt(ciphertext, associated_data=context)
@@ -247,7 +253,7 @@ class TestSingleFlight:
             controlled_kms.release.set()
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        assert results[0] == user.username
+        assert results[0] == sample.name
         assert isinstance(results[1], InvalidTag)
         assert controlled_kms.calls == 1
         assert AWSAdapter.unwrapping == {}

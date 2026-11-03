@@ -11,7 +11,7 @@ from pydantic_encryption.context import (
 
 
 class TestContext:
-    """Test the rules that name the context a column, a row's cell, a model field or a declared name binds to."""
+    """Test the rules naming the context a column, a row's cell, a model field or a declared name binds to."""
 
     @pytest.mark.parametrize(
         ("derive", "args", "kwargs", "expected"),
@@ -125,13 +125,13 @@ class TestContext:
         ids=["missing", "empty"],
     )
     def test_row_context_requires_schema(self, kwargs: dict[str, str], error: type[Exception], message: str):
-        """Test that a row context without a schema raises rather than reading like a column's or another row's."""
+        """Test that a row context without a schema raises rather than reading like another location's."""
 
         with pytest.raises(error, match=message):
             derive_row_context("records", "secret", "42", **kwargs)
 
     def test_column_context_refuses_empty_schema(self):
-        """Test that a column context refuses an empty schema as a row context does, rather than dropping it."""
+        """Test that a column context refuses an empty schema as a row context does, not dropping it."""
 
         with pytest.raises(ValueError, match="cannot be empty"):
             derive_column_context("records", "secret", schema="")
