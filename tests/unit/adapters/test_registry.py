@@ -1,3 +1,5 @@
+import os
+
 import pytest
 
 from pydantic_encryption.adapters import registry
@@ -126,3 +128,17 @@ class TestRegistry:
 
         with pytest.raises(ValueError, match="No blind index backend registered"):
             registry.get_blind_index_backend(BlindIndexMethod.HMAC_SHA256)
+
+    @pytest.mark.skipif(not hasattr(os, "fork"), reason="The platform cannot fork.")
+    def test_forked_child_gets_free_lock(self):
+        """Test that a child forked while the registry lock is held can still load a backend."""
+
+        with registry.registry_lock:
+            child = os.fork()
+
+            if child == 0:
+                os._exit(0 if registry.registry_lock.acquire(blocking=False) else 1)
+
+        _, status = os.waitpid(child, 0)
+
+        assert os.waitstatus_to_exitcode(status) == 0

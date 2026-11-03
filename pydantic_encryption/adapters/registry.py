@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib
+import os
+import sys
 import threading
 from collections.abc import Callable
 
@@ -54,6 +56,7 @@ def configured_encryption_backend(method: EncryptionMethod | None = None) -> typ
     """Return the adapter serving ``method``, or ENCRYPTION_METHOD, refusing when neither is set."""
 
     resolved = method or settings.ENCRYPTION_METHOD
+
     if resolved is None:
         raise ValueError("ENCRYPTION_METHOD must be set to encrypt or decrypt values.")
 
@@ -75,6 +78,14 @@ def get_blind_index_backend(method: BlindIndexMethod) -> type[BlindIndexAdapter]
     raise ValueError(f"No blind index backend registered for {method!r}")
 
 
+def reset_after_fork() -> None:
+    """Give a forked child a free registry lock, whichever thread held its parent's."""
+
+    global registry_lock
+
+    registry_lock = threading.Lock()
+
+
 def load_aws_adapter() -> type[EncryptionAdapter]:
     """Import the AWS KMS adapter, which needs the ``aws`` extra."""
 
@@ -82,3 +93,6 @@ def load_aws_adapter() -> type[EncryptionAdapter]:
 
 
 register_encryption_backend_lazy(EncryptionMethod.AWS, load_aws_adapter)
+
+if sys.platform != "win32":
+    os.register_at_fork(after_in_child=reset_after_fork)

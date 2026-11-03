@@ -12,6 +12,7 @@ def resolve_blind_index_key(key: str | bytes | None) -> bytes:
     """Return ``key``, or BLIND_INDEX_SECRET_KEY, as bytes, refusing when neither is set."""
 
     resolved = key if key is not None else settings.BLIND_INDEX_SECRET_KEY
+
     if resolved is None:
         raise ValueError("BLIND_INDEX_SECRET_KEY must be set to compute a blind index.")
 
