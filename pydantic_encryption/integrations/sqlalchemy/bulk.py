@@ -1,6 +1,6 @@
 import asyncio
 from collections.abc import Iterable
-from typing import Any
+from typing import TypeVar
 
 from pydantic_encryption.lazy import require_optional_dependency
 
@@ -10,70 +10,49 @@ from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 
-from pydantic_encryption.adapters.base import encode_text
-from pydantic_encryption.adapters.registry import get_encryption_backend
-from pydantic_encryption.config import settings
+from pydantic_encryption.adapters.base import EncryptionAdapter, encode_text
+from pydantic_encryption.adapters.registry import configured_encryption_backend
 from pydantic_encryption.integrations.sqlalchemy.encryption import (
-    ContextBoundType,
     SQLAlchemyEncryptedValue,
+    encrypted_column_type,
 )
 from pydantic_encryption.integrations.sqlalchemy.state import (
     PENDING_DECRYPT_KEY,
     read_raw_cell,
-    row_key,
     set_decrypted,
 )
-from pydantic_encryption.serialization import decode_value
+from pydantic_encryption.serialization import EncryptableValue, decode_value
 from pydantic_encryption.types import EncryptedValue
 
+ValueT = TypeVar("ValueT")
 
-def column_key(column: InstrumentedAttribute | str) -> str:
+
+def column_key(column: InstrumentedAttribute[object] | str) -> str:
     """Return the column key for an InstrumentedAttribute or string column name."""
 
     return column if isinstance(column, str) else column.key
 
 
-def resolve_backend() -> Any:
-    """Return the configured encryption backend, raising if ENCRYPTION_METHOD is unset."""
-
-    method = settings.ENCRYPTION_METHOD
-    if method is None:
-        raise ValueError("ENCRYPTION_METHOD must be set to decrypt values.")
-
-    return get_encryption_backend(method)
-
-
-def column_context(row: Any, key: str) -> bytes:
-    """Return the associated data the column's own type binds its ciphertexts to."""
-
-    mapper = sa_inspect(type(row))
-    column_type = mapper.columns[key].type
-    if isinstance(column_type, ContextBoundType):
-        if column_type.row_bound:
-            return column_type.cell_context(*row_key(mapper, row))
-
-        return column_type.bound_context()
-
-    raise ValueError(f"Column {key!r} does not encrypt its values, so it binds no context.")
-
-
 def collect_row_assignments(
-    rows: Iterable[Any], column_keys: Iterable[str]
-) -> list[tuple[Any, str, bytes, bytes]]:
+    rows: Iterable[object], column_keys: Iterable[str]
+) -> list[tuple[object, str, bytes, bytes]]:
     """Build ``(row, key, ciphertext, context)`` tuples for every encrypted cell across rows."""
 
     column_keys = list(column_keys)
-    assignments: list[tuple[Any, str, bytes, bytes]] = []
+    assignments: list[tuple[object, str, bytes, bytes]] = []
     for row in rows:
         for key in column_keys:
             value = read_raw_cell(row, key)
             if isinstance(value, EncryptedValue):
-                assignments.append((row, key, bytes(value), column_context(row, key)))
+                column = sa_inspect(type(row), raiseerr=True).columns[key]
+                assignments.append((row, key, bytes(value), encrypted_column_type(column).context_for(row)))
 
     return assignments
 
 
-async def decrypt_assignments(backend: Any, assignments: list[tuple[Any, str, bytes, bytes]]) -> None:
+async def decrypt_assignments(
+    backend: type[EncryptionAdapter], assignments: list[tuple[object, str, bytes, bytes]]
+) -> None:
     """Decrypt every ``(row, key, ciphertext, context)`` tuple under a TaskGroup and write results back."""
 
     if not assignments:
@@ -89,50 +68,48 @@ async def decrypt_assignments(backend: Any, assignments: list[tuple[Any, str, by
         set_decrypted(row, key, decode_value(task.result()))
 
 
-async def decrypt_rows(rows: Iterable[Any], *columns: InstrumentedAttribute | str) -> None:
+async def decrypt_rows(rows: Iterable[object], *columns: InstrumentedAttribute[object] | str) -> None:
     """Decrypt the given columns across every row in one TaskGroup."""
 
     if not columns:
         return
 
-    backend = resolve_backend()
+    backend = configured_encryption_backend()
     assignments = collect_row_assignments(rows, (column_key(c) for c in columns))
 
     await decrypt_assignments(backend, assignments)
 
 
-def decrypt_rows_sync(rows: Iterable[Any], *columns: InstrumentedAttribute | str) -> None:
+def decrypt_rows_sync(rows: Iterable[object], *columns: InstrumentedAttribute[object] | str) -> None:
     """Sync decrypt fallback for descriptor reads outside an async-session greenlet."""
 
     if not columns:
         return
 
-    backend = resolve_backend()
+    backend = configured_encryption_backend()
     for row, key, ciphertext, context in collect_row_assignments(rows, (column_key(c) for c in columns)):
         set_decrypted(row, key, decode_value(backend.decrypt(ciphertext, associated_data=context)))
 
 
-def resolve_context(context: InstrumentedAttribute | str | bytes) -> bytes:
+def resolve_context(context: InstrumentedAttribute[object] | str | bytes) -> bytes:
     """Return the context a column binds to, derived from the column itself where one is given."""
 
     if isinstance(context, InstrumentedAttribute):
-        column_type = context.property.columns[0].type
-        if not isinstance(column_type, ContextBoundType):
-            raise ValueError(f"Column {context.key!r} does not encrypt its values, so it binds no context.")
-
-        return column_type.bound_context()
+        return encrypted_column_type(context.property.columns[0]).bound_context()
 
     return encode_text(context)
 
 
-async def decrypt_values(values: Iterable[Any], *, context: InstrumentedAttribute | str | bytes) -> list[Any]:
+async def decrypt_values(
+    values: Iterable[ValueT], *, context: InstrumentedAttribute[object] | str | bytes
+) -> list[ValueT | EncryptableValue]:
     """Decrypt a flat iterable of ciphertexts from one column, preserving other positions as-is."""
 
-    values_list = list(values)
+    values_list: list[ValueT | EncryptableValue] = list(values)
     if not values_list:
         return []
 
-    backend = resolve_backend()
+    backend = configured_encryption_backend()
     associated_data = resolve_context(context)
     indexes: list[int] = []
     encrypted_blobs: list[bytes] = []
@@ -157,8 +134,8 @@ async def decrypt_values(values: Iterable[Any], *, context: InstrumentedAttribut
 
 
 def collect_encrypted_cells(
-    entities: Any | Iterable[Any] | None,
-    collected: dict[tuple[type, str], list[Any]],
+    entities: object | Iterable[object] | None,
+    collected: dict[tuple[type[object], str], list[object]],
     visited: set[int],
 ) -> None:
     """Group deferred-encrypted cells by ``(class, column)``, walking loaded relationships."""
@@ -184,13 +161,13 @@ def collect_encrypted_cells(
         if state is None or not hasattr(state, "mapper"):
             continue
 
-        for column in state.mapper.columns:
+        for attribute, column in state.mapper.columns.items():
             if not isinstance(column.type, SQLAlchemyEncryptedValue):
                 continue
-            if not column.type._deferred:
+            if not column.type.deferred:
                 continue
-            if isinstance(state.dict.get(column.key), EncryptedValue):
-                collected.setdefault((type(entity), column.key), []).append(entity)
+            if isinstance(state.dict.get(attribute), EncryptedValue):
+                collected.setdefault((type(entity), attribute), []).append(entity)
 
         unloaded = state.unloaded
         for relationship in state.mapper.relationships:
@@ -205,23 +182,23 @@ def collect_encrypted_cells(
                 collect_encrypted_cells(related, collected, visited)
 
 
-async def bulk_decrypt_entities(entities: Any | Iterable[Any] | None) -> None:
+async def bulk_decrypt_entities(entities: object | Iterable[object] | None) -> None:
     """Decrypt every deferred encrypted column on the given entities and loaded relationships."""
 
-    collected: dict[tuple[type, str], list[Any]] = {}
+    collected: dict[tuple[type[object], str], list[object]] = {}
     collect_encrypted_cells(entities, collected, set())
     if not collected:
         return
 
-    backend = resolve_backend()
-    assignments: list[tuple[Any, str, bytes, bytes]] = []
+    backend = configured_encryption_backend()
+    assignments: list[tuple[object, str, bytes, bytes]] = []
     for (_, column_key), rows in collected.items():
         assignments.extend(collect_row_assignments(rows, (column_key,)))
 
     await decrypt_assignments(backend, assignments)
 
 
-def pop_pending_rows(session: AsyncSession) -> list[Any]:
+def pop_pending_rows(session: AsyncSession) -> list[object]:
     """Remove this session's pending-decrypt bucket and flatten it into a row list."""
 
     pending = session.info.pop(PENDING_DECRYPT_KEY, None) or {}

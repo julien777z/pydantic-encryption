@@ -1,69 +1,65 @@
-import pytest
+from collections import defaultdict
+from weakref import WeakSet
 
-pytest.importorskip("sqlalchemy")
+from sqlalchemy import inspect as sa_inspect
+from sqlalchemy.orm import Session
 
-from sqlalchemy import Integer, String
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-
-from pydantic_encryption.integrations.sqlalchemy.state import read_raw_cell, set_decrypted
-
-
-class StateBase(DeclarativeBase):
-    """Isolated declarative base for the ORM-state helpers."""
-
-
-class StateRow(StateBase):
-    """Mapped class the ORM-state helpers read from and write to."""
-
-    __tablename__ = "state_rows"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    secret: Mapped[str | None] = mapped_column(String, nullable=True, default=None)
+from pydantic_encryption.integrations.sqlalchemy.state import (
+    PENDING_DECRYPT_KEY,
+    pending_siblings,
+    read_raw_cell,
+    set_decrypted,
+)
+from tests.unit.test_sqlalchemy.tables import Organization, SecretRow, UnmappedRow
 
 
-class PlainRow:
-    """Unmapped object standing in for a row loaded outside the ORM."""
+class TestState:
+    """Test the helpers that read and write a row's stored cells and its session's pending rows."""
 
-    def __init__(self, secret: str | None = None) -> None:
-        self.secret = secret
+    def test_mapped_row_read_from_state(self):
+        """Test that a mapped row's cell is read from its ORM state."""
 
+        assert read_raw_cell(Organization(id=1, name="sample organization"), "name") == "sample organization"
 
-class TestReadRawCell:
-    """Test reading a stored cell from whatever the row turns out to be."""
+    def test_unmapped_row_read_by_attribute(self):
+        """Test that an object with no ORM state is read by attribute, and a missing one reads as None."""
 
-    def test_reads_through_orm_state(self):
-        """Test that a mapped instance is read from its ORM state rather than its attribute."""
+        assert read_raw_cell(UnmappedRow("secret data"), "secret") == "secret data"
+        assert read_raw_cell(UnmappedRow(), "missing") is None
 
-        assert read_raw_cell(StateRow(id=1, secret="sealed"), "secret") == "sealed"
+    def test_mapped_row_takes_value_without_dirtying(self):
+        """Test that a mapped row takes a decrypted value without becoming dirty for the next flush."""
 
-    def test_reads_an_unmapped_row_by_attribute(self):
-        """Test that an object with no ORM state falls back to the plain attribute."""
+        organization = Organization(id=1, name="sealed")
+        state = sa_inspect(organization)
+        state._commit_all(state.dict)
 
-        assert read_raw_cell(PlainRow("sealed"), "secret") == "sealed"
+        set_decrypted(organization, "name", "sample organization")
 
-    def test_absent_on_an_unmapped_row_reads_as_none(self):
-        """Test that a column an unmapped row does not carry reads as absent."""
+        assert organization.name == "sample organization"
+        assert not state.attrs.name.history.has_changes()
 
-        assert read_raw_cell(PlainRow(), "missing") is None
+    def test_unmapped_row_takes_value_by_assignment(self):
+        """Test that an object with no ORM state takes a decrypted value by plain assignment."""
 
+        row = UnmappedRow("sealed")
 
-class TestSetDecrypted:
-    """Test committing a decrypted value onto whatever the row turns out to be."""
+        set_decrypted(row, "secret", "secret data")
 
-    def test_commits_onto_a_mapped_row_without_dirtying_it(self):
-        """Test that a mapped instance takes the value without becoming dirty for the next flush."""
+        assert row.secret == "secret data"
 
-        row = StateRow(id=1, secret="sealed")
+    def test_session_without_bucket_has_no_siblings(self):
+        """Test that a session with no pending-decrypt bucket has no siblings."""
 
-        set_decrypted(row, "secret", "plaintext")
+        assert pending_siblings(Session(), SecretRow) == []
 
-        assert row.secret == "plaintext"
+    def test_bucketed_rows_returned_as_siblings(self):
+        """Test that the rows bucketed for a class are its siblings."""
 
-    def test_assigns_onto_an_unmapped_row(self):
-        """Test that an object with no ORM state takes the value by plain assignment."""
+        rows = [SecretRow(id=1), SecretRow(id=2)]
+        bucket: defaultdict[type[object], WeakSet[object]] = defaultdict(WeakSet)
+        bucket[SecretRow].update(rows)
+        session = Session()
+        session.info[PENDING_DECRYPT_KEY] = bucket
 
-        row = PlainRow("sealed")
-
-        set_decrypted(row, "secret", "plaintext")
-
-        assert row.secret == "plaintext"
+        assert set(pending_siblings(session, SecretRow)) == set(rows)

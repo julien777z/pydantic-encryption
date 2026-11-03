@@ -2,6 +2,7 @@ from typing import Final
 
 CONTEXT_SEPARATOR: Final[str] = "."
 CONTEXT_ESCAPE: Final[str] = "\\"
+FIELD_CONTEXT_TAG: Final[bytes] = f"{CONTEXT_ESCAPE}field".encode("utf-8")
 
 
 def escape_context_segment(segment: str) -> str:
@@ -36,13 +37,21 @@ def append_row_key(column_context: bytes, *row_key: str) -> bytes:
     return CONTEXT_SEPARATOR.encode("utf-8").join((column_context, join_context_segments(*row_key)))
 
 
-def derive_row_context(table_name: str, column_name: str, *row_key: str, schema: str | None = None) -> bytes:
+def derive_row_context(table_name: str, column_name: str, *row_key: str, schema: str) -> bytes:
     """Return the context one row's cell in an encrypted column binds its ciphertext to."""
+
+    if not schema:
+        raise ValueError(
+            "A row-bound cell needs a schema naming its table, or its context could read the same as a "
+            "column's or another row's in a table that names one."
+        )
 
     return append_row_key(derive_column_context(table_name, column_name, schema=schema), *row_key)
 
 
 def derive_field_context(module_name: str, qualified_name: str, field_name: str) -> bytes:
-    """Return the context an encrypted model field binds its ciphertext to."""
+    """Return the context a model field binds its ciphertext to, led by an escape no escaped name produces."""
 
-    return join_context_segments(module_name, qualified_name, field_name)
+    return CONTEXT_SEPARATOR.encode("utf-8").join(
+        (FIELD_CONTEXT_TAG, join_context_segments(module_name, qualified_name, field_name))
+    )

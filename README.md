@@ -76,7 +76,7 @@ ENCRYPTION_METHOD=fernet
 ENCRYPTION_KEY=your_generated_key
 ```
 
-`ENCRYPTION_KEY` is the root key. Each context's key is derived from it with HKDF-SHA256 as the value is sealed or opened, so one key covers every column and a token still only opens under the context it was sealed for.
+`ENCRYPTION_KEY` is the root key, and must be a Fernet key such as the command above prints: any other value is refused when a value is sealed or opened. Each context's key is derived from it with HKDF-SHA256, so one key covers every column and a token still only opens under the context it was sealed for.
 
 ### AWS KMS
 
@@ -97,37 +97,50 @@ AWS_KMS_DECRYPT_KEY_ARN=arn:aws:kms:...decrypt-key
 
 Use one mode or the other — combining `AWS_KMS_KEY_ARN` with either split variant raises a validation error. A decrypt-only key alone is allowed (read-only workloads).
 
-One KMS data key seals many values, and an unwrapped data key opens many, so KMS is called once per key rather than once per value. The bounds on that reuse are settings:
+One KMS data key seals many values, and an unwrapped data key opens many, so KMS is called once per key rather than once per value. The bounds on that reuse, and on the calls themselves, are settings. Each process holds its own keys and its own limits:
 
 | Setting | Default | Bounds |
 |---------|---------|--------|
 | `AWS_KMS_DATA_KEY_MAX_USES` | `1000` | Values one data key seals before a fresh one is generated |
-| `AWS_KMS_DATA_KEY_MAX_AGE_SECONDS` | `300` | How long one data key seals values before a fresh one is generated |
+| `AWS_KMS_DATA_KEY_MAX_AGE_SECONDS` | `300` | How long one data key seals values; the adapter stops holding it when this expires |
 | `AWS_KMS_UNWRAPPED_KEY_CACHE_SIZE` | `512` | Unwrapped data keys held in memory, least recently used evicted first |
-| `AWS_KMS_UNWRAPPED_KEY_MAX_AGE_SECONDS` | `300` | How long an unwrapped data key is held before KMS unwraps it again |
+| `AWS_KMS_UNWRAPPED_KEY_MAX_AGE_SECONDS` | `300` | How long an unwrapped data key is reused; the adapter stops holding it when this expires |
+| `AWS_KMS_MAX_IN_FLIGHT_UNWRAPS` | `512` | KMS unwraps one process runs at once; async callers are also bounded by the event loop's default executor |
+| `AWS_KMS_CONNECT_TIMEOUT_SECONDS` | `2` | How long one KMS connection attempt waits |
+| `AWS_KMS_READ_TIMEOUT_SECONDS` | `5` | How long one KMS call waits for its reply |
+| `AWS_KMS_MAX_ATTEMPTS` | `2` | KMS attempts per call, the first included, under the SDK's standard retry mode |
 
 Every value still carries its own nonce and its own context, so sharing a data key changes how often KMS is called and nothing about what a ciphertext opens under.
+
+A held key keeps sealing or opening values for up to its maximum age after KMS access is revoked, and a value opened with a held key makes no KMS call, so it leaves no KMS audit record of its own.
 
 ### Per Model
 
 Override encryption settings on a model instead of relying on environment variables:
 
 ```python
+import os
 from typing import Annotated
 from pydantic_encryption import BaseModel, Encrypted, EncryptionMethod
 
 
-class SpecialUser(BaseModel, encryption_method=EncryptionMethod.FERNET, encryption_key="my-key"):
+class SpecialUser(
+    BaseModel,
+    encryption_method=EncryptionMethod.FERNET,
+    encryption_key=os.environ["SPECIAL_USER_ENCRYPTION_KEY"],
+):
     email: Annotated[bytes, Encrypted]
 ```
 
-Supported kwargs: `encryption_method`, `encryption_key`, `blind_index_key`. Falls back to env vars if not set.
+Supported kwargs: `encryption_method`, `encryption_key`, `blind_index_key`. Falls back to env vars if not set. A Fernet `encryption_key` is a Fernet key, like `ENCRYPTION_KEY`.
 
 ## Supported Types
 
 Encrypted columns and `Encrypted` model fields alike preserve the Python type of your data:
 
 `str`, `bytes`, `bool`, `int`, `float`, `Decimal`, `UUID`, `date`, `datetime`, `time`, `timedelta`
+
+A value of any other type raises `TypeError`, as does a `Hashed` or `BlindIndex` field holding neither `str` nor `bytes`.
 
 ## Async Models
 
@@ -203,6 +216,10 @@ tags: Mapped[list[str] | None] = mapped_column(SQLAlchemyPGEncryptedArray(), nul
 ```
 
 Each element is individually encrypted. Requires PostgreSQL.
+
+### Literal SQL
+
+A statement compiled with `literal_binds` renders encrypted, hashed and blind-index values as the dialect's binary literal on PostgreSQL, SQLite, MySQL, MariaDB, SQL Server and Oracle. Any other dialect raises `CompileError` instead of rendering the value.
 
 ### Async Decryption
 
@@ -293,15 +310,21 @@ Contexts are derived, so there is nothing to pass in the common case:
 |-------|---------|
 | A column | `table.column`, or `schema.table.column` where the table names a schema |
 | An array element | the context of the array column itself |
-| A model field | `module.Model.field` |
+| A model field | `\field.module.Model.field` |
 
-A column inherited from a mixin binds separately for each table that inherits it, and one type binds one column — a type already attached to a column refuses a second. A separator inside a name is escaped, so no two locations can share a context however they are named. `derive_column_context` and `derive_field_context` apply these rules, so a migration can name what a value binds to without reimplementing them:
+A column inherited from a mixin binds separately for each table that inherits it, and one type binds one column — a type already attached to a column refuses a second. Escaping doubles every backslash in a name and puts one before every separator, so a backslash that starts an escaped name is followed by another backslash or a separator, never a letter. A model field's context starts with `\field.`, so among the contexts derived from names, a model field never shares one with a column, a row or another model field, and no two columns share one, however they are named.
+
+Row binding needs a table that names a schema, so a row whose column derives its context binds to `schema.table.column` followed by its primary key: four or more segments, where a derived column context has two or three. Such a row never shares a context with a derived column, a model field or another such row.
+
+`derive_column_context`, `derive_row_context` and `derive_field_context` apply these rules, so a migration can name what a value binds to without reimplementing them:
 
 ```python
-from pydantic_encryption import derive_column_context
+from pydantic_encryption import derive_column_context, derive_field_context, derive_row_context
 
 derive_column_context("users", "email")                    # b"users.email"
 derive_column_context("users", "email", schema="archive")  # b"archive.users.email"
+derive_field_context("app", "User", "email")               # b"\\field.app.User.email"
+derive_row_context("users", "email", "42", schema="app")   # b"app.users.email.42"
 ```
 
 The context is authenticated but never written into the ciphertext, so it is part of the column's contract: renaming a table or column re-binds what it writes from then on, and values stored under the old name no longer open.
@@ -320,14 +343,15 @@ A column context stops a ciphertext moving between columns. `row_bound=True` als
 secret: Mapped[bytes] = mapped_column(SQLAlchemyEncryptedValue(row_bound=True))
 ```
 
-Each cell then binds to `schema.table.column.<primary key>`, which `derive_row_context` names. A row-bound column requires two things, and says so rather than binding something weaker:
+Each cell then binds to `schema.table.column.<primary key>`, which `derive_row_context` names. A row-bound column requires three things, and says so rather than binding something weaker:
 
+- **A table that names a schema**, directly or through its `MetaData`. Without one, a row's context could read the same as a column's or another row's in a table that names one.
 - **`DeferredDecryptMixin` on the mapped class.** A column type sees only the value it is handed, never the row, so row-bound cells seal as the row is inserted or updated and open through the deferred read path, which has the instance.
 - **A primary key that exists before the insert** — one the application assigns, or one with a client-side default such as `default=uuid.uuid4`. A server-generated key does not exist until after the insert it would have to be written into.
 
 Changing a row's primary key re-seals its row-bound cells under the key it moves to, so the row keeps reading.
 
-Encrypted arrays decrypt on the read path, where no row is in scope, so they bind their column and refuse `row_bound`.
+Encrypted arrays decrypt on the read path, where no row is in scope, so they bind their column and take no `row_bound` argument.
 
 ### Backends
 
@@ -343,7 +367,7 @@ from pydantic_encryption import BaseModel, BlindIndex, BlindIndexMethod
 
 
 class User(BaseModel):
-    email_index: Annotated[bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
+    email_index: Annotated[str | bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
 ```
 
 ### Methods
@@ -358,7 +382,7 @@ class User(BaseModel):
 Normalize values before hashing to ensure consistent lookups:
 
 ```python
-email_index: Annotated[bytes, BlindIndex(
+email_index: Annotated[str | bytes, BlindIndex(
     BlindIndexMethod.HMAC_SHA256,
     normalize_to_lowercase=True,
     strip_whitespace=True,

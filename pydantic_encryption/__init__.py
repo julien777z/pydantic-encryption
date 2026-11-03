@@ -1,3 +1,4 @@
+import importlib
 from typing import TYPE_CHECKING
 
 from pydantic_encryption.adapters.base import BlindIndexAdapter, EncryptionAdapter, HashingAdapter
@@ -55,7 +56,7 @@ LAZY_EXPORTS: dict[str, tuple[str, str]] = {
 }
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> object:
     """Lazy-load optional symbols (SQLAlchemy / AWS) so the package imports without those extras."""
 
     target = LAZY_EXPORTS.get(name)
@@ -63,7 +64,6 @@ def __getattr__(name: str):
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
     module_name, attr = target
-    import importlib
 
     return getattr(importlib.import_module(module_name), attr)
 

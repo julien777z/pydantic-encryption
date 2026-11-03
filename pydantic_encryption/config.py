@@ -1,9 +1,12 @@
-from typing import Self
+import threading
+from typing import Annotated, ClassVar, Self, TypeAlias
 
-from pydantic import PositiveFloat, PositiveInt, model_validator
+from pydantic import Field, PositiveFloat, PositiveInt, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from pydantic_encryption.types import EncryptionMethod
+
+KeyLifetimeSeconds: TypeAlias = Annotated[PositiveFloat, Field(le=threading.TIMEOUT_MAX)]
 
 
 class Settings(BaseSettings):
@@ -20,10 +23,11 @@ class Settings(BaseSettings):
     AWS_KMS_CONNECT_TIMEOUT_SECONDS: PositiveFloat = 2
     AWS_KMS_READ_TIMEOUT_SECONDS: PositiveFloat = 5
     AWS_KMS_MAX_ATTEMPTS: PositiveInt = 2
-    AWS_KMS_DATA_KEY_MAX_AGE_SECONDS: PositiveFloat = 300
+    AWS_KMS_DATA_KEY_MAX_AGE_SECONDS: KeyLifetimeSeconds = 300
     AWS_KMS_DATA_KEY_MAX_USES: PositiveInt = 1000
     AWS_KMS_UNWRAPPED_KEY_CACHE_SIZE: PositiveInt = 512
-    AWS_KMS_UNWRAPPED_KEY_MAX_AGE_SECONDS: PositiveFloat = 300
+    AWS_KMS_UNWRAPPED_KEY_MAX_AGE_SECONDS: KeyLifetimeSeconds = 300
+    AWS_KMS_MAX_IN_FLIGHT_UNWRAPS: PositiveInt = 512
 
     BLIND_INDEX_SECRET_KEY: str | None = None
 
@@ -68,11 +72,11 @@ class Settings(BaseSettings):
 
         return self
 
-    model_config = SettingsConfigDict(
+    model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(
         env_file=[".env.local", ".env"],
         case_sensitive=False,
         extra="ignore",
     )
 
 
-settings = Settings()
+settings: Settings = Settings()
