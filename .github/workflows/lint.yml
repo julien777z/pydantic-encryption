@@ -27,5 +27,8 @@ jobs:
         with:
           post_setup_command: "poetry install --all-extras"
 
+      - name: Check Formatting with Black
+        run: poetry run black --check .
+
       - name: Check Types with Pyright
         run: poetry run pyright
