@@ -1,4 +1,4 @@
-from typing import Final, Protocol
+from typing import Final, Protocol, TypeVar
 
 from pydantic_encryption.lazy import require_optional_dependency
 
@@ -7,6 +7,8 @@ require_optional_dependency("sqlalchemy", "sqlalchemy")
 from sqlalchemy.engine import Dialect
 from sqlalchemy.exc import CompileError
 from sqlalchemy.types import LargeBinary, TypeDecorator, TypeEngine
+
+ColumnValueT = TypeVar("ColumnValueT")
 
 BINARY_LITERAL_TEMPLATES: Final[dict[str, str]] = {
     "postgresql": "decode('{hex}', 'hex')",
@@ -54,4 +56,16 @@ class BinaryStorage(TypeDecorator[bytes]):
         return self.impl_instance.python_type
 
 
-__all__ = ["BinaryStorage"]
+class BinaryColumnType(TypeDecorator[ColumnValueT]):
+    """Column type that stores what it processes as binary, through ``BinaryStorage``."""
+
+    impl = BinaryStorage
+
+    @property
+    def python_type(self) -> type[object]:
+        """Return the Python type the column's storage holds."""
+
+        return self.impl_instance.python_type
+
+
+__all__ = ["BinaryColumnType", "BinaryStorage"]

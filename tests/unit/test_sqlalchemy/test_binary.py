@@ -1,17 +1,26 @@
+import warnings
+
 import pytest
 from argon2 import PasswordHasher
 from sqlalchemy import insert, literal, select, text
 from sqlalchemy.dialects import mssql, mysql, oracle, postgresql, sqlite
 from sqlalchemy.engine import Dialect
 from sqlalchemy.engine.default import DefaultDialect
-from sqlalchemy.exc import CompileError
+from sqlalchemy.exc import CompileError, SAWarning
 from sqlalchemy.orm import Session
+from sqlalchemy.types import TypeDecorator
 
 from pydantic_encryption.integrations.sqlalchemy.binary import BinaryStorage
+from pydantic_encryption.integrations.sqlalchemy.blind_index import SQLAlchemyBlindIndexValue
+from pydantic_encryption.integrations.sqlalchemy.encryption import (
+    SQLAlchemyEncryptedValue,
+    SQLAlchemyPGEncryptedArray,
+)
+from pydantic_encryption.integrations.sqlalchemy.hashing import SQLAlchemyHashedValue
+from pydantic_encryption.types import BlindIndexMethod
 from tests.factories import User
 from tests.unit.test_sqlalchemy.tables import LiteralRecord
 from tests.unit.test_sqlalchemy.utils import column_type_of
-from pydantic_encryption.integrations.sqlalchemy.blind_index import SQLAlchemyBlindIndexValue
 
 
 class TestBinaryLiteral:
@@ -46,7 +55,7 @@ class TestBinaryLiteral:
         assert "00ff" not in str(refusal.value)
 
     def test_literal_round_trip(self, sqlite_session: Session, user: User):
-        """Test that each column type written and queried through literal SQL reads back as bound SQL would."""
+        """Test that each column type written and queried through literal SQL reads back as bound SQL."""
 
         dialect = sqlite_session.get_bind().dialect
         email_index_type = column_type_of(LiteralRecord.__table__.c.email_index, SQLAlchemyBlindIndexValue)
@@ -69,3 +78,21 @@ class TestBinaryLiteral:
         assert record.password is not None
         assert PasswordHasher().verify(record.password.decode("utf-8"), user.last_name)
         assert record.email_index == email_index_type.compute_blind_index(user.username)
+
+    @pytest.mark.parametrize(
+        "column_type",
+        [
+            SQLAlchemyEncryptedValue("tests.records.secret"),
+            SQLAlchemyPGEncryptedArray("tests.records.tags"),
+            SQLAlchemyHashedValue(),
+            SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256),
+        ],
+        ids=["encrypted", "encrypted-array", "hashed", "blind-index"],
+    )
+    def test_column_type_produces_cache_key(self, column_type: TypeDecorator[object]):
+        """Test that every binary column type is safe to cache, so statements using it are cached."""
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", SAWarning)
+
+            assert column_type._static_cache_key

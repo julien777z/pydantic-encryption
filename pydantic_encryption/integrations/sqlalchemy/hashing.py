@@ -3,18 +3,16 @@ from pydantic_encryption.lazy import require_optional_dependency
 require_optional_dependency("sqlalchemy", "sqlalchemy")
 
 from sqlalchemy.engine import Dialect
-from sqlalchemy.types import TypeDecorator, TypeEngine
 
 from pydantic_encryption.adapters.hashing.argon2 import Argon2Adapter
 from pydantic_encryption.integrations.sqlalchemy.async_bridge import run_async_or_sync
-from pydantic_encryption.integrations.sqlalchemy.binary import BinaryStorage
+from pydantic_encryption.integrations.sqlalchemy.binary import BinaryColumnType
 from pydantic_encryption.types import HashedValue
 
 
-class SQLAlchemyHashedValue(TypeDecorator[str | bytes]):
+class SQLAlchemyHashedValue(BinaryColumnType[str | bytes]):
     """SQLAlchemy column type that Argon2-hashes strings on write."""
 
-    impl: TypeEngine[bytes] | type[TypeEngine[bytes]] = BinaryStorage
     cache_ok: bool | None = True
 
     def hash(self, value: str | bytes) -> HashedValue:
@@ -37,9 +35,3 @@ class SQLAlchemyHashedValue(TypeDecorator[str | bytes]):
             return None
 
         return HashedValue(value)
-
-    @property
-    def python_type(self) -> type[bytes]:
-        """Return the Python type this column is bound to."""
-
-        return self.impl_instance.python_type

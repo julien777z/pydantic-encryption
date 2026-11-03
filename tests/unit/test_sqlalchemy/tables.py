@@ -16,71 +16,76 @@ from tests.factories import User
 from tests.unit.test_sqlalchemy.utils import encrypt_through_column
 
 
-class AutoDecryptBase(DeclarativeBase):
-    """Isolated declarative base for on-access decrypt session-level tests."""
+class RecordBase(DeclarativeBase):
+    """Declarative base for every table the unit suite creates in SQLite."""
 
 
-class AutoDecryptUser(AutoDecryptBase, DeferredDecryptMixin):
-    """Mapped class with a string-typed deferred encrypted column."""
+class Organization(RecordBase, DeferredDecryptMixin):
+    """Parent row holding a plain column, an encrypted column and its members."""
 
-    __tablename__ = "_auto_decrypt_user"
+    __tablename__ = "organizations"
 
-    id: Mapped[int] = mapped_column(primary_key=True)
-    email: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
-
-
-class AutoDecryptBlob(AutoDecryptBase, DeferredDecryptMixin):
-    """Mapped class with a bytes-typed deferred encrypted column to test idempotency."""
-
-    __tablename__ = "_auto_decrypt_blob"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    payload: Mapped[bytes | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str | None] = mapped_column(String, nullable=True, default=None)
+    secret: Mapped[bytes | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
+    members: Mapped[list["Member"]] = relationship(back_populates="organization")
 
 
-class FinalizeBase(DeclarativeBase):
-    """Isolated declarative base for finalize_sqlalchemy_session tests."""
+class Member(RecordBase, DeferredDecryptMixin):
+    """Child row with two deferred encrypted columns, reached through its organization."""
 
+    __tablename__ = "members"
 
-class FinalizeUser(FinalizeBase, DeferredDecryptMixin):
-    """Mapped class with one deferred encrypted column."""
-
-    __tablename__ = "_finalize_user"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    email: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
-
-
-class OnAccessBase(DeclarativeBase):
-    """Isolated declarative base for on-access decrypt unit tests."""
-
-
-class OnAccessRow(OnAccessBase, DeferredDecryptMixin):
-    """Two encrypted columns to verify per-column batching and scoped decrypts."""
-
-    __tablename__ = "_on_access_row"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    organization_id: Mapped[int | None] = mapped_column(
+        ForeignKey("organizations.id"), nullable=True, default=None
+    )
     first_name: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
     last_name: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
+    organization: Mapped[Organization | None] = relationship(back_populates="members")
+
+    @classmethod
+    def sealed(cls, first_name: str | None, last_name: str | None, **kwargs: object) -> Self:
+        """Build a row whose cells hold the given names encrypted under their own columns."""
+
+        return cls(
+            first_name=(
+                None if first_name is None else encrypt_through_column(cls.__table__.c.first_name, first_name)
+            ),
+            last_name=(
+                None if last_name is None else encrypt_through_column(cls.__table__.c.last_name, last_name)
+            ),
+            **kwargs,
+        )
 
     @classmethod
     def from_user(cls, user: User) -> Self:
         """Build a row holding a user's names encrypted."""
 
-        return cls(
-            id=user.id,
-            first_name=encrypt_through_column(cls.__table__.c.first_name, user.first_name),
-            last_name=encrypt_through_column(cls.__table__.c.last_name, user.last_name),
-        )
+        return cls.sealed(user.first_name, user.last_name, id=user.id)
 
 
-class OnAccessBytesRow(OnAccessBase, DeferredDecryptMixin):
-    """Bytes-typed encrypted column for coverage of the same descriptor install path."""
+class SecretRow(RecordBase, DeferredDecryptMixin):
+    """Row on the deferred read path with one text column bound to its column."""
 
-    __tablename__ = "_on_access_bytes_row"
+    __tablename__ = "secret_rows"
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    secret: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
+
+    @classmethod
+    def sealed(cls, secret: str, **kwargs: object) -> Self:
+        """Build a row holding a secret encrypted under its column."""
+
+        return cls(secret=encrypt_through_column(cls.__table__.c.secret, secret), **kwargs)
+
+
+class PayloadRow(RecordBase, DeferredDecryptMixin):
+    """Row on the deferred read path with one bytes column."""
+
+    __tablename__ = "payload_rows"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
     payload: Mapped[bytes | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
 
     @classmethod
@@ -90,12 +95,28 @@ class OnAccessBytesRow(OnAccessBase, DeferredDecryptMixin):
         return cls(id=user.id, payload=encrypt_through_column(cls.__table__.c.payload, user.payload))
 
 
-class RowBoundBase(DeclarativeBase):
-    """Isolated declarative base for the row-binding tests."""
+class PlainSecretRow(RecordBase):
+    """Row outside the deferred read path, whose encrypted column decrypts as it loads."""
+
+    __tablename__ = "plain_secret_rows"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    secret: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
 
 
-class RowBoundRecord(RowBoundBase, DeferredDecryptMixin):
-    """Mapped class whose encrypted column binds each row separately."""
+class RenamedColumnRow(RecordBase, DeferredDecryptMixin):
+    """Row whose encrypted attribute is stored under a different column name."""
+
+    __tablename__ = "renamed_column_rows"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    secret: Mapped[str | None] = mapped_column(
+        "stored_secret", SQLAlchemyEncryptedValue(), nullable=True, default=None
+    )
+
+
+class RowBoundRecord(RecordBase, DeferredDecryptMixin):
+    """Row whose encrypted column binds each row separately."""
 
     __tablename__ = "row_bound_records"
 
@@ -106,8 +127,8 @@ class RowBoundRecord(RowBoundBase, DeferredDecryptMixin):
     )
 
 
-class ExpressionKeyedRow(RowBoundBase, DeferredDecryptMixin):
-    """Mapped class whose primary key defaults to an expression the database evaluates."""
+class ExpressionKeyedRow(RecordBase, DeferredDecryptMixin):
+    """Row-bound row whose primary key defaults to an expression the database evaluates."""
 
     __tablename__ = "expression_keyed_rows"
 
@@ -117,8 +138,8 @@ class ExpressionKeyedRow(RowBoundBase, DeferredDecryptMixin):
     )
 
 
-class ServerKeyedRow(RowBoundBase, DeferredDecryptMixin):
-    """Mapped class whose primary key does not exist until its insert returns."""
+class ServerKeyedRow(RecordBase, DeferredDecryptMixin):
+    """Row-bound row whose primary key does not exist until its insert returns."""
 
     __tablename__ = "server_keyed_rows"
 
@@ -128,8 +149,8 @@ class ServerKeyedRow(RowBoundBase, DeferredDecryptMixin):
     )
 
 
-class UndeferredRow(RowBoundBase):
-    """Mapped class that binds each row but never mixes in the deferred read path."""
+class UndeferredRow(RecordBase):
+    """Row-bound row that never mixes in the deferred read path."""
 
     __tablename__ = "undeferred_rows"
 
@@ -139,17 +160,37 @@ class UndeferredRow(RowBoundBase):
     )
 
 
-class ColumnBoundRow(RowBoundBase, DeferredDecryptMixin):
-    """Mapped class on the deferred read path whose encrypted column binds its column only."""
+class LiteralRecord(RecordBase):
+    """Row holding one column of every scalar binary column type."""
 
-    __tablename__ = "column_bound_rows"
+    __tablename__ = "literal_records"
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    secret: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    secret: Mapped[bytes | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
+    password: Mapped[bytes | None] = mapped_column(SQLAlchemyHashedValue(), nullable=True, default=None)
+    email_index: Mapped[bytes | None] = mapped_column(
+        SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256), nullable=True, default=None
+    )
+
+
+class UnmappedRow:
+    """Object standing in for a row loaded outside the ORM."""
+
+    def __init__(self, secret: str | None = None) -> None:
+        self.secret = secret
 
 
 class ContextBase(DeclarativeBase):
-    """Isolated declarative base for the context-derivation tests."""
+    """Declarative base for tables SQLite cannot create, which only derive contexts."""
+
+
+class ArrayRow(ContextBase):
+    """Table with an encrypted array column, which SQLite cannot store."""
+
+    __tablename__ = "array_rows"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tags: Mapped[list[str] | None] = mapped_column(SQLAlchemyPGEncryptedArray(), nullable=True, default=None)
 
 
 class SecretMixin:
@@ -162,7 +203,7 @@ class SecretMixin:
 
 
 class ContextUser(ContextBase, SecretMixin):
-    """Table carrying the mixin column plus columns of its own."""
+    """Table carrying the mixin columns plus columns of its own."""
 
     __tablename__ = "context_users"
 
@@ -175,7 +216,7 @@ class ContextUser(ContextBase, SecretMixin):
 
 
 class ContextRecord(ContextBase, SecretMixin):
-    """Second table carrying the same mixin column."""
+    """Second table carrying the same mixin columns."""
 
     __tablename__ = "context_records"
 
@@ -201,121 +242,3 @@ class PublicEntry(ContextBase):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     note: Mapped[bytes | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
-
-
-class LiteralBase(DeclarativeBase):
-    """Isolated declarative base for the literal-rendering tests."""
-
-
-class LiteralRecord(LiteralBase):
-    """Mapped class holding one column of every scalar binary column type."""
-
-    __tablename__ = "literal_records"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    secret: Mapped[bytes | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
-    password: Mapped[bytes | None] = mapped_column(SQLAlchemyHashedValue(), nullable=True, default=None)
-    email_index: Mapped[bytes | None] = mapped_column(
-        SQLAlchemyBlindIndexValue(BlindIndexMethod.HMAC_SHA256), nullable=True, default=None
-    )
-
-
-class DescriptorBase(DeclarativeBase):
-    """Isolated declarative base for the descriptor-installation tests."""
-
-
-class MixedColumns(DescriptorBase, DeferredDecryptMixin):
-    """Mapped class carrying one encrypted column beside one that is not."""
-
-    __tablename__ = "mixed_columns"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    name: Mapped[str | None] = mapped_column(String, nullable=True, default=None)
-    secret: Mapped[bytes | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
-
-
-class RenamedColumnRow(DescriptorBase, DeferredDecryptMixin):
-    """Mapped class whose encrypted attribute is stored under a different column name."""
-
-    __tablename__ = "renamed_column_rows"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    secret: Mapped[str | None] = mapped_column(
-        "stored_secret", SQLAlchemyEncryptedValue(), nullable=True, default=None
-    )
-
-
-class DeferBase(DeclarativeBase):
-    """Isolated declarative base for mixin auto-defer tests."""
-
-
-class DeferMixed(DeferBase, DeferredDecryptMixin):
-    """Mapped class that inherits DeferredDecryptMixin."""
-
-    __tablename__ = "_defer_mixed"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    secret: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
-
-
-class DeferPlain(DeferBase):
-    """Mapped class that does NOT inherit DeferredDecryptMixin."""
-
-    __tablename__ = "_defer_plain"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    secret: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
-
-
-class DeferPair(DeferBase, DeferredDecryptMixin):
-    """Mapped class with two encrypted columns for the row-level bulk helpers."""
-
-    __tablename__ = "_defer_pair"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    email: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
-    secret: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
-
-    @classmethod
-    def from_plaintext(cls, email: str | None, secret: str | None) -> Self:
-        """Build a row whose cells hold the given values encrypted under their own columns."""
-
-        return cls(
-            email=None if email is None else encrypt_through_column(cls.__table__.c.email, email),
-            secret=None if secret is None else encrypt_through_column(cls.__table__.c.secret, secret),
-        )
-
-
-class ArrayRow(DeferBase):
-    """Mapped class with an encrypted array column."""
-
-    __tablename__ = "_array_row"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    tags: Mapped[list[str] | None] = mapped_column(SQLAlchemyPGEncryptedArray(), nullable=True, default=None)
-
-
-class BulkBase(DeclarativeBase):
-    """Isolated declarative base for DeferredDecryptMixin tests."""
-
-
-class BulkOrg(BulkBase, DeferredDecryptMixin):
-    """Test ORM parent with no encrypted columns."""
-
-    __tablename__ = "_bulk_test_org"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str | None] = mapped_column(nullable=True, default=None)
-    members: Mapped[list["BulkMember"]] = relationship(back_populates="org")
-
-
-class BulkMember(BulkBase, DeferredDecryptMixin):
-    """Test ORM child with deferred encrypted columns."""
-
-    __tablename__ = "_bulk_test_member"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    org_id: Mapped[int | None] = mapped_column(ForeignKey("_bulk_test_org.id"), nullable=True, default=None)
-    first_name: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
-    last_name: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(), nullable=True, default=None)
-    org: Mapped["BulkOrg | None"] = relationship(back_populates="members")

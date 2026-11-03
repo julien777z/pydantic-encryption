@@ -3,13 +3,11 @@ from pydantic_encryption.lazy import require_optional_dependency
 require_optional_dependency("sqlalchemy", "sqlalchemy")
 
 from sqlalchemy.engine import Dialect
-from sqlalchemy.types import TypeDecorator, TypeEngine
 
-from pydantic_encryption.adapters.blind_index import make_blind_index
+from pydantic_encryption.adapters.blind_index.factory import make_blind_index, resolve_blind_index_key
 from pydantic_encryption.adapters.registry import get_blind_index_backend
-from pydantic_encryption.config import settings
 from pydantic_encryption.integrations.sqlalchemy.async_bridge import run_async_or_sync
-from pydantic_encryption.integrations.sqlalchemy.binary import BinaryStorage
+from pydantic_encryption.integrations.sqlalchemy.binary import BinaryColumnType
 from pydantic_encryption.normalization import (
     NormalizationFlags,
     normalize_value,
@@ -18,10 +16,9 @@ from pydantic_encryption.normalization import (
 from pydantic_encryption.types import BlindIndexMethod, BlindIndexValue
 
 
-class SQLAlchemyBlindIndexValue(TypeDecorator[str | bytes]):
+class SQLAlchemyBlindIndexValue(BinaryColumnType[str | bytes]):
     """SQLAlchemy column type that stores a deterministic blind index."""
 
-    impl: TypeEngine[bytes] | type[TypeEngine[bytes]] = BinaryStorage
     cache_ok: bool | None = True
 
     def __init__(
@@ -59,14 +56,6 @@ class SQLAlchemyBlindIndexValue(TypeDecorator[str | bytes]):
             normalize_to_uppercase=self.normalize_to_uppercase,
         )
 
-    def key_bytes(self) -> bytes:
-        """Return the configured BLIND_INDEX_SECRET_KEY as utf-8 bytes."""
-
-        if settings.BLIND_INDEX_SECRET_KEY is None:
-            raise ValueError("BLIND_INDEX_SECRET_KEY must be set to use SQLAlchemyBlindIndexValue.")
-
-        return settings.BLIND_INDEX_SECRET_KEY.encode("utf-8")
-
     def normalize(self, value: str | bytes) -> str | bytes:
         """Apply the configured normalization flags. Bytes values pass through unchanged."""
 
@@ -78,7 +67,7 @@ class SQLAlchemyBlindIndexValue(TypeDecorator[str | bytes]):
     def compute_blind_index(self, value: str | bytes) -> bytes:
         """Compute a deterministic blind index for the given value."""
 
-        key = self.key_bytes()
+        key = resolve_blind_index_key(None)
         value = self.normalize(value)
         backend = get_blind_index_backend(self.method)
 
@@ -119,9 +108,3 @@ class SQLAlchemyBlindIndexValue(TypeDecorator[str | bytes]):
             return None
 
         return BlindIndexValue(value)
-
-    @property
-    def python_type(self) -> type[bytes]:
-        """Return the Python type this column is bound to."""
-
-        return self.impl_instance.python_type

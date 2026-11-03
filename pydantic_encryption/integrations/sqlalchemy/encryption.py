@@ -1,21 +1,23 @@
 from collections.abc import Sequence
-from typing import Self, TypeVar, overload
+from typing import Self, overload
 
 from pydantic_encryption.lazy import require_optional_dependency
 
 require_optional_dependency("sqlalchemy", "sqlalchemy")
 
 from sqlalchemy import Column, Table, util
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.engine import Dialect
 from sqlalchemy.sql.base import SchemaEventTarget
-from sqlalchemy.types import ARRAY, TypeDecorator, TypeEngine
+from sqlalchemy.sql.elements import ColumnElement
+from sqlalchemy.types import ARRAY, TypeEngine
 
-from pydantic_encryption.adapters.base import EncryptionAdapter, encode_text
-from pydantic_encryption.adapters.registry import get_encryption_backend
-from pydantic_encryption.config import settings
+from pydantic_encryption.adapters.base import encode_text
+from pydantic_encryption.adapters.registry import configured_encryption_backend
 from pydantic_encryption.context import append_row_key, derive_column_context
 from pydantic_encryption.integrations.sqlalchemy.async_bridge import run_async_or_sync
-from pydantic_encryption.integrations.sqlalchemy.binary import BinaryStorage
+from pydantic_encryption.integrations.sqlalchemy.binary import BinaryColumnType, BinaryStorage, ColumnValueT
+from pydantic_encryption.integrations.sqlalchemy.state import row_key
 from pydantic_encryption.serialization import (
     EncryptableValue,
     decode_value,
@@ -23,19 +25,14 @@ from pydantic_encryption.serialization import (
 )
 from pydantic_encryption.types import EncryptedValue
 
-ColumnValueT = TypeVar("ColumnValueT")
 
-
-class ContextBoundType(TypeDecorator[ColumnValueT]):
+class ContextBoundType(BinaryColumnType[ColumnValueT]):
     """Column type that binds its ciphertexts to the table and column it is attached to."""
 
-    def __init__(
-        self, context: str | bytes | None = None, row_bound: bool = False, *args: object, **kwargs: object
-    ) -> None:
+    def __init__(self, context: str | bytes | None = None, *args: object, **kwargs: object) -> None:
         super().__init__(*args, **kwargs)
         self.declared_context: bytes | None = encode_text(context) if context is not None else None
         self.context: bytes | None = self.declared_context
-        self.row_bound: bool = row_bound
         self.bound_column: str | None = None
 
     def _set_parent(self, parent: SchemaEventTarget, outer: bool = False, **kw: object) -> None:
@@ -44,9 +41,9 @@ class ContextBoundType(TypeDecorator[ColumnValueT]):
         super()._set_parent(parent, outer=outer, **kw)
 
         assert isinstance(parent, Column)
-        parent._on_table_attach(util.portable_instancemethod(self._set_table))
+        parent._on_table_attach(util.portable_instancemethod(self.bind_table))
 
-    def _set_table(self, column: Column[ColumnValueT], table: Table) -> None:
+    def bind_table(self, column: Column[ColumnValueT], table: Table) -> None:
         """Derive the context from the column this type is attached to, unless one was declared."""
 
         attached = f"{table.fullname}.{column.name}"
@@ -58,6 +55,7 @@ class ContextBoundType(TypeDecorator[ColumnValueT]):
             )
 
         self.bound_column = attached
+
         if self.declared_context is None:
             self.context = derive_column_context(table.name, column.name, schema=table.schema)
             self.__dict__.pop("_static_cache_key", None)
@@ -83,7 +81,30 @@ class ContextBoundType(TypeDecorator[ColumnValueT]):
         return self.context
 
     def bound_context(self) -> bytes:
-        """Return the context a cell of this column binds its ciphertext to."""
+        """Return the context every cell of this column binds its ciphertext to."""
+
+        return self.column_context()
+
+    def context_for(self, row: object) -> bytes:
+        """Return the context the given row's cell in this column binds its ciphertext to."""
+
+        return self.bound_context()
+
+
+class SQLAlchemyEncryptedValue(ContextBoundType[EncryptableValue]):
+    """SQLAlchemy column type that encrypts on write and decrypts on read, binding cells to ``context``."""
+
+    cache_ok: bool | None = True
+    deferred: bool = False
+
+    def __init__(
+        self, context: str | bytes | None = None, row_bound: bool = False, *args: object, **kwargs: object
+    ) -> None:
+        super().__init__(context, *args, **kwargs)
+        self.row_bound: bool = row_bound
+
+    def bound_context(self) -> bytes:
+        """Return the context every cell of this column binds to, refusing where each row binds its own."""
 
         if self.row_bound:
             raise ValueError(
@@ -91,29 +112,20 @@ class ContextBoundType(TypeDecorator[ColumnValueT]):
                 "Mix DeferredDecryptMixin into the mapped class so reads and writes carry the row."
             )
 
-        return self.column_context()
+        return super().bound_context()
 
     def cell_context(self, *row_key: str) -> bytes:
         """Return the context the named row's cell in this column binds its ciphertext to."""
 
         return append_row_key(self.column_context(), *row_key)
 
+    def context_for(self, row: object) -> bytes:
+        """Return the context the given row's cell binds to: its own row's where the column is row-bound."""
 
-class SQLAlchemyEncryptedValue(ContextBoundType[EncryptableValue]):
-    """SQLAlchemy column type that encrypts on write and decrypts on read, binding cells to ``context``."""
+        if self.row_bound:
+            return self.cell_context(*row_key(sa_inspect(type(row), raiseerr=True), row))
 
-    impl: TypeEngine[bytes] | type[TypeEngine[bytes]] = BinaryStorage
-    cache_ok: bool | None = True
-    _deferred: bool = False
-
-    @staticmethod
-    def backend() -> type[EncryptionAdapter]:
-        """Return the configured encryption backend, raising if ENCRYPTION_METHOD is unset."""
-
-        if settings.ENCRYPTION_METHOD is None:
-            raise ValueError("ENCRYPTION_METHOD must be set to use SQLAlchemyEncryptedValue.")
-
-        return get_encryption_backend(settings.ENCRYPTION_METHOD)
+        return self.bound_context()
 
     @overload
     def encrypt_cell(self, value: None, *, context: bytes | None = None) -> None: ...
@@ -121,10 +133,9 @@ class SQLAlchemyEncryptedValue(ContextBoundType[EncryptableValue]):
     @overload
     def encrypt_cell(self, value: EncryptableValue, *, context: bytes | None = None) -> EncryptedValue: ...
 
-    @overload
-    def encrypt_cell(self, value: object, *, context: bytes | None = None) -> EncryptedValue | None: ...
-
-    def encrypt_cell(self, value: object, *, context: bytes | None = None) -> EncryptedValue | None:
+    def encrypt_cell(
+        self, value: EncryptableValue | None, *, context: bytes | None = None
+    ) -> EncryptedValue | None:
         """Encode + encrypt a single value, passing pre-encrypted values through."""
 
         if value is None:
@@ -132,7 +143,7 @@ class SQLAlchemyEncryptedValue(ContextBoundType[EncryptableValue]):
         if isinstance(value, EncryptedValue):
             return value
 
-        backend = self.backend()
+        backend = configured_encryption_backend()
 
         return run_async_or_sync(
             backend.async_encrypt,
@@ -153,7 +164,7 @@ class SQLAlchemyEncryptedValue(ContextBoundType[EncryptableValue]):
         if value is None:
             return None
 
-        backend = self.backend()
+        backend = configured_encryption_backend()
 
         return run_async_or_sync(
             backend.async_decrypt,
@@ -173,47 +184,33 @@ class SQLAlchemyEncryptedValue(ContextBoundType[EncryptableValue]):
         if value is None:
             return None
 
-        if self._deferred:
+        if self.deferred:
             return EncryptedValue(value)
 
         return decode_value(self.decrypt_cell(value))
-
-    @property
-    def python_type(self) -> type[bytes]:
-        """Return the Python type this column is bound to."""
-
-        return self.impl_instance.python_type
 
 
 class SQLAlchemyPGEncryptedArray(ContextBoundType[list[EncryptableValue | None]]):
     """SQLAlchemy column type that encrypts each element of a PostgreSQL array under ``context``."""
 
-    impl: TypeEngine[Sequence[bytes]] | type[TypeEngine[Sequence[bytes]]] = ARRAY(BinaryStorage())
     cache_ok: bool | None = True
+    impl: TypeEngine[Sequence[bytes]] | type[TypeEngine[Sequence[bytes]]] = ARRAY(BinaryStorage())
 
-    def __init__(
-        self, context: str | bytes | None = None, row_bound: bool = False, *args: object, **kwargs: object
-    ) -> None:
-        super().__init__(context, row_bound, *args, **kwargs)
-        self._element_type: SQLAlchemyEncryptedValue = SQLAlchemyEncryptedValue(context)
+    def __init__(self, context: str | bytes | None = None, *args: object, **kwargs: object) -> None:
+        super().__init__(context, *args, **kwargs)
+        self.element_type: SQLAlchemyEncryptedValue = SQLAlchemyEncryptedValue(context)
 
-        if self.row_bound:
-            raise ValueError(
-                "An encrypted array cannot bind its elements to a row: its cells decrypt on the "
-                "read path, where no row is in scope."
-            )
-
-    def _set_table(self, column: Column[list[EncryptableValue | None]], table: Table) -> None:
+    def bind_table(self, column: Column[list[EncryptableValue | None]], table: Table) -> None:
         """Bind every element of this array to the context the column itself is bound to."""
 
-        super()._set_table(column, table)
-        self._element_type.context = self.context
+        super().bind_table(column, table)
+        self.element_type.context = self.context
 
     def copy(self, **kw: object) -> Self:
         """Copy this type with an element type of its own, so each column derives its own context."""
 
         duplicate = super().copy(**kw)
-        duplicate._element_type = self._element_type.copy()
+        duplicate.element_type = self.element_type.copy()
 
         return duplicate
 
@@ -225,7 +222,7 @@ class SQLAlchemyPGEncryptedArray(ContextBoundType[list[EncryptableValue | None]]
         if value is None:
             return None
 
-        return [self._element_type.encrypt_cell(element) for element in value]
+        return [self.element_type.encrypt_cell(element) for element in value]
 
     def process_result_value(
         self, value: list[bytes | None] | None, dialect: Dialect
@@ -236,12 +233,16 @@ class SQLAlchemyPGEncryptedArray(ContextBoundType[list[EncryptableValue | None]]
             return None
 
         return [
-            None if element is None else decode_value(self._element_type.decrypt_cell(element))
+            None if element is None else decode_value(self.element_type.decrypt_cell(element))
             for element in value
         ]
 
-    @property
-    def python_type(self) -> type[list[EncryptableValue | None]]:
-        """Return the Python type this column is bound to."""
 
-        return list
+def encrypted_column_type(column: ColumnElement[object]) -> ContextBoundType[object]:
+    """Return the encrypted type of a column, refusing a column that does not encrypt its values."""
+
+    column_type = column.type
+    if not isinstance(column_type, ContextBoundType):
+        raise ValueError(f"Column {column.key!r} does not encrypt its values, so it binds no context.")
+
+    return column_type

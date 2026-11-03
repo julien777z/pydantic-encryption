@@ -11,16 +11,15 @@ from sqlalchemy import Connection, event
 from sqlalchemy.orm import Mapper, QueryContext
 from sqlalchemy.orm.attributes import get_history
 
+from pydantic_encryption.integrations.sqlalchemy.bulk import bulk_decrypt_entities
+from pydantic_encryption.integrations.sqlalchemy.descriptor import DecryptOnAccessDescriptor
+from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue
 from pydantic_encryption.integrations.sqlalchemy.state import (
     PENDING_DECRYPT_KEY,
     MappedT,
     read_raw_cell,
-    row_key,
 )
-from pydantic_encryption.integrations.sqlalchemy.bulk import bulk_decrypt_entities
-from pydantic_encryption.integrations.sqlalchemy.descriptor import DecryptOnAccessDescriptor
-from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue
-from pydantic_encryption.serialization import decode_value
+from pydantic_encryption.serialization import decode_value, require_encryptable
 from pydantic_encryption.types import EncryptedValue
 
 
@@ -31,9 +30,9 @@ def install_descriptors(mapper: Mapper[MappedT], class_: type[MappedT]) -> None:
         if not isinstance(column.type, SQLAlchemyEncryptedValue):
             continue
 
-        if not column.type._deferred:
+        if not column.type.deferred:
             column.type = column.type.copy()
-            column.type._deferred = True
+            column.type.deferred = True
 
         if isinstance(class_.__dict__.get(attribute), DecryptOnAccessDescriptor):
             continue
@@ -50,16 +49,8 @@ def assign_client_side_primary_key(mapper: Mapper[MappedT], target: MappedT) -> 
             continue
 
         default = column.default
-        if default is None or default.is_sequence:
+        if default is None or default.is_sequence or default.is_clause_element:
             continue
-
-        if default.is_clause_element:
-            raise ValueError(
-                f"Primary key {mapper.class_.__name__}.{column.key} defaults to a SQL expression the "
-                "database evaluates, so its value does not exist until after the insert a row-bound "
-                "cell would have to name. Assign the key in the application, or default it to a "
-                "Python value or callable."
-            )
 
         setattr(target, attribute, default.arg(None) if default.is_callable else default.arg)
 
@@ -72,6 +63,7 @@ def replaced_row_key(mapper: Mapper[MappedT], target: MappedT) -> list[str] | No
     for column in mapper.primary_key:
         attribute = mapper.get_property_by_column(column).key
         history = get_history(target, attribute)
+
         if history.deleted:
             replaced.append(str(history.deleted[0]))
             moved = True
@@ -94,7 +86,6 @@ def encrypt_row_bound_cells(mapper: Mapper[MappedT], connection: Connection, tar
         return
 
     assign_client_side_primary_key(mapper, target)
-    cell_key = row_key(mapper, target)
     replaced_key = replaced_row_key(mapper, target)
 
     for attribute, column_type in columns:
@@ -106,14 +97,14 @@ def encrypt_row_bound_cells(mapper: Mapper[MappedT], connection: Connection, tar
             if replaced_key is None:
                 continue
 
-            value = decode_value(
+            plaintext = decode_value(
                 column_type.decrypt_cell(value, context=column_type.cell_context(*replaced_key))
             )
+        else:
+            plaintext = require_encryptable(value)
 
         setattr(
-            target,
-            attribute,
-            column_type.encrypt_cell(value, context=column_type.cell_context(*cell_key)),
+            target, attribute, column_type.encrypt_cell(plaintext, context=column_type.context_for(target))
         )
 
 
