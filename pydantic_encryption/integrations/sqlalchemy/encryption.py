@@ -12,9 +12,8 @@ from sqlalchemy.sql.base import SchemaEventTarget
 from sqlalchemy.sql.elements import ColumnElement
 from sqlalchemy.types import ARRAY, TypeEngine
 
-from pydantic_encryption.adapters.base import encode_text
 from pydantic_encryption.adapters.registry import configured_encryption_backend
-from pydantic_encryption.context import append_row_key, derive_column_context
+from pydantic_encryption.context import append_row_key, derive_column_context, derive_declared_context
 from pydantic_encryption.integrations.sqlalchemy.async_bridge import run_async_or_sync
 from pydantic_encryption.integrations.sqlalchemy.binary import BinaryColumnType, BinaryStorage, ColumnValueT
 from pydantic_encryption.integrations.sqlalchemy.state import row_key
@@ -31,7 +30,9 @@ class ContextBoundType(BinaryColumnType[ColumnValueT]):
 
     def __init__(self, context: str | bytes | None = None, *args: object, **kwargs: object) -> None:
         super().__init__(*args, **kwargs)
-        self.declared_context: bytes | None = encode_text(context) if context is not None else None
+        self.declared_context: bytes | None = (
+            derive_declared_context(context) if context is not None else None
+        )
         self.context: bytes | None = self.declared_context
         self.bound_column: str | None = None
 

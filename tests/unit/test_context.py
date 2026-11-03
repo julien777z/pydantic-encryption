@@ -2,27 +2,34 @@ from collections.abc import Callable
 
 import pytest
 
-from pydantic_encryption.context import derive_column_context, derive_field_context, derive_row_context
+from pydantic_encryption.context import (
+    derive_column_context,
+    derive_declared_context,
+    derive_field_context,
+    derive_row_context,
+)
 
 
 class TestContext:
-    """Test the rules that name the context a column, a row's cell or a model field binds to."""
+    """Test the rules that name the context a column, a row's cell, a model field or a declared name binds to."""
 
     @pytest.mark.parametrize(
         ("derive", "args", "kwargs", "expected"),
         [
-            (derive_column_context, ("users", "email"), {}, b"users.email"),
-            (derive_column_context, ("users", "email"), {"schema": None}, b"users.email"),
-            (derive_column_context, ("users", "email"), {"schema": "archive"}, b"archive.users.email"),
-            (derive_row_context, ("users", "email", "42"), {"schema": "archive"}, b"archive.users.email.42"),
+            (derive_column_context, ("records", "secret"), {}, b"records.secret"),
+            (derive_column_context, ("records", "secret"), {"schema": None}, b"records.secret"),
+            (derive_column_context, ("records", "secret"), {"schema": "left"}, b"left.records.secret"),
+            (derive_row_context, ("records", "secret", "42"), {"schema": "left"}, b"left.records.secret.42"),
             (derive_field_context, ("app", "Record", "secret"), {}, b"\\field.app.Record.secret"),
+            (derive_declared_context, ("records.draft",), {}, b"\\declared.records\\.draft"),
+            (derive_declared_context, (b"records.draft",), {}, b"\\declared.records\\.draft"),
         ],
-        ids=["column", "column-no-schema", "column-schema", "row", "field"],
+        ids=["column", "column-no-schema", "column-schema", "row", "field", "declared", "declared-bytes"],
     )
     def test_derived_context(
         self,
         derive: Callable[..., bytes],
-        args: tuple[str, ...],
+        args: tuple[str | bytes, ...],
         kwargs: dict[str, str | None],
         expected: bytes,
     ):
@@ -34,12 +41,12 @@ class TestContext:
         ("left", "right"),
         [
             (
-                derive_column_context("entries", "note", schema="archive"),
-                derive_column_context("entries", "note", schema="public"),
+                derive_column_context("entries", "note", schema="left"),
+                derive_column_context("entries", "note", schema="right"),
             ),
             (
-                derive_row_context("users", "email", "1", schema="app"),
-                derive_row_context("users", "email", "2", schema="app"),
+                derive_row_context("records", "secret", "1", schema="app"),
+                derive_row_context("records", "secret", "2", schema="app"),
             ),
             (
                 derive_field_context("app.models", "Record", "secret"),
@@ -56,20 +63,29 @@ class TestContext:
                 derive_row_context("t", "c", "1", "2,3", schema="app"),
             ),
             (
-                derive_field_context("billing", "Invoice", "total"),
-                derive_column_context("Invoice", "total", schema="billing"),
+                derive_field_context("left", "Record", "secret"),
+                derive_column_context("Record", "secret", schema="left"),
             ),
             (
-                derive_field_context("users", "email", "42"),
-                derive_row_context("users", "email", "42", schema="app"),
+                derive_field_context("records", "secret", "42"),
+                derive_row_context("records", "secret", "42", schema="app"),
             ),
             (
-                derive_column_context("email", "42", schema="users"),
-                derive_row_context("users", "email", "42", schema="app"),
+                derive_column_context("secret", "42", schema="records"),
+                derive_row_context("records", "secret", "42", schema="app"),
             ),
             (
-                derive_row_context("email", "42", "7", schema="users"),
-                derive_row_context("users", "email", "42", "7", schema="app"),
+                derive_row_context("secret", "42", "7", schema="records"),
+                derive_row_context("records", "secret", "42", "7", schema="app"),
+            ),
+            (derive_declared_context("records.draft"), derive_column_context("records", "draft")),
+            (
+                derive_declared_context("\\field.app.Record.secret"),
+                derive_field_context("app", "Record", "secret"),
+            ),
+            (
+                derive_declared_context("x.1"),
+                derive_declared_context("x") + b".1",
             ),
         ],
         ids=[
@@ -84,6 +100,9 @@ class TestContext:
             "field-row",
             "column-row",
             "row-composite-row",
+            "declared-column",
+            "declared-field",
+            "declared-row",
         ],
     )
     def test_distinct_locations_differ(self, left: bytes, right: bytes):
@@ -95,13 +114,13 @@ class TestContext:
         """Test that extending a column context with no primary key raises rather than binding it."""
 
         with pytest.raises(ValueError, match="needs the primary key"):
-            derive_row_context("users", "email", schema="app")
+            derive_row_context("records", "secret", schema="app")
 
     @pytest.mark.parametrize(
         ("kwargs", "error", "message"),
         [
             ({}, TypeError, "schema"),
-            ({"schema": ""}, ValueError, "needs a schema"),
+            ({"schema": ""}, ValueError, "cannot be empty"),
         ],
         ids=["missing", "empty"],
     )
@@ -109,4 +128,10 @@ class TestContext:
         """Test that a row context without a schema raises rather than reading like a column's or another row's."""
 
         with pytest.raises(error, match=message):
-            derive_row_context("users", "email", "42", **kwargs)
+            derive_row_context("records", "secret", "42", **kwargs)
+
+    def test_column_context_refuses_empty_schema(self):
+        """Test that a column context refuses an empty schema as a row context does, rather than dropping it."""
+
+        with pytest.raises(ValueError, match="cannot be empty"):
+            derive_column_context("records", "secret", schema="")

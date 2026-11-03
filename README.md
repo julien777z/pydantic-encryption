@@ -311,12 +311,13 @@ Contexts are derived, so there is nothing to pass in the common case:
 | A column | `table.column`, or `schema.table.column` where the table names a schema |
 | An array element | the context of the array column itself |
 | A model field | `\field.module.Model.field`, naming the class that declares the field |
+| A context passed explicitly | `\declared.` followed by the name passed, escaped |
 
-A column inherited from a mixin binds separately for each table that inherits it, and one type binds one column — a type already attached to a column refuses a second. Escaping doubles every backslash in a name and puts one before every separator, so a backslash that starts an escaped name is followed by another backslash or a separator, never a letter. A model field's context starts with `\field.`, so among the contexts derived from names, a model field never shares one with a column, a row or another model field, and no two columns share one, however they are named.
+A column inherited from a mixin binds separately for each table that inherits it, and one type binds one column — a type already attached to a column refuses a second. Escaping doubles every backslash in a name and puts one before every separator, so a backslash that starts an escaped name is followed by another backslash or a separator, never a letter. A model field's context starts with `\field.` and an explicitly passed context with `\declared.`, so a model field, an explicit context, a column and a row never share one, and no two columns share one, however they are named.
 
 Row binding needs a table that names a schema, so a row whose column derives its context binds to `schema.table.column` followed by its primary key: four or more segments, where a derived column context has two or three. Such a row never shares a context with a derived column, a model field or another such row.
 
-`derive_column_context`, `derive_row_context` and `derive_field_context` apply these rules, so a migration can name what a value binds to without reimplementing them:
+`derive_column_context`, `derive_row_context`, `derive_field_context` and `derive_declared_context` apply these rules, so a migration can name what a value binds to without reimplementing them:
 
 ```python
 from pydantic_encryption import derive_column_context, derive_field_context, derive_row_context
@@ -325,6 +326,7 @@ derive_column_context("users", "email")                    # b"users.email"
 derive_column_context("users", "email", schema="archive")  # b"archive.users.email"
 derive_field_context("app", "User", "email")               # b"\\field.app.User.email"
 derive_row_context("users", "email", "42", schema="app")   # b"app.users.email.42"
+derive_declared_context("draft-payloads")                  # b"\\declared.draft-payloads"
 ```
 
 The context is authenticated but never written into the ciphertext, so it is part of the stored contract: renaming a table or column re-binds what it writes from then on, and values stored under the old name no longer open. A model field binds to the module and qualified name of the class that declares it, so its subclasses and generic parametrizations share one context, and those names are part of the contract in the same way: renaming or moving the declaring class, or redeclaring the field in a subclass, re-binds it.
@@ -332,7 +334,7 @@ The context is authenticated but never written into the ciphertext, so it is par
 Pass a context explicitly only where nothing can be derived, such as a value that never reaches a column:
 
 ```python
-draft = SQLAlchemyEncryptedValue("records.draft").encrypt_cell(payload)
+draft = SQLAlchemyEncryptedValue("draft-payloads").encrypt_cell(payload)  # binds to b"\\declared.draft-payloads"
 ```
 
 ### Binding a Cell to Its Row

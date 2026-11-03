@@ -6,7 +6,12 @@ from pydantic_encryption.adapters.blind_index import make_blind_index
 from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
 from pydantic_encryption.adapters.hashing.argon2 import Argon2Adapter
 from pydantic_encryption.config import settings
-from pydantic_encryption.context import derive_column_context, derive_field_context, derive_row_context
+from pydantic_encryption.context import (
+    derive_column_context,
+    derive_declared_context,
+    derive_field_context,
+    derive_row_context,
+)
 from pydantic_encryption.models import BaseModel, SecureModel
 from pydantic_encryption.types import (
     BlindIndex,
@@ -71,6 +76,7 @@ def __getattr__(name: str) -> object:
 __all__ = [
     "settings",
     "derive_column_context",
+    "derive_declared_context",
     "derive_field_context",
     "derive_row_context",
     "BaseModel",

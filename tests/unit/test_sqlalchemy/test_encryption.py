@@ -3,7 +3,7 @@ from sqlalchemy import Column, Integer, MetaData, Table
 from sqlalchemy.engine import Dialect
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-from pydantic_encryption.context import derive_column_context
+from pydantic_encryption.context import derive_column_context, derive_declared_context
 from pydantic_encryption.integrations.sqlalchemy.encryption import (
     SQLAlchemyEncryptedValue,
     SQLAlchemyPGEncryptedArray,
@@ -33,7 +33,7 @@ class TestEncryptedColumnTypes:
             (ContextUser.__table__.c.email, b"context_users.email"),
             (ContextUser.__table__.c.secret, b"context_users.secret"),
             (ContextRecord.__table__.c.secret, b"context_records.secret"),
-            (ContextUser.__table__.c.envelope, b"records.draft"),
+            (ContextUser.__table__.c.envelope, derive_declared_context("records.draft")),
             (ArchivedEntry.__table__.c.note, b"archive.entries.note"),
         ],
         ids=["column", "mixin-first-table", "mixin-second-table", "declared", "schema"],
