@@ -2,6 +2,7 @@ from typing import Final
 
 CONTEXT_SEPARATOR: Final[str] = "."
 CONTEXT_ESCAPE: Final[str] = "\\"
+FIELD_CONTEXT_TAG: Final[bytes] = f"{CONTEXT_ESCAPE}field".encode("utf-8")
 
 
 def escape_context_segment(segment: str) -> str:
@@ -43,6 +44,8 @@ def derive_row_context(table_name: str, column_name: str, *row_key: str, schema:
 
 
 def derive_field_context(module_name: str, qualified_name: str, field_name: str) -> bytes:
-    """Return the context an encrypted model field binds its ciphertext to."""
+    """Return the context a model field binds its ciphertext to, led by an escape no escaped name produces."""
 
-    return join_context_segments(module_name, qualified_name, field_name)
+    return CONTEXT_SEPARATOR.encode("utf-8").join(
+        (FIELD_CONTEXT_TAG, join_context_segments(module_name, qualified_name, field_name))
+    )

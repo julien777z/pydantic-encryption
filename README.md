@@ -102,9 +102,9 @@ One KMS data key seals many values, and an unwrapped data key opens many, so KMS
 | Setting | Default | Bounds |
 |---------|---------|--------|
 | `AWS_KMS_DATA_KEY_MAX_USES` | `1000` | Values one data key seals before a fresh one is generated |
-| `AWS_KMS_DATA_KEY_MAX_AGE_SECONDS` | `300` | How long one data key seals values; it is dropped from memory when this expires |
+| `AWS_KMS_DATA_KEY_MAX_AGE_SECONDS` | `300` | How long one data key seals values; the adapter stops holding it when this expires |
 | `AWS_KMS_UNWRAPPED_KEY_CACHE_SIZE` | `512` | Unwrapped data keys held in memory, least recently used evicted first |
-| `AWS_KMS_UNWRAPPED_KEY_MAX_AGE_SECONDS` | `300` | How long an unwrapped data key is held; it is dropped from memory when this expires |
+| `AWS_KMS_UNWRAPPED_KEY_MAX_AGE_SECONDS` | `300` | How long an unwrapped data key is reused; the adapter stops holding it when this expires |
 | `AWS_KMS_MAX_IN_FLIGHT_UNWRAPS` | `512` | KMS unwraps one process runs at once; async callers are also bounded by the event loop's default executor |
 | `AWS_KMS_CONNECT_TIMEOUT_SECONDS` | `2` | How long one KMS connection attempt waits |
 | `AWS_KMS_READ_TIMEOUT_SECONDS` | `5` | How long one KMS call waits for its reply |
@@ -310,15 +310,23 @@ Contexts are derived, so there is nothing to pass in the common case:
 |-------|---------|
 | A column | `table.column`, or `schema.table.column` where the table names a schema |
 | An array element | the context of the array column itself |
-| A model field | `module.Model.field` |
+| A model field | `\field.module.Model.field` |
 
-A column inherited from a mixin binds separately for each table that inherits it, and one type binds one column — a type already attached to a column refuses a second. A separator inside a name is escaped, so no two columns, rows or model fields share a context however they are named. A model field can share one with a column or a row only where its module, class and field read exactly as a schema, table and column, or a table, column and primary key. `derive_column_context` and `derive_field_context` apply these rules, so a migration can name what a value binds to without reimplementing them:
+A column inherited from a mixin binds separately for each table that inherits it, and one type binds one column — a type already attached to a column refuses a second. A separator inside a name is escaped, so every backslash in an escaped name is followed by another backslash or a separator. A model field's context starts with `\field`, which no escaped name produces, so a model field never shares a context with a column, a row or another model field, and no two columns share one, however they are named.
+
+A row's context is its column's context followed by its primary key, and it is not kept apart from other locations in the same way: it is shared with any location whose segments read the same in order. That happens only where one table names a schema and the other does not:
+
+- A row of a table without a schema, keyed by one column, shares its context with the column, where one exists, whose schema, table and column are named like that row's table, column and key: `users.email.42` is both the row with key `42` in `users.email` and column `42` of table `email` in schema `users`.
+- A row of a table without a schema, keyed by several columns, shares its context with the row, where one exists, whose schema, table, column and key are named like that row's table, column and key values: `users.email.42.7` is both the row with key `(42, 7)` in `users.email` and the row with key `7` in column `42` of table `email` in schema `users`.
+
+`derive_column_context`, `derive_row_context` and `derive_field_context` apply these rules, so a migration can name what a value binds to without reimplementing them:
 
 ```python
-from pydantic_encryption import derive_column_context
+from pydantic_encryption import derive_column_context, derive_field_context
 
 derive_column_context("users", "email")                    # b"users.email"
 derive_column_context("users", "email", schema="archive")  # b"archive.users.email"
+derive_field_context("app", "User", "email")               # b"\\field.app.User.email"
 ```
 
 The context is authenticated but never written into the ciphertext, so it is part of the column's contract: renaming a table or column re-binds what it writes from then on, and values stored under the old name no longer open.

@@ -4,8 +4,6 @@ import pytest
 
 from pydantic_encryption.context import derive_column_context, derive_field_context, derive_row_context
 
-Derivation = Callable[..., bytes]
-
 
 class TestContext:
     """Test the rules that name the context a column, a row's cell or a model field binds to."""
@@ -18,12 +16,16 @@ class TestContext:
             (derive_column_context, ("users", "email"), {"schema": "archive"}, b"archive.users.email"),
             (derive_row_context, ("users", "email", "42"), {}, b"users.email.42"),
             (derive_row_context, ("users", "email", "42"), {"schema": "archive"}, b"archive.users.email.42"),
-            (derive_field_context, ("app", "Record", "secret"), {}, b"app.Record.secret"),
+            (derive_field_context, ("app", "Record", "secret"), {}, b"\\field.app.Record.secret"),
         ],
         ids=["column", "column-no-schema", "column-schema", "row", "row-schema", "field"],
     )
     def test_derived_context(
-        self, derive: Derivation, args: tuple[str, ...], kwargs: dict[str, str | None], expected: bytes
+        self,
+        derive: Callable[..., bytes],
+        args: tuple[str, ...],
+        kwargs: dict[str, str | None],
+        expected: bytes,
     ):
         """Test that each location derives exactly the context its documented rule names."""
 
@@ -45,6 +47,11 @@ class TestContext:
             (derive_row_context("t", "col", "1.2"), derive_row_context("t", "col.1", "2")),
             (derive_field_context("a.b", "Model", "x"), derive_field_context("a", "b.Model", "x")),
             (derive_row_context("t", "c", "1,2", "3"), derive_row_context("t", "c", "1", "2,3")),
+            (
+                derive_field_context("billing", "Invoice", "total"),
+                derive_column_context("Invoice", "total", schema="billing"),
+            ),
+            (derive_field_context("users", "email", "42"), derive_row_context("users", "email", "42")),
         ],
         ids=[
             "schemas",
@@ -54,6 +61,8 @@ class TestContext:
             "dotted-row-key",
             "dotted-module",
             "composite-row-key",
+            "field-column",
+            "field-row",
         ],
     )
     def test_distinct_locations_differ(self, left: bytes, right: bytes):
