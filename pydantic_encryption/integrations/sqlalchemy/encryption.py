@@ -196,8 +196,8 @@ class SQLAlchemyPGEncryptedArray(ContextBoundType[list[EncryptableValue | None]]
     cache_ok: bool | None = True
     impl: TypeEngine[Sequence[bytes]] | type[TypeEngine[Sequence[bytes]]] = ARRAY(BinaryStorage())
 
-    def __init__(self, context: str | bytes | None = None, *args: object, **kwargs: object) -> None:
-        super().__init__(context, *args, **kwargs)
+    def __init__(self, context: str | bytes | None = None) -> None:
+        super().__init__(context)
         self.element_type: SQLAlchemyEncryptedValue = SQLAlchemyEncryptedValue(context)
 
     def bind_table(self, column: Column[list[EncryptableValue | None]], table: Table) -> None:
@@ -242,6 +242,7 @@ def encrypted_column_type(column: ColumnElement[object]) -> ContextBoundType[obj
     """Return the encrypted type of a column, refusing a column that does not encrypt its values."""
 
     column_type = column.type
+
     if not isinstance(column_type, ContextBoundType):
         raise ValueError(f"Column {column.key!r} does not encrypt its values, so it binds no context.")
 

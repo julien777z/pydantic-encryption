@@ -119,6 +119,12 @@ class TestEncryptedColumnTypes:
         with pytest.raises(ValueError, match="binds each row separately"):
             SQLAlchemyEncryptedValue("users.secret", row_bound=True).bound_context()
 
+    def test_array_refuses_row_binding(self):
+        """Test that an encrypted array refuses row binding rather than binding its column instead."""
+
+        with pytest.raises(TypeError, match="row_bound"):
+            SQLAlchemyPGEncryptedArray("users.tags", row_bound=True)
+
     @pytest.mark.parametrize(
         ("first", "second"),
         [
