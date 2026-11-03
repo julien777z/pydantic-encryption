@@ -32,7 +32,7 @@ from pydantic_encryption.models.kms import (
 from pydantic_encryption.types import EncryptedValue
 
 CIPHERTEXT_MAGIC: Final[int] = 0xC0
-CIPHERTEXT_VERSION: Final[int] = 0x01
+CIPHERTEXT_VERSION: Final[int] = 0x02
 HEADER_PACK_FORMAT: Final[str] = ">BBH"
 HEADER_LENGTH: Final[int] = struct.calcsize(HEADER_PACK_FORMAT)
 NONCE_LENGTH: Final[int] = 12

@@ -143,9 +143,13 @@ class TestEnvelope:
             (b"\xc0\x01", "too short"),
             (b"\x01" + b"\x00" * 32, "Unrecognized ciphertext format"),
             (bytes([CIPHERTEXT_MAGIC, 0x99]) + b"\x00" * (HEADER_LENGTH + NONCE_LENGTH), "Unsupported"),
+            (
+                struct.pack(HEADER_PACK_FORMAT, CIPHERTEXT_MAGIC, 0x01, 0) + b"\x00" * NONCE_LENGTH,
+                "Unsupported AWS KMS ciphertext version: 1$",
+            ),
             (struct.pack(HEADER_PACK_FORMAT, CIPHERTEXT_MAGIC, CIPHERTEXT_VERSION, 1024), "truncated"),
         ],
-        ids=["short", "magic", "version", "truncated"],
+        ids=["short", "magic", "version", "unbound-version", "truncated"],
     )
     async def test_malformed_envelope_refused(
         self, fake_sync_kms: FakeSyncKMSClient, asynchronous: bool, ciphertext: bytes, message: str

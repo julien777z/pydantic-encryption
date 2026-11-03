@@ -3,7 +3,7 @@ import threading
 import pytest
 from pydantic import ValidationError
 
-from pydantic_encryption.config import Settings
+from pydantic_encryption.config import AES_GCM_RANDOM_NONCE_LIMIT, Settings
 from pydantic_encryption.types import EncryptionMethod
 
 
@@ -119,6 +119,19 @@ class TestSettings:
         settings = Settings(ENCRYPTION_METHOD=EncryptionMethod.FERNET, ENCRYPTION_KEY="test-key")
 
         assert settings.ENCRYPTION_METHOD is EncryptionMethod.FERNET
+
+    def test_data_key_uses_at_nonce_limit_accepted(self):
+        """Test that a data key may seal as many values as random AES-GCM nonces safely allow."""
+
+        settings = Settings(AWS_KMS_DATA_KEY_MAX_USES=AES_GCM_RANDOM_NONCE_LIMIT)
+
+        assert settings.AWS_KMS_DATA_KEY_MAX_USES == AES_GCM_RANDOM_NONCE_LIMIT
+
+    def test_data_key_uses_past_nonce_limit_refused(self):
+        """Test that a data key sealing more values than random AES-GCM nonces safely allow is refused."""
+
+        with pytest.raises(ValidationError, match="AWS_KMS_DATA_KEY_MAX_USES"):
+            Settings(AWS_KMS_DATA_KEY_MAX_USES=AES_GCM_RANDOM_NONCE_LIMIT + 1)
 
     @pytest.mark.parametrize(
         "setting", ["AWS_KMS_DATA_KEY_MAX_AGE_SECONDS", "AWS_KMS_UNWRAPPED_KEY_MAX_AGE_SECONDS"]
