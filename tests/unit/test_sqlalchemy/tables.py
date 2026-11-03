@@ -2,6 +2,7 @@ import uuid
 from typing import Self
 
 from sqlalchemy import ForeignKey, Integer, String, Uuid, func
+from sqlalchemy.engine.default import DefaultExecutionContext
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from pydantic_encryption.integrations.sqlalchemy import DeferredDecryptMixin
@@ -135,6 +136,37 @@ class ExpressionKeyedRow(RecordBase, DeferredDecryptMixin):
     __table_args__ = {"schema": "main"}
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=func.gen_random_uuid())
+    secret: Mapped[str | None] = mapped_column(
+        SQLAlchemyEncryptedValue(row_bound=True), nullable=True, default=None
+    )
+
+
+class TextUuidKeyedRow(RecordBase, DeferredDecryptMixin):
+    """Row-bound row whose UUID primary key is assigned and read back as text."""
+
+    __tablename__ = "text_uuid_keyed_rows"
+    __table_args__ = {"schema": "main"}
+
+    id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True)
+    secret: Mapped[str | None] = mapped_column(
+        SQLAlchemyEncryptedValue(row_bound=True), nullable=True, default=None
+    )
+
+
+def key_from_label(context: DefaultExecutionContext) -> uuid.UUID:
+    """Derive a row's key from the label its insert carries, as a context-reading default does."""
+
+    return uuid.uuid5(uuid.NAMESPACE_URL, context.get_current_parameters()["label"])
+
+
+class ContextKeyedRow(RecordBase, DeferredDecryptMixin):
+    """Row-bound row whose primary key default reads the insert it runs in."""
+
+    __tablename__ = "context_keyed_rows"
+    __table_args__ = {"schema": "main"}
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=key_from_label)
+    label: Mapped[str | None] = mapped_column(String, nullable=True, default=None)
     secret: Mapped[str | None] = mapped_column(
         SQLAlchemyEncryptedValue(row_bound=True), nullable=True, default=None
     )

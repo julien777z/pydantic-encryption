@@ -18,6 +18,8 @@ from pydantic_encryption.integrations.sqlalchemy.state import (
     PENDING_DECRYPT_KEY,
     MappedT,
     read_raw_cell,
+    require_row_key_columns,
+    row_key_segment,
 )
 from pydantic_encryption.serialization import decode_value, require_encryptable
 from pydantic_encryption.types import EncryptedValue
@@ -25,6 +27,9 @@ from pydantic_encryption.types import EncryptedValue
 
 def install_descriptors(mapper: Mapper[MappedT], class_: type[MappedT]) -> None:
     """Mark encrypted columns deferred and wrap their class attrs with the on-access descriptor."""
+
+    if row_bound_columns(mapper):
+        require_row_key_columns(mapper)
 
     for attribute, column in mapper.columns.items():
         if not isinstance(column.type, SQLAlchemyEncryptedValue):
@@ -40,8 +45,18 @@ def install_descriptors(mapper: Mapper[MappedT], class_: type[MappedT]) -> None:
         setattr(class_, attribute, DecryptOnAccessDescriptor(getattr(class_, attribute), class_, attribute))
 
 
+def row_bound_columns(mapper: Mapper[MappedT]) -> list[tuple[str, SQLAlchemyEncryptedValue]]:
+    """Return the attribute and type of every column on a mapping that binds each row separately."""
+
+    return [
+        (mapper.get_property_by_column(column).key, column.type)
+        for column in mapper.columns
+        if isinstance(column.type, SQLAlchemyEncryptedValue) and column.type.row_bound
+    ]
+
+
 def assign_client_side_primary_key(mapper: Mapper[MappedT], target: MappedT) -> None:
-    """Apply a primary key's client-side default early, so a row-bound cell can name its row."""
+    """Apply a primary key's zero-argument client-side default early, so a row-bound cell can name its row."""
 
     for column in mapper.primary_key:
         attribute = mapper.get_property_by_column(column).key
@@ -52,7 +67,14 @@ def assign_client_side_primary_key(mapper: Mapper[MappedT], target: MappedT) -> 
         if default is None or default.is_sequence or default.is_clause_element:
             continue
 
-        setattr(target, attribute, default.arg(None) if default.is_callable else default.arg)
+        if not default.is_callable:
+            setattr(target, attribute, default.arg)
+
+            continue
+
+        zero_argument_default = getattr(default.arg, "__wrapped__", None)
+        if callable(zero_argument_default):
+            setattr(target, attribute, zero_argument_default())
 
 
 def replaced_row_key(mapper: Mapper[MappedT], target: MappedT) -> list[str] | None:
@@ -65,28 +87,24 @@ def replaced_row_key(mapper: Mapper[MappedT], target: MappedT) -> list[str] | No
         history = get_history(target, attribute)
 
         if history.deleted:
-            replaced.append(str(history.deleted[0]))
+            replaced.append(row_key_segment(column, history.deleted[0]))
             moved = True
         else:
-            replaced.append(str(getattr(target, attribute)))
+            replaced.append(row_key_segment(column, getattr(target, attribute)))
 
     return replaced if moved else None
 
 
-def encrypt_row_bound_cells(mapper: Mapper[MappedT], connection: Connection, target: MappedT) -> None:
-    """Seal every row-bound cell on an instance under the context naming its row."""
+def seal_row_bound_cells(mapper: Mapper[MappedT], target: MappedT, *, updating: bool) -> None:
+    """Seal row-bound cells under the context naming their row, or only those an update changes."""
 
-    columns = [
-        (mapper.get_property_by_column(column).key, column.type)
-        for column in mapper.columns
-        if isinstance(column.type, SQLAlchemyEncryptedValue) and column.type.row_bound
-    ]
+    columns = row_bound_columns(mapper)
 
     if not columns:
         return
 
     assign_client_side_primary_key(mapper, target)
-    replaced_key = replaced_row_key(mapper, target)
+    replaced_key = replaced_row_key(mapper, target) if updating else None
 
     for attribute, column_type in columns:
         value = read_raw_cell(target, attribute)
@@ -100,12 +118,28 @@ def encrypt_row_bound_cells(mapper: Mapper[MappedT], connection: Connection, tar
             plaintext = decode_value(
                 column_type.decrypt_cell(value, context=column_type.cell_context(*replaced_key))
             )
+        elif updating and replaced_key is None and not get_history(target, attribute).added:
+            continue
         else:
             plaintext = require_encryptable(value)
 
         setattr(
             target, attribute, column_type.encrypt_cell(plaintext, context=column_type.context_for(target))
         )
+
+
+def encrypt_row_bound_cells(mapper: Mapper[MappedT], connection: Connection, target: MappedT) -> None:
+    """Seal every row-bound cell of a row being inserted under the context naming its row."""
+
+    seal_row_bound_cells(mapper, target, updating=False)
+
+
+def reencrypt_changed_row_bound_cells(
+    mapper: Mapper[MappedT], connection: Connection, target: MappedT
+) -> None:
+    """Seal the row-bound cells an update assigns, or every one where the row's primary key moves."""
+
+    seal_row_bound_cells(mapper, target, updating=True)
 
 
 def on_orm_load(instance: object, context: QueryContext | None) -> None:
@@ -135,7 +169,7 @@ class DeferredDecryptMixin:
         event.listen(cls, "load", on_orm_load)
         event.listen(cls, "refresh", on_orm_refresh)
         event.listen(cls, "before_insert", encrypt_row_bound_cells)
-        event.listen(cls, "before_update", encrypt_row_bound_cells)
+        event.listen(cls, "before_update", reencrypt_changed_row_bound_cells)
 
     async def decrypt(self) -> Self:
         """Decrypt every deferred encrypted column on this instance and loaded relationships."""
@@ -157,4 +191,5 @@ __all__ = [
     "install_descriptors",
     "on_orm_load",
     "on_orm_refresh",
+    "reencrypt_changed_row_bound_cells",
 ]

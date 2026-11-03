@@ -2,13 +2,15 @@ import uuid
 
 import pytest
 from cryptography.fernet import InvalidToken
+from sqlalchemy import CHAR, DateTime, Numeric, select
 from sqlalchemy import inspect as sa_inspect
-from sqlalchemy import select
 from sqlalchemy.engine import Dialect
 from sqlalchemy.exc import StatementError
-from sqlalchemy.orm import Session, make_transient_to_detached
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, make_transient_to_detached, mapped_column
+from sqlalchemy.types import TypeEngine
 
 from pydantic_encryption.context import derive_row_context
+from pydantic_encryption.integrations.sqlalchemy import DeferredDecryptMixin
 from pydantic_encryption.integrations.sqlalchemy.deferred import install_descriptors
 from pydantic_encryption.integrations.sqlalchemy.descriptor import DecryptOnAccessDescriptor
 from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue
@@ -16,6 +18,7 @@ from pydantic_encryption.integrations.sqlalchemy.state import PENDING_DECRYPT_KE
 from pydantic_encryption.serialization import decode_value
 from pydantic_encryption.types import EncryptedValue
 from tests.unit.test_sqlalchemy.tables import (
+    ContextKeyedRow,
     ExpressionKeyedRow,
     Organization,
     PayloadRow,
@@ -24,6 +27,7 @@ from tests.unit.test_sqlalchemy.tables import (
     RowBoundRecord,
     SecretRow,
     ServerKeyedRow,
+    TextUuidKeyedRow,
     UndeferredRow,
 )
 from tests.unit.test_sqlalchemy.utils import column_type_of
@@ -180,8 +184,9 @@ class TestDeferredDecryptMixin:
         assert reloaded is not None
         assert reloaded.secret == "secret data"
 
-    def test_cell_untouched_when_key_kept(self, sqlite_session: Session):
-        """Test that updating another column leaves a sealed cell's ciphertext exactly as it was."""
+    @pytest.mark.parametrize("read_first", [False, True], ids=["sealed", "read"])
+    def test_cell_untouched_when_key_kept(self, sqlite_session: Session, read_first: bool):
+        """Test that updating another column leaves a cell's ciphertext as it was, read or not."""
 
         record = RowBoundRecord(secret="secret data", label="before")
         sqlite_session.add(record)
@@ -192,6 +197,10 @@ class TestDeferredDecryptMixin:
         stored = sqlite_session.get(RowBoundRecord, record_id)
         assert stored is not None
         sealed = read_raw_cell(stored, "secret")
+
+        if read_first:
+            assert stored.secret == "secret data"
+
         stored.label = "after"
         sqlite_session.flush()
         sqlite_session.expunge_all()
@@ -206,10 +215,11 @@ class TestDeferredDecryptMixin:
         ("row_class", "error", "message"),
         [
             (ExpressionKeyedRow, ValueError, "has no id yet"),
+            (ContextKeyedRow, ValueError, "has no id yet"),
             (ServerKeyedRow, ValueError, "has no id yet"),
             (UndeferredRow, StatementError, "binds each row separately"),
         ],
-        ids=["expression-key", "server-key", "undeferred"],
+        ids=["expression-key", "context-key", "server-key", "undeferred"],
     )
     def test_unnameable_row_refused(
         self, sqlite_session: Session, row_class: type[RowBoundRecord], error: type[Exception], message: str
@@ -220,3 +230,44 @@ class TestDeferredDecryptMixin:
 
         with pytest.raises(error, match=message):
             sqlite_session.flush()
+
+    @pytest.mark.parametrize("spelling", [str.upper, lambda key: key.replace("-", "")], ids=["upper", "hex"])
+    def test_uuid_key_spelling_ignored(self, sqlite_session: Session, spelling):
+        """Test that a UUID key assigned in another spelling binds to the form the row reads back with."""
+
+        key = str(uuid.uuid4())
+
+        sqlite_session.add(TextUuidKeyedRow(id=spelling(key), secret="secret data"))
+        sqlite_session.commit()
+        sqlite_session.expunge_all()
+
+        stored = sqlite_session.execute(select(TextUuidKeyedRow)).scalar_one()
+
+        assert stored.id == key
+        assert stored.secret == "secret data"
+
+    @pytest.mark.parametrize(
+        "key_type", [Numeric(10, 2), DateTime(timezone=True), CHAR(8)], ids=["numeric", "datetime", "char"]
+    )
+    def test_unreadable_key_type_refused(self, key_type: TypeEngine[object]):
+        """Test that a row-bound mapping refuses a primary key whose values can read back changed."""
+
+        class KeyTypeBase(DeclarativeBase):
+            """Declarative base holding only the mapping under test."""
+
+        class KeyTypeRow(KeyTypeBase, DeferredDecryptMixin):
+            """Row-bound row keyed by the type under test."""
+
+            __tablename__ = "key_type_rows"
+            __table_args__ = {"schema": "main"}
+
+            id: Mapped[object] = mapped_column(key_type, primary_key=True)
+            secret: Mapped[str | None] = mapped_column(
+                SQLAlchemyEncryptedValue(row_bound=True), nullable=True, default=None
+            )
+
+        try:
+            with pytest.raises(ValueError, match=r"main\.key_type_rows\.id is a primary key of type"):
+                KeyTypeBase.registry.configure()
+        finally:
+            KeyTypeBase.registry.dispose()
