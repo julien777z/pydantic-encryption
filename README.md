@@ -317,7 +317,7 @@ A column inherited from a mixin binds separately for each table that inherits it
 
 Row binding needs a table that names a schema, so a row whose column derives its context binds to `schema.table.column` followed by its primary key: four or more segments, where a derived column context has two or three. Such a row never shares a context with a derived column, a model field or another such row.
 
-`derive_column_context`, `derive_row_context`, `derive_field_context` and `derive_declared_context` apply these rules, so a migration can name what a value binds to without reimplementing them:
+`derive_column_context`, `derive_row_context`, `derive_field_context` and `derive_declared_context` apply these rules, so a migration can name what a value binds to without reimplementing them. Each returns the full context, which an adapter's `decrypt(ciphertext, associated_data=context)` takes:
 
 ```python
 from pydantic_encryption import derive_column_context, derive_field_context, derive_row_context
@@ -337,7 +337,7 @@ Pass a context explicitly only where nothing can be derived, such as a value tha
 draft = SQLAlchemyEncryptedValue("draft-payloads").encrypt_cell(payload)  # binds to b"\\declared.draft-payloads"
 ```
 
-`decrypt_values([draft], context="draft-payloads")` opens it under the same name.
+`await decrypt_values([draft], context="draft-payloads")` opens it under the same name. `decrypt_values` takes a column's attribute or a declared name, never a full context.
 
 ### Binding a Cell to Its Row
 

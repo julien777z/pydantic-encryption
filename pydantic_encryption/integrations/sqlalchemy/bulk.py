@@ -149,7 +149,7 @@ def decrypt_rows_sync(rows: Iterable[object], *columns: InstrumentedAttribute[ob
     raise_failures(open_rows_sync(rows, *columns))
 
 
-def resolve_context(context: InstrumentedAttribute[object] | str | bytes) -> bytes:
+def resolve_context(context: InstrumentedAttribute[object] | str) -> bytes:
     """Return the context a column binds to, or the one a name binds to as the column type's declared name."""
 
     if isinstance(context, InstrumentedAttribute):
@@ -159,7 +159,7 @@ def resolve_context(context: InstrumentedAttribute[object] | str | bytes) -> byt
 
 
 async def decrypt_values(
-    values: Iterable[ValueT], *, context: InstrumentedAttribute[object] | str | bytes
+    values: Iterable[ValueT], *, context: InstrumentedAttribute[object] | str
 ) -> list[ValueT | EncryptableValue]:
     """Decrypt a flat iterable of ciphertexts from one column, preserving other positions as-is.
 

@@ -105,11 +105,11 @@ class TestBulk:
 
     @pytest.mark.parametrize("name", ["draft-payloads", b"draft-payloads"], ids=["text", "bytes"])
     async def test_values_decrypt_under_declared_name(self, name: str | bytes):
-        """Test that a declared column type's ciphertexts open under the name it was declared with."""
+        """Test that a column type declared with a name, as text or bytes, has its ciphertexts open under it."""
 
-        values = [SQLAlchemyEncryptedValue("draft-payloads").encrypt_cell("draft")]
+        values = [SQLAlchemyEncryptedValue(name).encrypt_cell("draft")]
 
-        assert await decrypt_values(values, context=name) == ["draft"]
+        assert await decrypt_values(values, context="draft-payloads") == ["draft"]
 
     @pytest.mark.parametrize("values", [[], [None, "plain", 42]], ids=["empty", "no-ciphertext"])
     async def test_values_without_ciphertext_returned(self, values: list[object]):
