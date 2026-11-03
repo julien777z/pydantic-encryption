@@ -1,13 +1,14 @@
 import asyncio
 import contextvars
 from collections.abc import Awaitable, Coroutine, Iterable
-from typing import TYPE_CHECKING, ClassVar, Never, Self
+from typing import ClassVar, Never, Self
 
-from pydantic_super_model import AnnotatedFieldInfo, SuperModelPydanticMixin
+from pydantic_super_model import AnnotatedFieldInfo, SuperModelMixin, SuperModelPydanticMixin
 
 from pydantic_encryption.adapters.base import BlindIndexAdapter, EncryptionAdapter
+from pydantic_encryption.adapters.blind_index.factory import resolve_blind_index_key
 from pydantic_encryption.adapters.hashing.argon2 import Argon2Adapter
-from pydantic_encryption.adapters.registry import get_blind_index_backend, get_encryption_backend
+from pydantic_encryption.adapters.registry import configured_encryption_backend, get_blind_index_backend
 from pydantic_encryption.config import settings
 from pydantic_encryption.context import derive_field_context
 from pydantic_encryption.normalization import normalize_value
@@ -21,7 +22,7 @@ defer_crypto_to_async: contextvars.ContextVar[bool] = contextvars.ContextVar(
 )
 
 
-class SecureModel:
+class SecureModel(SuperModelMixin):
     """Base class for encryptable and hashable models."""
 
     _encryption_method: ClassVar[EncryptionMethod | None] = None
@@ -50,37 +51,10 @@ class SecureModel:
             cls._blind_index_key = blind_index_key
 
     @classmethod
-    def resolve_encryption_method(cls) -> EncryptionMethod:
-        """Return the per-class override or the ENCRYPTION_METHOD env value."""
-
-        method = cls._encryption_method or settings.ENCRYPTION_METHOD
-        if method is None:
-            raise ValueError("ENCRYPTION_METHOD must be set to use Encrypted fields.")
-
-        return method
-
-    @classmethod
     def resolve_encryption_key(cls) -> str | None:
         """Return the per-class override or the ENCRYPTION_KEY env value."""
 
         return cls._encryption_key or settings.ENCRYPTION_KEY
-
-    @classmethod
-    def resolve_blind_index_key(cls) -> str:
-        """Return the per-class override or the BLIND_INDEX_SECRET_KEY env value."""
-
-        key = cls._blind_index_key or settings.BLIND_INDEX_SECRET_KEY
-        if key is None:
-            raise ValueError("BLIND_INDEX_SECRET_KEY must be set to use BlindIndex.")
-
-        return key
-
-    if TYPE_CHECKING:
-
-        def get_annotated_fields(self, *annotations: object) -> dict[str, AnnotatedFieldInfo]:
-            """Return fields carrying any of the given annotations."""
-
-            ...
 
     @property
     def pending_encryption_fields(self) -> dict[str, AnnotatedFieldInfo]:
@@ -137,7 +111,7 @@ class SecureModel:
         if not fields:
             return None
 
-        backend = get_encryption_backend(self.resolve_encryption_method())
+        backend = configured_encryption_backend(self._encryption_method)
         key = self.resolve_encryption_key()
 
         return backend, key, fields
@@ -177,13 +151,14 @@ class SecureModel:
                 continue
 
             annotation = fields[field_name].matched_metadata[0]
+
             if not isinstance(annotation, BlindIndex):
                 raise TypeError(f"Field {field_name!r} must be annotated with a BlindIndex(...) instance.")
 
             normalized = self.normalize_blind_index_value(annotation, value)
 
             if key_bytes is None:
-                key_bytes = self.resolve_blind_index_key().encode("utf-8")
+                key_bytes = resolve_blind_index_key(self._blind_index_key)
 
             backend = get_blind_index_backend(annotation.method)
             tasks.append((field_name, backend, normalized, key_bytes))
@@ -192,9 +167,6 @@ class SecureModel:
 
     async def async_apply(self, items: list[tuple[str, Coroutine[object, Never, object]]]) -> None:
         """Await each coroutine under a TaskGroup and ``setattr`` its result onto ``self``."""
-
-        if not items:
-            return
 
         async with asyncio.TaskGroup() as tg:
             tasks = [(name, tg.create_task(coro)) for name, coro in items]

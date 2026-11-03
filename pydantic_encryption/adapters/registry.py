@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import importlib
 import threading
 from collections.abc import Callable
 
 from pydantic_encryption.adapters.base import BlindIndexAdapter, EncryptionAdapter
+from pydantic_encryption.config import settings
 from pydantic_encryption.types import BlindIndexMethod, EncryptionMethod
 
 encryption_backends: dict[EncryptionMethod, type[EncryptionAdapter]] = {}
@@ -48,6 +50,16 @@ def get_encryption_backend(method: EncryptionMethod) -> type[EncryptionAdapter]:
     raise ValueError(f"No encryption backend registered for {method!r}")
 
 
+def configured_encryption_backend(method: EncryptionMethod | None = None) -> type[EncryptionAdapter]:
+    """Return the adapter serving ``method``, or ENCRYPTION_METHOD, refusing when neither is set."""
+
+    resolved = method or settings.ENCRYPTION_METHOD
+    if resolved is None:
+        raise ValueError("ENCRYPTION_METHOD must be set to encrypt or decrypt values.")
+
+    return get_encryption_backend(resolved)
+
+
 def register_blind_index_backend(method: BlindIndexMethod, cls: type[BlindIndexAdapter]) -> None:
     """Register the blind index adapter serving ``method``."""
 
@@ -66,9 +78,7 @@ def get_blind_index_backend(method: BlindIndexMethod) -> type[BlindIndexAdapter]
 def load_aws_adapter() -> type[EncryptionAdapter]:
     """Import the AWS KMS adapter, which needs the ``aws`` extra."""
 
-    from pydantic_encryption.adapters.encryption.aws import AWSAdapter
-
-    return AWSAdapter
+    return importlib.import_module("pydantic_encryption.adapters.encryption.aws").AWSAdapter
 
 
 register_encryption_backend_lazy(EncryptionMethod.AWS, load_aws_adapter)

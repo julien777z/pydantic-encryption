@@ -8,6 +8,16 @@ from pydantic_encryption.normalization import (
 from pydantic_encryption.types import BlindIndexMethod, BlindIndexValue
 
 
+def resolve_blind_index_key(key: str | bytes | None) -> bytes:
+    """Return ``key``, or BLIND_INDEX_SECRET_KEY, as bytes, refusing when neither is set."""
+
+    resolved = key if key is not None else settings.BLIND_INDEX_SECRET_KEY
+    if resolved is None:
+        raise ValueError("BLIND_INDEX_SECRET_KEY must be set to compute a blind index.")
+
+    return resolved.encode("utf-8") if isinstance(resolved, str) else resolved
+
+
 def make_blind_index(
     value: str | bytes,
     *,
@@ -36,12 +46,7 @@ def make_blind_index(
     )
     validate_normalization_flags(flags)
 
-    resolved_key = key if key is not None else settings.BLIND_INDEX_SECRET_KEY
-
-    if resolved_key is None:
-        raise ValueError("BLIND_INDEX_SECRET_KEY must be set to compute a blind index.")
-
-    key_bytes = resolved_key.encode("utf-8") if isinstance(resolved_key, str) else resolved_key
+    key_bytes = resolve_blind_index_key(key)
 
     normalized = value if isinstance(value, bytes) else normalize_value(value, flags)
 

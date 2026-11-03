@@ -2,28 +2,31 @@ import pytest
 
 from pydantic_encryption.adapters import registry
 from pydantic_encryption.adapters.base import EncryptionAdapter
+from pydantic_encryption.adapters.blind_index.hmac_sha256 import HMACSHA256Adapter
 from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
-from pydantic_encryption.types import EncryptionMethod
+from pydantic_encryption.config import settings
+from pydantic_encryption.types import BlindIndexMethod, EncryptionMethod
 
 
-class TestGetEncryptionBackend:
-    """Test ``get_encryption_backend`` resolution and lazy loading."""
+@pytest.fixture
+def empty_registry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Give the test a registry holding no encryption backends or factories."""
 
-    @pytest.fixture(autouse=True)
-    def empty_registry(self, monkeypatch: pytest.MonkeyPatch):
-        """Give each test a registry holding no backends or factories."""
+    monkeypatch.setattr(registry, "encryption_backends", {})
+    monkeypatch.setattr(registry, "encryption_factories", {})
 
-        monkeypatch.setattr(registry, "encryption_backends", {})
-        monkeypatch.setattr(registry, "encryption_factories", {})
 
-    def test_registered_backend_returned(self):
+class TestRegistry:
+    """Test how the registry resolves the adapter serving each encryption and blind index method."""
+
+    def test_registered_backend_returned(self, empty_registry: None):
         """Test that an eagerly registered backend is returned."""
 
         registry.register_encryption_backend(EncryptionMethod.FERNET, FernetAdapter)
 
         assert registry.get_encryption_backend(EncryptionMethod.FERNET) is FernetAdapter
 
-    def test_lazy_factory_invoked_once(self):
+    def test_lazy_factory_invoked_once(self, empty_registry: None):
         """Test that a lazy factory runs on first use, is cached, and leaves the factories."""
 
         calls: list[EncryptionMethod] = []
@@ -40,11 +43,12 @@ class TestGetEncryptionBackend:
         assert EncryptionMethod.AWS not in registry.encryption_backends
         assert registry.get_encryption_backend(EncryptionMethod.AWS) is FernetAdapter
         assert registry.get_encryption_backend(EncryptionMethod.AWS) is FernetAdapter
-        assert registry.encryption_backends[EncryptionMethod.AWS] is FernetAdapter
         assert EncryptionMethod.AWS not in registry.encryption_factories
         assert calls == [EncryptionMethod.AWS]
 
-    def test_backend_cached_under_lock_skips_factory(self, monkeypatch: pytest.MonkeyPatch):
+    def test_backend_cached_under_lock_skips_factory(
+        self, empty_registry: None, monkeypatch: pytest.MonkeyPatch
+    ):
         """Test that a backend cached while waiting for the lock is returned without running the factory."""
 
         def factory() -> type[EncryptionAdapter]:
@@ -68,13 +72,13 @@ class TestGetEncryptionBackend:
 
         assert registry.get_encryption_backend(EncryptionMethod.AWS) is FernetAdapter
 
-    def test_unregistered_method_refused(self):
+    def test_unregistered_method_refused(self, empty_registry: None):
         """Test that a method with no backend or factory raises."""
 
         with pytest.raises(ValueError, match="No encryption backend registered"):
             registry.get_encryption_backend(EncryptionMethod.FERNET)
 
-    def test_failing_factory_stays_retryable(self):
+    def test_failing_factory_stays_retryable(self, empty_registry: None):
         """Test that a failing factory stays registered so a retry surfaces the real error."""
 
         def factory() -> type[EncryptionAdapter]:
@@ -89,3 +93,36 @@ class TestGetEncryptionBackend:
 
         assert EncryptionMethod.AWS in registry.encryption_factories
         assert EncryptionMethod.AWS not in registry.encryption_backends
+
+    def test_configured_backend_follows_setting(self):
+        """Test that the configured backend is the one ENCRYPTION_METHOD names."""
+
+        assert registry.configured_encryption_backend() is FernetAdapter
+
+    def test_unset_method_refused(self, monkeypatch: pytest.MonkeyPatch):
+        """Test that resolving the configured backend raises when ENCRYPTION_METHOD is unset."""
+
+        monkeypatch.setattr(settings, "ENCRYPTION_METHOD", None)
+
+        with pytest.raises(ValueError, match="ENCRYPTION_METHOD must be set"):
+            registry.configured_encryption_backend()
+
+    def test_aws_factory_imports_adapter(self):
+        """Test that the AWS factory imports and returns the AWS adapter class."""
+
+        aws = pytest.importorskip("pydantic_encryption.adapters.encryption.aws")
+
+        assert registry.load_aws_adapter() is aws.AWSAdapter
+
+    def test_registered_blind_index_backend_returned(self):
+        """Test that a registered blind index backend is returned."""
+
+        assert registry.get_blind_index_backend(BlindIndexMethod.HMAC_SHA256) is HMACSHA256Adapter
+
+    def test_unregistered_blind_index_method_refused(self, monkeypatch: pytest.MonkeyPatch):
+        """Test that a blind index method with no registered backend raises."""
+
+        monkeypatch.setattr(registry, "blind_index_backends", {})
+
+        with pytest.raises(ValueError, match="No blind index backend registered"):
+            registry.get_blind_index_backend(BlindIndexMethod.HMAC_SHA256)
