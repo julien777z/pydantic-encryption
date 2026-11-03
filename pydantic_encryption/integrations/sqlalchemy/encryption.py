@@ -5,7 +5,7 @@ from pydantic_encryption.lazy import require_optional_dependency
 
 require_optional_dependency("sqlalchemy", "sqlalchemy")
 
-from sqlalchemy import Column, Table, util
+from sqlalchemy import Column, Table
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.engine import Dialect
 from sqlalchemy.sql.base import SchemaEventTarget
@@ -42,7 +42,7 @@ class ContextBoundType(BinaryColumnType[ColumnValueT]):
         super()._set_parent(parent, outer=outer, **kw)
 
         assert isinstance(parent, Column)
-        parent._on_table_attach(util.portable_instancemethod(self.bind_table))
+        parent._on_table_attach(self.bind_table)
 
     def bind_table(self, column: Column[ColumnValueT], table: Table) -> None:
         """Derive the context from the column this type is attached to, unless one was declared."""

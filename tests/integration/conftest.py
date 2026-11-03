@@ -31,14 +31,14 @@ def docker_setup() -> list[str]:
 def sqlalchemy_connect_url() -> str:
     """Return the SQLAlchemy connection URL."""
 
-    return "postgresql://admin:admin123@localhost:5432/pydantic_encryption"
+    return "postgresql+psycopg2://admin:admin123@localhost:5432/pydantic_encryption"
 
 
 @pytest.fixture(scope="session")
 def async_sqlalchemy_connect_url(sqlalchemy_connect_url: str) -> str:
     """Return the asyncpg-flavoured connection URL for the same Postgres instance."""
 
-    return sqlalchemy_connect_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    return sqlalchemy_connect_url.replace("postgresql+psycopg2://", "postgresql+asyncpg://", 1)
 
 
 @pytest.fixture(scope="session")
