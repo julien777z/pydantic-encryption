@@ -103,6 +103,18 @@ class SQLAlchemyEncryptedValue(ContextBoundType[EncryptableValue]):
         super().__init__(context, *args, **kwargs)
         self.row_bound: bool = row_bound
 
+    def bind_table(self, column: Column[EncryptableValue], table: Table) -> None:
+        """Bind the column, refusing row binding on a table whose rows could read like another location."""
+
+        if self.row_bound and not table.schema:
+            raise ValueError(
+                f"Column {table.name}.{column.name} binds each row separately, but its table names no "
+                "schema, so a row's context could read the same as a column's or another row's in a "
+                "table that names one. Give the table a schema."
+            )
+
+        super().bind_table(column, table)
+
     def bound_context(self) -> bytes:
         """Return the context every cell of this column binds to, refusing where each row binds its own."""
 

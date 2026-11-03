@@ -1,5 +1,5 @@
 import pytest
-from sqlalchemy import Integer, MetaData, Table
+from sqlalchemy import Column, Integer, MetaData, Table
 from sqlalchemy.engine import Dialect
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -124,6 +124,19 @@ class TestEncryptedColumnTypes:
 
         with pytest.raises(TypeError, match="row_bound"):
             SQLAlchemyPGEncryptedArray("users.tags", row_bound=True)
+
+    @pytest.mark.parametrize("schema", [None, ""], ids=["no-schema", "empty-schema"])
+    def test_row_binding_refuses_table_without_schema(self, schema: str | None):
+        """Test that a row-bound column refuses a table naming no schema, whose rows could read like a column."""
+
+        with pytest.raises(ValueError, match="names no schema"):
+            Table(
+                "records",
+                MetaData(),
+                Column("id", Integer, primary_key=True),
+                Column("secret", SQLAlchemyEncryptedValue(row_bound=True)),
+                schema=schema,
+            )
 
     @pytest.mark.parametrize(
         ("first", "second"),

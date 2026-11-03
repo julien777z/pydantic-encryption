@@ -314,19 +314,17 @@ Contexts are derived, so there is nothing to pass in the common case:
 
 A column inherited from a mixin binds separately for each table that inherits it, and one type binds one column — a type already attached to a column refuses a second. Escaping doubles every backslash in a name and puts one before every separator, so a backslash that starts an escaped name is followed by another backslash or a separator, never a letter. A model field's context starts with `\field.`, so a model field never shares a context with a column, a row or another model field, and no two columns share one, however they are named.
 
-A row's context is its column's context followed by its primary key, and it is not kept apart from other locations in the same way: it is shared with any location whose segments read the same in order. That happens only where one table names a schema and the other does not:
-
-- A row of a table without a schema, keyed by one column, shares its context with the column, where one exists, whose schema, table and column are named like that row's table, column and key: `users.email.42` is both the row with key `42` in `users.email` and column `42` of table `email` in schema `users`.
-- A row of a table without a schema, keyed by several columns, shares its context with the row, where one exists, whose schema, table, column and key are named like that row's table, column and key values: `users.email.42.7` is both the row with key `(42, 7)` in `users.email` and the row with key `7` in column `42` of table `email` in schema `users`.
+Row binding needs a table that names a schema, so where its column derives its context, a row's context is `schema.table.column` followed by the row's primary key: four or more segments where a column's has two or three. A row never shares a context with a column, a model field or another row.
 
 `derive_column_context`, `derive_row_context` and `derive_field_context` apply these rules, so a migration can name what a value binds to without reimplementing them:
 
 ```python
-from pydantic_encryption import derive_column_context, derive_field_context
+from pydantic_encryption import derive_column_context, derive_field_context, derive_row_context
 
 derive_column_context("users", "email")                    # b"users.email"
 derive_column_context("users", "email", schema="archive")  # b"archive.users.email"
 derive_field_context("app", "User", "email")               # b"\\field.app.User.email"
+derive_row_context("users", "email", "42", schema="app")   # b"app.users.email.42"
 ```
 
 The context is authenticated but never written into the ciphertext, so it is part of the column's contract: renaming a table or column re-binds what it writes from then on, and values stored under the old name no longer open.
@@ -345,8 +343,9 @@ A column context stops a ciphertext moving between columns. `row_bound=True` als
 secret: Mapped[bytes] = mapped_column(SQLAlchemyEncryptedValue(row_bound=True))
 ```
 
-Each cell then binds to `schema.table.column.<primary key>`, which `derive_row_context` names. A row-bound column requires two things, and says so rather than binding something weaker:
+Each cell then binds to `schema.table.column.<primary key>`, which `derive_row_context` names. A row-bound column requires three things, and says so rather than binding something weaker:
 
+- **A table that names a schema**, directly or through its `MetaData`. Without one, a row's context could read the same as a column's or another row's in a table that names one.
 - **`DeferredDecryptMixin` on the mapped class.** A column type sees only the value it is handed, never the row, so row-bound cells seal as the row is inserted or updated and open through the deferred read path, which has the instance.
 - **A primary key that exists before the insert** — one the application assigns, or one with a client-side default such as `default=uuid.uuid4`. A server-generated key does not exist until after the insert it would have to be written into.
 

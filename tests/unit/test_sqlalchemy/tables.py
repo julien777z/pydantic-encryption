@@ -119,6 +119,7 @@ class RowBoundRecord(RecordBase, DeferredDecryptMixin):
     """Row whose encrypted column binds each row separately."""
 
     __tablename__ = "row_bound_records"
+    __table_args__ = {"schema": "main"}
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     label: Mapped[str | None] = mapped_column(String, nullable=True, default=None)
@@ -131,6 +132,7 @@ class ExpressionKeyedRow(RecordBase, DeferredDecryptMixin):
     """Row-bound row whose primary key defaults to an expression the database evaluates."""
 
     __tablename__ = "expression_keyed_rows"
+    __table_args__ = {"schema": "main"}
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=func.gen_random_uuid())
     secret: Mapped[str | None] = mapped_column(
@@ -142,6 +144,7 @@ class ServerKeyedRow(RecordBase, DeferredDecryptMixin):
     """Row-bound row whose primary key does not exist until its insert returns."""
 
     __tablename__ = "server_keyed_rows"
+    __table_args__ = {"schema": "main"}
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     secret: Mapped[str | None] = mapped_column(
@@ -153,6 +156,7 @@ class UndeferredRow(RecordBase):
     """Row-bound row that never mixes in the deferred read path."""
 
     __tablename__ = "undeferred_rows"
+    __table_args__ = {"schema": "main"}
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     secret: Mapped[str | None] = mapped_column(

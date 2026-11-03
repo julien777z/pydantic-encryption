@@ -14,11 +14,10 @@ class TestContext:
             (derive_column_context, ("users", "email"), {}, b"users.email"),
             (derive_column_context, ("users", "email"), {"schema": None}, b"users.email"),
             (derive_column_context, ("users", "email"), {"schema": "archive"}, b"archive.users.email"),
-            (derive_row_context, ("users", "email", "42"), {}, b"users.email.42"),
             (derive_row_context, ("users", "email", "42"), {"schema": "archive"}, b"archive.users.email.42"),
             (derive_field_context, ("app", "Record", "secret"), {}, b"\\field.app.Record.secret"),
         ],
-        ids=["column", "column-no-schema", "column-schema", "row", "row-schema", "field"],
+        ids=["column", "column-no-schema", "column-schema", "row", "field"],
     )
     def test_derived_context(
         self,
@@ -38,20 +37,40 @@ class TestContext:
                 derive_column_context("entries", "note", schema="archive"),
                 derive_column_context("entries", "note", schema="public"),
             ),
-            (derive_row_context("users", "email", "1"), derive_row_context("users", "email", "2")),
+            (
+                derive_row_context("users", "email", "1", schema="app"),
+                derive_row_context("users", "email", "2", schema="app"),
+            ),
             (
                 derive_field_context("app.models", "Record", "secret"),
                 derive_field_context("app.models", "Record", "other_secret"),
             ),
             (derive_column_context("a.b", "c"), derive_column_context("b", "c", schema="a")),
-            (derive_row_context("t", "col", "1.2"), derive_row_context("t", "col.1", "2")),
+            (
+                derive_row_context("t", "col", "1.2", schema="app"),
+                derive_row_context("t", "col.1", "2", schema="app"),
+            ),
             (derive_field_context("a.b", "Model", "x"), derive_field_context("a", "b.Model", "x")),
-            (derive_row_context("t", "c", "1,2", "3"), derive_row_context("t", "c", "1", "2,3")),
+            (
+                derive_row_context("t", "c", "1,2", "3", schema="app"),
+                derive_row_context("t", "c", "1", "2,3", schema="app"),
+            ),
             (
                 derive_field_context("billing", "Invoice", "total"),
                 derive_column_context("Invoice", "total", schema="billing"),
             ),
-            (derive_field_context("users", "email", "42"), derive_row_context("users", "email", "42")),
+            (
+                derive_field_context("users", "email", "42"),
+                derive_row_context("users", "email", "42", schema="app"),
+            ),
+            (
+                derive_column_context("email", "42", schema="users"),
+                derive_row_context("users", "email", "42", schema="app"),
+            ),
+            (
+                derive_row_context("email", "42", "7", schema="users"),
+                derive_row_context("users", "email", "42", "7", schema="app"),
+            ),
         ],
         ids=[
             "schemas",
@@ -63,6 +82,8 @@ class TestContext:
             "composite-row-key",
             "field-column",
             "field-row",
+            "column-row",
+            "row-composite-row",
         ],
     )
     def test_distinct_locations_differ(self, left: bytes, right: bytes):
@@ -74,4 +95,18 @@ class TestContext:
         """Test that extending a column context with no primary key raises rather than binding it."""
 
         with pytest.raises(ValueError, match="needs the primary key"):
-            derive_row_context("users", "email")
+            derive_row_context("users", "email", schema="app")
+
+    @pytest.mark.parametrize(
+        ("kwargs", "error", "message"),
+        [
+            ({}, TypeError, "schema"),
+            ({"schema": ""}, ValueError, "needs a schema"),
+        ],
+        ids=["missing", "empty"],
+    )
+    def test_row_context_requires_schema(self, kwargs: dict[str, str], error: type[Exception], message: str):
+        """Test that a row context without a schema raises rather than reading like a column's or another row's."""
+
+        with pytest.raises(error, match=message):
+            derive_row_context("users", "email", "42", **kwargs)

@@ -37,8 +37,14 @@ def append_row_key(column_context: bytes, *row_key: str) -> bytes:
     return CONTEXT_SEPARATOR.encode("utf-8").join((column_context, join_context_segments(*row_key)))
 
 
-def derive_row_context(table_name: str, column_name: str, *row_key: str, schema: str | None = None) -> bytes:
+def derive_row_context(table_name: str, column_name: str, *row_key: str, schema: str) -> bytes:
     """Return the context one row's cell in an encrypted column binds its ciphertext to."""
+
+    if not schema:
+        raise ValueError(
+            "A row-bound cell needs a schema naming its table, or its context could read the same as a "
+            "column's or another row's in a table that names one."
+        )
 
     return append_row_key(derive_column_context(table_name, column_name, schema=schema), *row_key)
 

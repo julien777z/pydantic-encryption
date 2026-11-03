@@ -102,7 +102,7 @@ class TestDeferredDecryptMixin:
         sqlite_session.refresh(record)
 
         cell = read_raw_cell(record, "secret")
-        context = derive_row_context("row_bound_records", "secret", str(record.id))
+        context = derive_row_context("row_bound_records", "secret", str(record.id), schema="main")
         column_type = column_type_of(RowBoundRecord.__table__.c.secret, SQLAlchemyEncryptedValue)
         sqlite_session.expunge_all()
 
