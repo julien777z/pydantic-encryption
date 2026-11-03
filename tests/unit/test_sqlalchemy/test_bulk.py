@@ -66,15 +66,19 @@ class TestBulk:
         assert counted.call_count == 1
         assert [sa_inspect(row).dict["payload"] for row in rows] == [sample.payload, other_sample.payload]
 
-    async def test_moved_ciphertext_refused(self, sample: SampleRecord):
-        """Test that a cell holding another column's ciphertext raises instead of decrypting."""
+    @ASYNC_PATHS
+    async def test_moved_ciphertext_refused(self, asynchronous: bool, sample: SampleRecord):
+        """Test that a cell holding another column's ciphertext raises, once every other cell has opened."""
 
-        row = Member(caption=encrypt_through_column(Member.__table__.c.label, sample.label))
+        moved = Member(caption=encrypt_through_column(Member.__table__.c.label, sample.label))
+        intact = Member.sealed(None, sample.caption)
 
         with pytest.raises(BaseExceptionGroup) as raised:
-            await decrypt_rows([row], "caption")
+            await call_path(asynchronous, decrypt_rows_sync, decrypt_rows, [moved, intact], "caption")
 
         assert raised.group_contains(InvalidToken)
+        assert isinstance(sa_inspect(moved).dict["caption"], EncryptedValue)
+        assert sa_inspect(intact).dict["caption"] == sample.caption
 
     @ASYNC_PATHS
     async def test_no_columns_leaves_rows_sealed(self, asynchronous: bool):

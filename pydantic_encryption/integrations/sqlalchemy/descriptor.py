@@ -5,8 +5,8 @@ require_optional_dependency("sqlalchemy", "sqlalchemy")
 from sqlalchemy.orm import InstrumentedAttribute, object_session
 
 from pydantic_encryption.integrations.sqlalchemy.async_bridge import run_async_or_sync
+from pydantic_encryption.integrations.sqlalchemy.bulk import open_rows, open_rows_sync
 from pydantic_encryption.integrations.sqlalchemy.state import pending_siblings
-from pydantic_encryption.integrations.sqlalchemy.bulk import decrypt_rows, decrypt_rows_sync
 from pydantic_encryption.types import EncryptedValue
 
 
@@ -27,12 +27,16 @@ class DecryptOnAccessDescriptor:
         return self._wrapped.key
 
     def __get__(self, instance: object | None, owner: type[object] | None = None) -> object:
-        """Return the column's value, batch-decrypting it across session siblings on first read."""
+        """Return the column's value, batch-decrypting it across session siblings on first read.
+
+        A sibling whose cell fails to open stays sealed and raises only when it is read itself.
+        """
 
         if instance is None:
             return self._wrapped
 
         value = self._wrapped.__get__(instance, owner)
+
         if not isinstance(value, EncryptedValue):
             return value
 
@@ -42,7 +46,11 @@ class DecryptOnAccessDescriptor:
         else:
             rows = {instance, *pending_siblings(session, self._cls)}
 
-        run_async_or_sync(decrypt_rows, decrypt_rows_sync, rows, self._column_key)
+        failures = run_async_or_sync(open_rows, open_rows_sync, rows, self._column_key)
+
+        for row, error in failures:
+            if row is instance:
+                raise error
 
         return self._wrapped.__get__(instance, owner)
 

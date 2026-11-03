@@ -2,8 +2,9 @@ import uuid
 
 import pytest
 from cryptography.fernet import InvalidToken
-from sqlalchemy import CHAR, DateTime, Numeric, select
+from sqlalchemy import CHAR, DateTime, Numeric
 from sqlalchemy import inspect as sa_inspect
+from sqlalchemy import select
 from sqlalchemy.engine import Dialect
 from sqlalchemy.exc import StatementError
 from sqlalchemy.orm import (
@@ -46,6 +47,18 @@ from tests.unit.test_sqlalchemy.utils import column_type_of
 
 class TestDeferredDecryptMixin:
     """Test the deferred read path and row binding the mixin installs on a mapped class."""
+
+    @pytest.fixture
+    def stored_pair(self, sqlite_session: Session) -> dict[str, RowBoundRecord]:
+        """Store two row-bound rows labelled first and second, and load them back sealed by label."""
+
+        sqlite_session.add_all(
+            [RowBoundRecord(secret=f"{label} secret", label=label) for label in ("first", "second")]
+        )
+        sqlite_session.flush()
+        sqlite_session.expunge_all()
+
+        return {row.label or "": row for row in sqlite_session.execute(select(RowBoundRecord)).scalars()}
 
     @pytest.mark.parametrize(
         ("row_class", "deferred"), [(SecretRow, True), (PlainSecretRow, False)], ids=["mixin", "plain"]
@@ -216,6 +229,36 @@ class TestDeferredDecryptMixin:
 
         assert reloaded is not None
         assert reloaded.secret == "secret data"
+
+    @pytest.mark.parametrize("read_label", ["first", "second"], ids=["moved-row", "other-row"])
+    def test_cell_reads_between_key_change_and_flush(
+        self, stored_pair: dict[str, RowBoundRecord], read_label: str
+    ):
+        """Test that a moved row's cell, and another row's, read before the flush re-seals the moved one."""
+
+        stored_pair["first"].id = uuid.uuid4()
+
+        assert stored_pair[read_label].secret == f"{read_label} secret"
+
+    def test_unreadable_cell_fails_only_its_own_row(self, stored_pair: dict[str, RowBoundRecord]):
+        """Test that a cell that fails to open leaves another row's read intact and raises on its own read."""
+
+        sa_inspect(stored_pair["first"]).dict["secret"] = read_raw_cell(stored_pair["second"], "secret")
+
+        assert stored_pair["second"].secret == "second secret"
+
+        with pytest.raises(InvalidToken):
+            stored_pair["first"].secret
+
+    def test_expunged_row_left_out_of_batch(
+        self, sqlite_session: Session, stored_pair: dict[str, RowBoundRecord]
+    ):
+        """Test that reading a row leaves a row expunged from its session out of the batch it decrypts."""
+
+        sqlite_session.expunge(stored_pair["first"])
+
+        assert stored_pair["second"].secret == "second secret"
+        assert isinstance(read_raw_cell(stored_pair["first"], "secret"), EncryptedValue)
 
     @pytest.mark.parametrize(
         "row_class",

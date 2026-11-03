@@ -296,7 +296,7 @@ async with AsyncSession(engine) as session:
 
 ### Catching Accidental Ciphertext Access
 
-Reads go through the on-access descriptor. When the underlying cell is still an `EncryptedValue`, the descriptor prefers an async batch decrypt over the session's pending siblings (via SQLAlchemy's greenlet bridge), and transparently falls back to a synchronous decrypt either when the read happens outside a greenlet or when the instance is detached from any session.
+Reads go through the on-access descriptor. When the underlying cell is still an `EncryptedValue`, the descriptor prefers an async batch decrypt over the session's pending siblings (via SQLAlchemy's greenlet bridge), and transparently falls back to a synchronous decrypt either when the read happens outside a greenlet or when the instance is detached from any session. Each cell in the batch opens or fails on its own: a sibling whose cell fails stays sealed and raises only when it is read itself.
 
 An `EncryptedValue` only reaches user code if something bypasses the descriptor entirely (raw `state.dict[col]`, a logged row). Coercing it via `str(value)` / `f"{value}"` / `"%s" % value` raises `EncryptedValueAccessError`. `repr(value)` is a safe `<EncryptedValue: N bytes>` marker, and `bytes(value)` returns the raw ciphertext. Use `is_encrypted(value)` to guard at a boundary.
 
@@ -354,7 +354,7 @@ Each cell then binds to `schema.table.column.<primary key>`, which `derive_row_c
 - **A primary key that exists before the insert** — one the application assigns, or one with a zero-argument client-side default such as `default=uuid.uuid4`, a `functools.partial` or a callable instance. A server-generated key, or a default that reads the insert's context, does not exist until the insert it would have to be written into.
 - **A primary key of an integer, UUID, `String` or `Text` type**, checked as the mapping is configured. The row key is the key's canonical form: an integer's digits, a UUID's lower-case hyphenated form however it was assigned, or the text as given. A key of any other type, such as `Numeric`, `DateTime` or fixed-width `CHAR`, can read back in another form than the one written, so the mapping refuses it.
 
-Changing a row's primary key through the ORM re-seals its row-bound cells under the key it moves to, loaded or not, so the row keeps reading. A Core or ORM bulk `update()` statement that changes the key fires no mapper events, so it re-seals nothing, and the row's cells no longer open.
+Changing a row's primary key through the ORM keeps its row-bound cells reading: until the flush, they open under the key the row was stored with, and the flush re-seals them under the key it moves to, loaded or not. A Core or ORM bulk `update()` statement that changes the key fires no mapper events, so it re-seals nothing, and the row's cells no longer open.
 
 Encrypted arrays decrypt on the read path, where no row is in scope, so they bind their column and take no `row_bound` argument.
 

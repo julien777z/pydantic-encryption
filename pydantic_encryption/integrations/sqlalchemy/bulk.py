@@ -41,9 +41,11 @@ def collect_row_assignments(
 
     column_keys = list(column_keys)
     assignments: list[tuple[object, str, bytes, bytes]] = []
+
     for row in rows:
         for key in column_keys:
             value = read_raw_cell(row, key)
+
             if isinstance(value, EncryptedValue):
                 column = sa_inspect(type(row), raiseerr=True).columns[key]
                 assignments.append((row, key, bytes(value), encrypted_column_type(column).context_for(row)))
@@ -51,45 +53,100 @@ def collect_row_assignments(
     return assignments
 
 
-async def decrypt_assignments(
+async def open_assignments(
     backend: type[EncryptionAdapter], assignments: list[tuple[object, str, bytes, bytes]]
-) -> None:
-    """Decrypt every ``(row, key, ciphertext, context)`` tuple under a TaskGroup and write results back."""
+) -> list[tuple[object, Exception]]:
+    """Decrypt every ``(row, key, ciphertext, context)`` tuple concurrently, returning the cells that failed.
 
-    if not assignments:
-        return
+    Every cell that opens is written back, whatever happens to the others.
+    """
 
-    async with asyncio.TaskGroup() as tg:
-        tasks = [
-            tg.create_task(backend.async_decrypt(ciphertext, associated_data=context))
+    results = await asyncio.gather(
+        *(
+            backend.async_decrypt(ciphertext, associated_data=context)
             for _, _, ciphertext, context in assignments
-        ]
+        ),
+        return_exceptions=True,
+    )
+    failures: list[tuple[object, Exception]] = []
 
-    for (row, key, _, _), task in zip(assignments, tasks):
-        set_decrypted(row, key, decode_value(task.result()))
+    for (row, key, _, _), result in zip(assignments, results):
+        if isinstance(result, Exception):
+            failures.append((row, result))
+
+            continue
+
+        if isinstance(result, BaseException):
+            raise result
+
+        set_decrypted(row, key, decode_value(result))
+
+    return failures
+
+
+def open_assignments_sync(
+    backend: type[EncryptionAdapter], assignments: list[tuple[object, str, bytes, bytes]]
+) -> list[tuple[object, Exception]]:
+    """Decrypt every ``(row, key, ciphertext, context)`` tuple in turn, returning the cells that failed."""
+
+    failures: list[tuple[object, Exception]] = []
+
+    for row, key, ciphertext, context in assignments:
+        try:
+            plaintext = backend.decrypt(ciphertext, associated_data=context)
+        except Exception as exc:
+            failures.append((row, exc))
+
+            continue
+
+        set_decrypted(row, key, decode_value(plaintext))
+
+    return failures
+
+
+def raise_failures(failures: list[tuple[object, Exception]]) -> None:
+    """Raise every cell that failed to decrypt as one group, once the cells that opened are written back."""
+
+    if failures:
+        raise ExceptionGroup("Some encrypted cells could not be decrypted.", [exc for _, exc in failures])
+
+
+async def open_rows(
+    rows: Iterable[object], *columns: InstrumentedAttribute[object] | str
+) -> list[tuple[object, Exception]]:
+    """Decrypt the given columns across every row concurrently, returning the cells that failed."""
+
+    if not columns:
+        return []
+
+    assignments = collect_row_assignments(rows, (column_key(c) for c in columns))
+
+    return await open_assignments(configured_encryption_backend(), assignments)
+
+
+def open_rows_sync(
+    rows: Iterable[object], *columns: InstrumentedAttribute[object] | str
+) -> list[tuple[object, Exception]]:
+    """Decrypt the given columns across every row in turn, returning the cells that failed."""
+
+    if not columns:
+        return []
+
+    assignments = collect_row_assignments(rows, (column_key(c) for c in columns))
+
+    return open_assignments_sync(configured_encryption_backend(), assignments)
 
 
 async def decrypt_rows(rows: Iterable[object], *columns: InstrumentedAttribute[object] | str) -> None:
-    """Decrypt the given columns across every row in one TaskGroup."""
+    """Decrypt the given columns across every row concurrently, raising every cell that failed."""
 
-    if not columns:
-        return
-
-    backend = configured_encryption_backend()
-    assignments = collect_row_assignments(rows, (column_key(c) for c in columns))
-
-    await decrypt_assignments(backend, assignments)
+    raise_failures(await open_rows(rows, *columns))
 
 
 def decrypt_rows_sync(rows: Iterable[object], *columns: InstrumentedAttribute[object] | str) -> None:
-    """Sync decrypt fallback for descriptor reads outside an async-session greenlet."""
+    """Decrypt the given columns across every row synchronously, raising every cell that failed."""
 
-    if not columns:
-        return
-
-    backend = configured_encryption_backend()
-    for row, key, ciphertext, context in collect_row_assignments(rows, (column_key(c) for c in columns)):
-        set_decrypted(row, key, decode_value(backend.decrypt(ciphertext, associated_data=context)))
+    raise_failures(open_rows_sync(rows, *columns))
 
 
 def resolve_context(context: InstrumentedAttribute[object] | str | bytes) -> bytes:
@@ -111,6 +168,7 @@ async def decrypt_values(
     """
 
     values_list: list[ValueT | EncryptableValue] = list(values)
+
     if not values_list:
         return []
 
@@ -118,6 +176,7 @@ async def decrypt_values(
     associated_data = resolve_context(context)
     indexes: list[int] = []
     encrypted_blobs: list[bytes] = []
+
     for index, value in enumerate(values_list):
         if isinstance(value, EncryptedValue):
             encrypted_blobs.append(bytes(value))
@@ -191,24 +250,26 @@ async def bulk_decrypt_entities(entities: object | Iterable[object] | None) -> N
     """Decrypt every deferred encrypted column on the given entities and loaded relationships."""
 
     collected: dict[tuple[type[object], str], list[object]] = {}
+
     collect_encrypted_cells(entities, collected, set())
+
     if not collected:
         return
 
-    backend = configured_encryption_backend()
     assignments: list[tuple[object, str, bytes, bytes]] = []
+
     for (_, column_key), rows in collected.items():
         assignments.extend(collect_row_assignments(rows, (column_key,)))
 
-    await decrypt_assignments(backend, assignments)
+    raise_failures(await open_assignments(configured_encryption_backend(), assignments))
 
 
 def pop_pending_rows(session: AsyncSession) -> list[object]:
-    """Remove this session's pending-decrypt bucket and flatten it into a row list."""
+    """Remove this session's pending-decrypt bucket and flatten it into the rows the session still holds."""
 
     pending = session.info.pop(PENDING_DECRYPT_KEY, None) or {}
 
-    return [row for rows in pending.values() for row in rows]
+    return [row for rows in pending.values() for row in rows if row in session]
 
 
 async def decrypt_pending_fields(session: AsyncSession) -> None:

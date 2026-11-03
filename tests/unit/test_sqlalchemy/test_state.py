@@ -54,12 +54,15 @@ class TestState:
         assert pending_siblings(Session(), SecretRow) == []
 
     def test_bucketed_rows_returned_as_siblings(self):
-        """Test that the rows bucketed for a class are its siblings."""
+        """Test that the rows bucketed for a class are its siblings while the session holds them."""
 
-        rows = [SecretRow(id=1), SecretRow(id=2)]
+        rows = [SecretRow(id=1), SecretRow(id=2), SecretRow(id=3)]
         bucket: defaultdict[type[object], WeakSet[object]] = defaultdict(WeakSet)
         bucket[SecretRow].update(rows)
         session = Session()
+        session.add_all(rows)
         session.info[PENDING_DECRYPT_KEY] = bucket
 
-        assert set(pending_siblings(session, SecretRow)) == set(rows)
+        session.expunge(rows[2])
+
+        assert set(pending_siblings(session, SecretRow)) == set(rows[:2])

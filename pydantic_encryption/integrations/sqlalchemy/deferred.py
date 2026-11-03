@@ -21,7 +21,8 @@ from pydantic_encryption.integrations.sqlalchemy.state import (
     MappedT,
     read_raw_cell,
     require_row_key_columns,
-    row_key_segment,
+    row_key,
+    sealed_row_key,
 )
 from pydantic_encryption.serialization import decode_value, require_encryptable
 from pydantic_encryption.types import EncryptedValue
@@ -83,36 +84,25 @@ def assign_client_side_primary_key(mapper: Mapper[MappedT], target: MappedT) -> 
             setattr(target, attribute, default.arg(None))
 
 
-def replaced_row_key(mapper: Mapper[MappedT], target: MappedT) -> list[object] | None:
-    """Return the key values a row is moving away from, or ``None`` where it keeps the ones it had."""
+def read_stored_cells(
+    connection: Connection, mapper: Mapper[MappedT], identity: tuple[object, ...], attributes: list[str]
+) -> dict[str, object]:
+    """Read the cells a row's ORM state has not loaded, in one statement, from the row its identity names."""
 
-    replaced: list[object] = []
-    moved = False
-    for column in mapper.primary_key:
-        attribute = mapper.get_property_by_column(column).key
-        history = get_history(target, attribute)
-
-        if history.deleted:
-            replaced.append(history.deleted[0])
-            moved = True
-        else:
-            replaced.append(getattr(target, attribute))
-
-    return replaced if moved else None
-
-
-def read_stored_cell(
-    connection: Connection, mapper: Mapper[MappedT], attribute: str, row_key_values: list[object]
-) -> object:
-    """Read a cell the row's ORM state has not loaded from the stored row its key values name."""
+    if not attributes:
+        return {}
 
     statement = (
-        select(mapper.columns[attribute])
+        select(*(mapper.columns[attribute] for attribute in attributes))
         .select_from(mapper.persist_selectable)
-        .where(*(column == value for column, value in zip(mapper.primary_key, row_key_values)))
+        .where(*(column == value for column, value in zip(mapper.primary_key, identity)))
     )
+    stored = connection.execute(statement).one_or_none()
 
-    return connection.execute(statement).scalar_one_or_none()
+    if stored is None:
+        return {}
+
+    return dict(zip(attributes, stored))
 
 
 def seal_row_bound_cells(
@@ -126,37 +116,41 @@ def seal_row_bound_cells(
         return
 
     assign_client_side_primary_key(mapper, target)
-    replaced_values = replaced_row_key(mapper, target) if updating else None
-    replaced_key = (
-        [row_key_segment(column, value) for column, value in zip(mapper.primary_key, replaced_values)]
-        if replaced_values is not None
-        else None
+
+    state = instance_state(target)
+    identity = state.identity
+    moved = identity is not None and sealed_row_key(mapper, target) != row_key(mapper, target)
+    stored = (
+        read_stored_cells(
+            connection,
+            mapper,
+            identity,
+            [attribute for attribute, _ in columns if attribute in state.unloaded],
+        )
+        if identity is not None and moved
+        else {}
     )
-    unloaded = instance_state(target).unloaded
 
     for attribute, column_type in columns:
-        if replaced_values is not None and attribute in unloaded:
-            value = read_stored_cell(connection, mapper, attribute, replaced_values)
-        else:
-            value = read_raw_cell(target, attribute)
+        value = stored[attribute] if attribute in stored else read_raw_cell(target, attribute)
 
         if value is None:
             continue
 
         if isinstance(value, EncryptedValue):
-            if replaced_key is None:
+            if not moved:
                 continue
 
-            plaintext = decode_value(
-                column_type.decrypt_cell(value, context=column_type.cell_context(*replaced_key))
-            )
-        elif updating and replaced_key is None and not get_history(target, attribute).added:
+            plaintext = decode_value(column_type.decrypt_cell(value, context=column_type.context_for(target)))
+        elif updating and not moved and not get_history(target, attribute).added:
             continue
         else:
             plaintext = require_encryptable(value)
 
         setattr(
-            target, attribute, column_type.encrypt_cell(plaintext, context=column_type.context_for(target))
+            target,
+            attribute,
+            column_type.encrypt_cell(plaintext, context=column_type.cell_context(*row_key(mapper, target))),
         )
 
 

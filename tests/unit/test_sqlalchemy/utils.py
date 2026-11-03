@@ -25,6 +25,7 @@ class RecordingAsyncSession(AsyncSession):
         bucket: defaultdict[type[object], WeakSet[object]] = defaultdict(WeakSet)
 
         for row in pending:
+            self.add(row)
             bucket[type(row)].add(row)
 
         self.info[PENDING_DECRYPT_KEY] = bucket

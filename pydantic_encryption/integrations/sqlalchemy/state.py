@@ -9,7 +9,7 @@ require_optional_dependency("sqlalchemy", "sqlalchemy")
 from sqlalchemy import CHAR, NCHAR, ColumnElement, Enum, Integer, String, Uuid
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import Mapper, Session
-from sqlalchemy.orm.attributes import set_committed_value
+from sqlalchemy.orm.attributes import instance_state, set_committed_value
 from sqlalchemy.types import TypeEngine
 
 from pydantic_encryption.serialization import EncryptableValue
@@ -98,12 +98,23 @@ def row_key(mapper: Mapper[MappedT], instance: MappedT) -> list[str]:
     return values
 
 
+def sealed_row_key(mapper: Mapper[MappedT], instance: MappedT) -> list[str]:
+    """Return the key a row's stored cells are sealed under: its persisted identity, else its assigned key."""
+
+    identity = instance_state(instance).identity
+
+    if identity is None:
+        return row_key(mapper, instance)
+
+    return [row_key_segment(column, value) for column, value in zip(mapper.primary_key, identity)]
+
+
 def pending_siblings(session: Session, cls: type[object]) -> list[object]:
-    """Return pending-decrypt instances of ``cls`` bucketed in ``session``."""
+    """Return pending-decrypt instances of ``cls`` bucketed in ``session`` that it still holds."""
 
     bucket: dict[type[object], WeakSet[object]] = session.info.get(PENDING_DECRYPT_KEY) or {}
 
-    return list(bucket.get(cls) or [])
+    return [row for row in bucket.get(cls) or () if row in session]
 
 
 __all__ = [
@@ -114,5 +125,6 @@ __all__ = [
     "require_row_key_columns",
     "row_key",
     "row_key_segment",
+    "sealed_row_key",
     "set_decrypted",
 ]

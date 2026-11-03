@@ -16,7 +16,7 @@ from pydantic_encryption.adapters.registry import configured_encryption_backend
 from pydantic_encryption.context import append_row_key, derive_column_context, derive_declared_context
 from pydantic_encryption.integrations.sqlalchemy.async_bridge import run_async_or_sync
 from pydantic_encryption.integrations.sqlalchemy.binary import BinaryColumnType, BinaryStorage, ColumnValueT
-from pydantic_encryption.integrations.sqlalchemy.state import row_key
+from pydantic_encryption.integrations.sqlalchemy.state import sealed_row_key
 from pydantic_encryption.serialization import (
     EncryptableValue,
     decode_value,
@@ -87,7 +87,7 @@ class ContextBoundType(BinaryColumnType[ColumnValueT]):
         return self.column_context()
 
     def context_for(self, row: object) -> bytes:
-        """Return the context the given row's cell in this column binds its ciphertext to."""
+        """Return the context the given row's stored cell in this column is sealed under."""
 
         return self.bound_context()
 
@@ -133,10 +133,10 @@ class SQLAlchemyEncryptedValue(ContextBoundType[EncryptableValue]):
         return append_row_key(self.column_context(), *row_key)
 
     def context_for(self, row: object) -> bytes:
-        """Return the context the given row's cell binds to: its own row's where the column is row-bound."""
+        """Return the context the given row's stored cell is sealed under, its own row's where row-bound."""
 
         if self.row_bound:
-            return self.cell_context(*row_key(sa_inspect(type(row), raiseerr=True), row))
+            return self.cell_context(*sealed_row_key(sa_inspect(type(row), raiseerr=True), row))
 
         return self.bound_context()
 
