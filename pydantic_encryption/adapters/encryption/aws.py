@@ -50,6 +50,7 @@ def kms_client_options() -> KMSClientOptions:
     """Return the boto3 KMS client options: the configured region, credentials and transport bounds."""
 
     has_key = settings.AWS_KMS_KEY_ARN or settings.AWS_KMS_ENCRYPT_KEY_ARN or settings.AWS_KMS_DECRYPT_KEY_ARN
+
     if not (
         has_key
         and settings.AWS_KMS_REGION
@@ -106,6 +107,7 @@ def open(blob: bytes) -> tuple[bytes, bytes, bytes]:
         raise ValueError("Ciphertext is too short to be a valid AWS KMS envelope.")
 
     magic, version, wrapped_len = struct.unpack(HEADER_PACK_FORMAT, blob[:HEADER_LENGTH])
+
     if magic != CIPHERTEXT_MAGIC:
         raise ValueError(
             "Unrecognized ciphertext format for AWS KMS adapter "
@@ -116,6 +118,7 @@ def open(blob: bytes) -> tuple[bytes, bytes, bytes]:
 
     end_wrapped = HEADER_LENGTH + wrapped_len
     end_nonce = end_wrapped + NONCE_LENGTH
+
     if len(blob) < end_nonce:
         raise ValueError("Ciphertext is truncated: missing wrapped data key or nonce.")
 
@@ -145,6 +148,7 @@ class AWSAdapter(EncryptionAdapter):
         """Return the encryption ARN, rejecting decrypt-only (read-only) configurations."""
 
         arn = settings.AWS_KMS_ENCRYPT_KEY_ARN or settings.AWS_KMS_KEY_ARN
+
         if not arn:
             raise ValueError(
                 "encrypt() requires AWS_KMS_KEY_ARN or AWS_KMS_ENCRYPT_KEY_ARN; "
@@ -159,6 +163,7 @@ class AWSAdapter(EncryptionAdapter):
 
         kwargs = DataKeyDecryptRequest(CiphertextBlob=wrapped_data_key)
         decrypt_arn = settings.AWS_KMS_DECRYPT_KEY_ARN or settings.AWS_KMS_KEY_ARN
+
         if decrypt_arn:
             kwargs["KeyId"] = decrypt_arn
 

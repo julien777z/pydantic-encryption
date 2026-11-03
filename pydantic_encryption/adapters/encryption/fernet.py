@@ -42,6 +42,7 @@ class FernetAdapter(EncryptionAdapter):
         """Return the Fernet client the given context seals under."""
 
         resolved = key or settings.ENCRYPTION_KEY
+
         if not resolved:
             raise ValueError("Fernet requires ENCRYPTION_KEY to be set.")
 

@@ -118,6 +118,7 @@ class SecureModel(SuperModelMixin):
         """Narrow field values to the text a hash or ciphertext takes, refusing any other type."""
 
         text_values: dict[str, str | bytes] = {}
+
         for field_name, value in fields.items():
             if not isinstance(value, str | bytes):
                 raise TypeError(
@@ -137,6 +138,7 @@ class SecureModel(SuperModelMixin):
             return None
 
         fields = self.nonempty_field_values(self.pending_encryption_fields)
+
         if not fields:
             return None
 
@@ -169,6 +171,7 @@ class SecureModel(SuperModelMixin):
         """Return ``(field_name, backend, normalized_value, key_bytes)`` tuples."""
 
         fields = self.pending_blind_index_fields
+
         if not fields:
             return None
 
@@ -190,6 +193,7 @@ class SecureModel(SuperModelMixin):
                 key_bytes = resolve_blind_index_key(self._blind_index_key)
 
             backend = get_blind_index_backend(annotation.method)
+
             tasks.append((field_name, backend, normalized, key_bytes))
 
         return tasks or None
@@ -230,10 +234,12 @@ class SecureModel(SuperModelMixin):
         """Encrypt fields annotated with ``Encrypted`` in-place."""
 
         collected = self.collect_encryption_fields()
+
         if collected is None:
             return
 
         backend, key, fields = collected
+
         for field_name, value in fields.items():
             if isinstance(value, EncryptedValue):
                 continue
@@ -248,6 +254,7 @@ class SecureModel(SuperModelMixin):
         """Hash fields annotated with ``Hashed`` in-place."""
 
         fields = self.collect_hash_fields()
+
         if fields is None:
             return
 
@@ -258,6 +265,7 @@ class SecureModel(SuperModelMixin):
         """Compute blind indexes for fields annotated with ``BlindIndex`` in-place."""
 
         tasks = self.collect_blind_index_tasks()
+
         if tasks is None:
             return
 
@@ -268,10 +276,12 @@ class SecureModel(SuperModelMixin):
         """Decrypt all ``Encrypted`` fields in-place and return ``self`` for chaining."""
 
         collected = self.collect_encryption_fields()
+
         if collected is None:
             return self
 
         backend, key, fields = collected
+
         for field_name, value in self.text_field_values(fields).items():
             plaintext = backend.decrypt(value, key=key, associated_data=self.field_context(field_name))
             setattr(self, field_name, decode_value(plaintext))
@@ -282,6 +292,7 @@ class SecureModel(SuperModelMixin):
         """Asynchronously encrypt fields annotated with ``Encrypted``."""
 
         collected = self.collect_encryption_fields()
+
         if collected is None:
             return
 
@@ -303,6 +314,7 @@ class SecureModel(SuperModelMixin):
         """Asynchronously hash fields annotated with ``Hashed``."""
 
         fields = self.collect_hash_fields()
+
         if fields is None:
             return
 
@@ -312,6 +324,7 @@ class SecureModel(SuperModelMixin):
         """Asynchronously compute blind indexes for fields annotated with ``BlindIndex``."""
 
         tasks = self.collect_blind_index_tasks()
+
         if tasks is None:
             return
 
@@ -326,6 +339,7 @@ class SecureModel(SuperModelMixin):
         """Asynchronously decrypt all ``Encrypted`` fields and return ``self`` for chaining."""
 
         collected = self.collect_encryption_fields()
+
         if collected is None:
             return self
 
@@ -380,6 +394,7 @@ class SecureModel(SuperModelMixin):
         async with asyncio.TaskGroup() as tg:
             for name in getattr(type(self), "model_fields", {}):
                 value = getattr(self, name, None)
+
                 if value is not None:
                     tg.create_task(self.async_post_init_nested(value))
             tg.create_task(self.async_encrypt_data())
@@ -401,6 +416,7 @@ class BaseModel(SuperModelPydanticMixin, SecureModel):
         """Construct a model with async encryption, hashing, and blind indexing."""
 
         token = defer_crypto_to_async.set(True)
+
         try:
             instance = cls(**data)
         finally:
