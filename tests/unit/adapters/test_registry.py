@@ -10,14 +10,6 @@ from pydantic_encryption.config import settings
 from pydantic_encryption.types import BlindIndexMethod, EncryptionMethod
 
 
-@pytest.fixture
-def empty_registry(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Give the test a registry holding no encryption backends or factories."""
-
-    monkeypatch.setattr(registry, "encryption_backends", {})
-    monkeypatch.setattr(registry, "encryption_factories", {})
-
-
 class TestRegistry:
     """Test how the registry resolves the adapter serving each encryption and blind index method."""
 

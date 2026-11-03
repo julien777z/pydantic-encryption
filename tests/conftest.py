@@ -37,6 +37,14 @@ def set_default_encryption_method(monkeypatch):
 
 
 @pytest.fixture
+def empty_registry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Give the test a registry holding no encryption backends or factories."""
+
+    monkeypatch.setattr("pydantic_encryption.adapters.registry.encryption_backends", {})
+    monkeypatch.setattr("pydantic_encryption.adapters.registry.encryption_factories", {})
+
+
+@pytest.fixture
 def fernet_key() -> str:
     """Generate a Fernet root key for tests that exercise that backend directly."""
 

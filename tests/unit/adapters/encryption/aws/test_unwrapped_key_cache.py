@@ -6,15 +6,9 @@ pytest.importorskip("boto3")
 
 from pydantic_encryption.adapters.encryption.aws import AWSAdapter
 from pydantic_encryption.config import settings
-from pydantic_encryption.types import EncryptedValue
 from tests.cases import SEALED_CONTEXT
 from tests.models.kms import FakeSyncKMSClient
-
-
-def seal_under_own_keys(count: int) -> list[EncryptedValue]:
-    """Seal ``count`` values, each under a data key of its own, and return their ciphertexts."""
-
-    return [AWSAdapter.encrypt(f"value-{index}", associated_data=SEALED_CONTEXT) for index in range(count)]
+from tests.unit.utils import ASYNC_PATHS, call_path, seal_values
 
 
 @pytest.mark.asyncio
@@ -24,11 +18,7 @@ class TestUnwrappedKeyCache:
     async def test_shared_data_key_unwrapped_once(self, fake_sync_kms: FakeSyncKMSClient):
         """Test that a data key is unwrapped once however many values it sealed."""
 
-        ciphertexts = [
-            AWSAdapter.encrypt(f"value-{index}", associated_data=SEALED_CONTEXT) for index in range(20)
-        ]
-
-        for ciphertext in ciphertexts:
+        for ciphertext in await seal_values(20):
             AWSAdapter.decrypt(ciphertext, associated_data=SEALED_CONTEXT)
 
         assert len(fake_sync_kms.decrypt_calls) == 1
@@ -36,10 +26,7 @@ class TestUnwrappedKeyCache:
     async def test_concurrent_reads_share_one_unwrap(self, fake_sync_kms: FakeSyncKMSClient):
         """Test that decrypts racing on one cold data key share one KMS call."""
 
-        ciphertexts = [
-            await AWSAdapter.async_encrypt(f"value-{index}", associated_data=SEALED_CONTEXT)
-            for index in range(20)
-        ]
+        ciphertexts = await seal_values(20, asynchronous=True)
 
         await asyncio.gather(
             *(
@@ -57,7 +44,7 @@ class TestUnwrappedKeyCache:
 
         monkeypatch.setattr(settings, "AWS_KMS_DATA_KEY_MAX_USES", 1)
         monkeypatch.setattr(settings, "AWS_KMS_UNWRAPPED_KEY_CACHE_SIZE", 2)
-        first, second, third = seal_under_own_keys(3)
+        first, second, third = await seal_values(3)
 
         for ciphertext in (first, second, first, third, first):
             AWSAdapter.decrypt(ciphertext, associated_data=SEALED_CONTEXT)
@@ -65,7 +52,7 @@ class TestUnwrappedKeyCache:
         assert len(fake_sync_kms.decrypt_calls) == 3
         assert len(AWSAdapter.unwrapped_keys) == 2
 
-    @pytest.mark.parametrize("asynchronous", [False, True], ids=["sync", "async"])
+    @ASYNC_PATHS
     async def test_expired_key_unwrapped_again(
         self, fake_sync_kms: FakeSyncKMSClient, monkeypatch: pytest.MonkeyPatch, asynchronous: bool
     ):
@@ -75,13 +62,16 @@ class TestUnwrappedKeyCache:
         ciphertext = AWSAdapter.encrypt("secret data", associated_data=SEALED_CONTEXT)
 
         for _ in range(2):
-            if asynchronous:
-                assert (
-                    await AWSAdapter.async_decrypt(ciphertext, associated_data=SEALED_CONTEXT)
-                    == "secret data"
+            assert (
+                await call_path(
+                    asynchronous,
+                    AWSAdapter.decrypt,
+                    AWSAdapter.async_decrypt,
+                    ciphertext,
+                    associated_data=SEALED_CONTEXT,
                 )
-            else:
-                assert AWSAdapter.decrypt(ciphertext, associated_data=SEALED_CONTEXT) == "secret data"
+                == "secret data"
+            )
 
         assert len(fake_sync_kms.decrypt_calls) == 2
 

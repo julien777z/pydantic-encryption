@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
 from pydantic_encryption.integrations.sqlalchemy import decrypt_pending_fields, decrypt_rows, decrypt_values
-from pydantic_encryption.integrations.sqlalchemy.bulk import collect_encrypted_cells, decrypt_rows_sync
+from pydantic_encryption.integrations.sqlalchemy.bulk import decrypt_rows_sync
 from pydantic_encryption.integrations.sqlalchemy.state import PENDING_DECRYPT_KEY
 from pydantic_encryption.types import EncryptedValue
 from tests.factories import User
@@ -21,17 +21,8 @@ from tests.unit.test_sqlalchemy.tables import (
     RenamedColumnRow,
     SecretRow,
 )
-from tests.unit.test_sqlalchemy.utils import RecordingAsyncSession, encrypt_through_column
-
-
-def collected_cells(entities: object) -> dict[tuple[type[object], str], list[object]]:
-    """Return the deferred encrypted cells the bulk walk collects from the given entities."""
-
-    collected: dict[tuple[type[object], str], list[object]] = {}
-
-    collect_encrypted_cells(entities, collected, set())
-
-    return collected
+from tests.unit.test_sqlalchemy.utils import RecordingAsyncSession, collected_cells, encrypt_through_column
+from tests.unit.utils import ASYNC_PATHS, call_path
 
 
 @pytest.mark.asyncio
@@ -86,16 +77,13 @@ class TestBulk:
 
         assert raised.group_contains(InvalidToken)
 
-    @pytest.mark.parametrize("asynchronous", [False, True], ids=["sync", "async"])
+    @ASYNC_PATHS
     async def test_no_columns_leaves_rows_sealed(self, asynchronous: bool):
         """Test that naming no column leaves the rows sealed."""
 
         row = SecretRow.sealed("secret data", id=1)
 
-        if asynchronous:
-            await decrypt_rows([row])
-        else:
-            decrypt_rows_sync([row])
+        await call_path(asynchronous, decrypt_rows_sync, decrypt_rows, [row])
 
         assert isinstance(sa_inspect(row).dict["secret"], EncryptedValue)
 

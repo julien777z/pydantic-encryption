@@ -13,6 +13,7 @@ from pydantic_encryption.types import EncryptedValue
 from tests.cases import CALLER_CONTEXT, FOREIGN_CONTEXT, SEALED_CONTEXT
 from tests.factories import User
 from tests.models.kms import ControlledKMSClient, SlowFakeKMS
+from tests.unit.utils import ASYNC_PATHS
 
 
 class TestSingleFlight:
@@ -205,7 +206,7 @@ class TestSingleFlight:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("source", [b"", SEALED_CONTEXT], ids=["unbound", "bound"])
-    @pytest.mark.parametrize("asynchronous", [False, True], ids=["sync", "async"])
+    @ASYNC_PATHS
     async def test_shared_unwrap_authenticates_each_callers_context(
         self, controlled_kms: ControlledKMSClient, user: User, source: bytes, asynchronous: bool
     ) -> None:

@@ -8,23 +8,14 @@ from pydantic_encryption.adapters.encryption.aws import AWSAdapter
 from pydantic_encryption.config import settings
 from tests.cases import SEALED_CONTEXT
 from tests.models.kms import FakeSyncKMSClient
-
-
-async def seal_values(count: int, asynchronous: bool) -> None:
-    """Seal ``count`` distinct values one after another through the sync or async path."""
-
-    for index in range(count):
-        if asynchronous:
-            await AWSAdapter.async_encrypt(f"value-{index}", associated_data=SEALED_CONTEXT)
-        else:
-            AWSAdapter.encrypt(f"value-{index}", associated_data=SEALED_CONTEXT)
+from tests.unit.utils import ASYNC_PATHS, seal_values
 
 
 @pytest.mark.asyncio
 class TestDataKeyReuse:
     """Test that one KMS data key seals many values, within its use and age bounds."""
 
-    @pytest.mark.parametrize("asynchronous", [False, True], ids=["sync", "async"])
+    @ASYNC_PATHS
     async def test_values_share_one_data_key(self, fake_sync_kms: FakeSyncKMSClient, asynchronous: bool):
         """Test that sealing many values calls KMS once rather than once per value."""
 
@@ -44,7 +35,7 @@ class TestDataKeyReuse:
 
         assert len(fake_sync_kms.generate_calls) == 1
 
-    @pytest.mark.parametrize("asynchronous", [False, True], ids=["sync", "async"])
+    @ASYNC_PATHS
     async def test_spent_use_budget_generates_fresh_key(
         self, fake_sync_kms: FakeSyncKMSClient, monkeypatch: pytest.MonkeyPatch, asynchronous: bool
     ):
@@ -56,7 +47,7 @@ class TestDataKeyReuse:
 
         assert len(fake_sync_kms.generate_calls) == 3
 
-    @pytest.mark.parametrize("asynchronous", [False, True], ids=["sync", "async"])
+    @ASYNC_PATHS
     async def test_expired_key_generates_fresh_key(
         self, fake_sync_kms: FakeSyncKMSClient, monkeypatch: pytest.MonkeyPatch, asynchronous: bool
     ):
@@ -75,7 +66,7 @@ class TestDataKeyReuse:
 
         monkeypatch.setattr(settings, "AWS_KMS_DATA_KEY_MAX_AGE_SECONDS", 0.05)
 
-        await seal_values(1, asynchronous=False)
+        await seal_values(1)
         timer = AWSAdapter.expiry_timer
 
         assert AWSAdapter.encrypt_key is not None
@@ -88,7 +79,7 @@ class TestDataKeyReuse:
     async def test_key_material_kept_out_of_repr(self, fake_sync_kms: FakeSyncKMSClient):
         """Test that a held data key renders neither its plaintext nor its wrapped form in a repr."""
 
-        await seal_values(1, asynchronous=False)
+        await seal_values(1)
         held = AWSAdapter.encrypt_key
 
         assert held is not None

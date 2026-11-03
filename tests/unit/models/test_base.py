@@ -30,9 +30,7 @@ from tests.models.records import (
     OptionalRecord,
     PlainRecord,
 )
-from tests.unit.models.utils import NO_SQLALCHEMY_SCRIPT, build, decrypt, deferred_crypto
-
-ASYNC_PATHS = pytest.mark.parametrize("asynchronous", [False, True], ids=["sync", "async"])
+from tests.unit.utils import ASYNC_PATHS, NO_SQLALCHEMY_SCRIPT, build, decrypt, deferred_crypto
 
 
 @pytest.mark.asyncio
