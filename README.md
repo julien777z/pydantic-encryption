@@ -312,7 +312,7 @@ Contexts are derived, so there is nothing to pass in the common case:
 | An array element | the context of the array column itself |
 | A model field | `\field.module.Model.field` |
 
-A column inherited from a mixin binds separately for each table that inherits it, and one type binds one column — a type already attached to a column refuses a second. A separator inside a name is escaped, so every backslash in an escaped name is followed by another backslash or a separator. A model field's context starts with `\field`, which no escaped name produces, so a model field never shares a context with a column, a row or another model field, and no two columns share one, however they are named.
+A column inherited from a mixin binds separately for each table that inherits it, and one type binds one column — a type already attached to a column refuses a second. Escaping doubles every backslash in a name and puts one before every separator, so a backslash that starts an escaped name is followed by another backslash or a separator, never a letter. A model field's context starts with `\field.`, so a model field never shares a context with a column, a row or another model field, and no two columns share one, however they are named.
 
 A row's context is its column's context followed by its primary key, and it is not kept apart from other locations in the same way: it is shared with any location whose segments read the same in order. That happens only where one table names a schema and the other does not:
 

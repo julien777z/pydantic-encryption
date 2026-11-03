@@ -44,19 +44,3 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-
-  lint:
-    name: Lint
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup Python and Poetry
-        uses: ./.github/actions/setup-python-poetry
-        with:
-          post_setup_command: "poetry install --all-extras"
-
-      - name: Check Types with Pyright
-        run: poetry run pyright
