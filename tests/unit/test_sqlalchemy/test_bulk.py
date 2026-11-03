@@ -13,7 +13,7 @@ from pydantic_encryption.integrations.sqlalchemy.bulk import decrypt_rows_sync
 from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue
 from pydantic_encryption.integrations.sqlalchemy.state import PENDING_DECRYPT_KEY
 from pydantic_encryption.types import EncryptedValue
-from tests.factories import SampleRecord
+from tests.models.records import SampleRecord
 from tests.unit.test_sqlalchemy.tables import (
     Member,
     Organization,

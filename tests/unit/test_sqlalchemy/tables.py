@@ -14,7 +14,7 @@ from pydantic_encryption.integrations.sqlalchemy.encryption import (
 )
 from pydantic_encryption.integrations.sqlalchemy.hashing import SQLAlchemyHashedValue
 from pydantic_encryption.types import BlindIndexMethod
-from tests.factories import SampleRecord
+from tests.models.records import SampleRecord
 from tests.unit.test_sqlalchemy.utils import encrypt_through_column
 
 

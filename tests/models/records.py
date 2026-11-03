@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Annotated, Generic, TypeVar
 
 from pydantic import Field
@@ -89,3 +90,45 @@ class GenericSecretRecord(BaseModel, Generic[ExtraT]):
 
     secret: Annotated[object, Encrypted]
     extra: ExtraT | None = None
+
+
+class SampleRecord(BaseModel):
+    """Faker-backed test sample covering encryption, hashing, and SA row fields."""
+
+    id: int
+    name: str
+    label: str
+    caption: str
+    payload: bytes
+    secret: Annotated[str | bytes, Encrypted]
+    password: Annotated[str | bytes, Hashed]
+
+
+class Argon2Record(BaseModel):
+    """Model holding one Argon2 blind-indexed field."""
+
+    lookup_index: Annotated[str | bytes, BlindIndex(BlindIndexMethod.ARGON2)]
+
+
+class TextIndexedRecord(BaseModel):
+    """Model holding one HMAC-SHA256 blind-indexed field declared as text alone."""
+
+    lookup_index: Annotated[str, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
+
+
+class BareIndexRecord(BaseModel):
+    """Model annotating a field with the BlindIndex class instead of an instance."""
+
+    lookup_index: Annotated[str | bytes, BlindIndex]
+
+
+class JoinedRecord(BaseModel):
+    """Model holding one encrypted date field."""
+
+    joined_on: Annotated[date, Encrypted]
+
+
+class DeclaredIndexRecord(BaseModel, blind_index_key="sample-model-index-key"):
+    """Model declaring its own blind index key."""
+
+    lookup_index: Annotated[str | bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]

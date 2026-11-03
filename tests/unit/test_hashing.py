@@ -1,6 +1,6 @@
 from pydantic_encryption.adapters.hashing.argon2 import Argon2Adapter
 from pydantic_encryption.types import HashedValue
-from tests.factories import SampleRecord
+from tests.models.records import SampleRecord
 
 
 class TestUnitHashing:

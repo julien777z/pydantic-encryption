@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from pydantic_encryption.integrations.sqlalchemy.descriptor import DecryptOnAccessDescriptor
 from pydantic_encryption.types import EncryptedValue
-from tests.factories import SampleRecord
+from tests.models.records import SampleRecord
 from tests.unit.test_sqlalchemy.tables import Member, RenamedColumnRow
 
 

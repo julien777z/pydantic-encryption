@@ -4,8 +4,8 @@ from argon2 import PasswordHasher
 from sqlalchemy import insert, select, text
 from sqlalchemy.orm import Session
 
-from tests.factories import SampleRecord
 from tests.integration.database import Record
+from tests.models.records import SampleRecord
 
 
 class TestBinaryLiteralRoundTrip:

@@ -12,8 +12,8 @@ from pydantic_encryption.adapters.encryption.aws import AWSAdapter
 from pydantic_encryption.config import settings
 from pydantic_encryption.types import EncryptedValue
 from tests.cases import CALLER_CONTEXT, FOREIGN_CONTEXT, SEALED_CONTEXT
-from tests.factories import SampleRecord
 from tests.models.kms import ControlledKMSClient
+from tests.models.records import SampleRecord
 from tests.unit.utils import ASYNC_PATHS
 
 

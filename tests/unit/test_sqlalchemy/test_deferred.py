@@ -35,6 +35,7 @@ from tests.unit.test_sqlalchemy.tables import (
     PartialKeyedRow,
     PayloadRow,
     PlainSecretRow,
+    RecordBase,
     RenamedColumnRow,
     RowBoundRecord,
     SecretRow,
@@ -265,9 +266,7 @@ class TestDeferredDecryptMixin:
         [RowBoundRecord, PartialKeyedRow, InstanceKeyedRow],
         ids=["function", "partial", "instance"],
     )
-    def test_zero_argument_key_default_applied(
-        self, sqlite_session: Session, row_class: type[RowBoundRecord]
-    ):
+    def test_zero_argument_key_default_applied(self, sqlite_session: Session, row_class: type[RecordBase]):
         """Test that a primary key's zero-argument default names the row its cells bind to."""
 
         sqlite_session.add(row_class(secret="secret data"))

@@ -8,8 +8,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from pydantic_encryption.types import BlindIndexValue, HashedValue
-from tests.factories import SampleRecord
 from tests.integration.database import Record
+from tests.models.records import SampleRecord
 
 
 class TestIntegrationSQLAlchemy:

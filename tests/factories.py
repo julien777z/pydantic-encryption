@@ -1,22 +1,8 @@
-from typing import Annotated
-
 from polyfactory.factories.pydantic_factory import ModelFactory
 
-from pydantic_encryption import BaseModel, Encrypted, Hashed
+from tests.models.records import SampleRecord
 
-__all__ = ["SampleRecord", "SampleRecordFactory"]
-
-
-class SampleRecord(BaseModel):
-    """Faker-backed test sample covering encryption, hashing, and SA row fields."""
-
-    id: int
-    name: str
-    label: str
-    caption: str
-    payload: bytes
-    secret: Annotated[str | bytes, Encrypted]
-    password: Annotated[str | bytes, Hashed]
+__all__ = ["SampleRecordFactory"]
 
 
 class SampleRecordFactory(ModelFactory[SampleRecord]):

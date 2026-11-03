@@ -9,7 +9,7 @@ from cryptography.fernet import Fernet
 from pydantic_encryption.adapters.encryption.aws import AWSAdapter
 from pydantic_encryption.config import Settings, settings
 from pydantic_encryption.types import EncryptionMethod
-from tests.factories import SampleRecord, SampleRecordFactory
+from tests.factories import SampleRecordFactory
 from tests.models.kms import (
     KMS_KEY_ARN,
     KMS_REGION,
@@ -20,6 +20,7 @@ from tests.models.kms import (
     ObservedFuture,
     ObservedLock,
 )
+from tests.models.records import SampleRecord
 
 
 @pytest.fixture(autouse=True)

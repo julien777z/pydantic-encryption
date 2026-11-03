@@ -18,21 +18,26 @@ from pydantic_encryption.config import settings
 from pydantic_encryption.context import derive_field_context
 from pydantic_encryption.serialization import decode_value
 from pydantic_encryption.types import BlindIndexValue, EncryptedValue, HashedValue
-from tests.factories import SampleRecord
 from tests.models.records import (
     AnyEncryptedRecord,
+    Argon2Record,
+    BareIndexRecord,
+    DeclaredIndexRecord,
     EncryptedRecord,
     GenericSecretRecord,
     HashedRecord,
-    LeftSecretRecord,
     IndexedRecord,
+    JoinedRecord,
+    LeftSecretRecord,
     MixedRecord,
     NestedRecord,
     OptionalIndexedRecord,
     OptionalRecord,
     PlainRecord,
     RightSecretRecord,
+    SampleRecord,
     SharedSecretRecord,
+    TextIndexedRecord,
 )
 from tests.unit.utils import ASYNC_PATHS, NO_SQLALCHEMY_SCRIPT, build, decrypt, deferred_crypto
 
@@ -350,9 +355,6 @@ class TestSecureModel:
     async def test_blind_index_methods_differ(self, sample: SampleRecord):
         """Test that the two methods index one value differently."""
 
-        class Argon2Record(BaseModel):
-            lookup_index: Annotated[str | bytes, BlindIndex(BlindIndexMethod.ARGON2)]
-
         assert (
             IndexedRecord(lookup_index=sample.name).lookup_index
             != Argon2Record(lookup_index=sample.name).lookup_index
@@ -367,9 +369,6 @@ class TestSecureModel:
 
     async def test_text_only_field_indexed(self, sample: SampleRecord):
         """Test that a field declared as text alone is indexed through the async path."""
-
-        class TextIndexedRecord(BaseModel):
-            lookup_index: Annotated[str, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
 
         record = await TextIndexedRecord.async_init(lookup_index=sample.name)
 
@@ -394,9 +393,6 @@ class TestSecureModel:
 
     async def test_bare_blind_index_class_refused(self):
         """Test that annotating with the BlindIndex class instead of an instance raises."""
-
-        class BareIndexRecord(BaseModel):
-            lookup_index: Annotated[str | bytes, BlindIndex]
 
         with pytest.raises(TypeError, match="must be annotated with a BlindIndex"):
             BareIndexRecord(lookup_index="sample")
@@ -457,9 +453,6 @@ class TestSecureModel:
     async def test_non_text_ciphertext_refused(self):
         """Test that decrypting a field reassigned to a non-ciphertext value names the field it refused."""
 
-        class JoinedRecord(BaseModel):
-            joined_on: Annotated[date, Encrypted]
-
         record = JoinedRecord(joined_on=date(1990, 5, 4))
         record.joined_on = date(1990, 5, 5)
 
@@ -510,9 +503,6 @@ class TestSecureModel:
 
     async def test_declared_index_key_used(self, sample: SampleRecord):
         """Test that a model declaring a blind index key indexes under it, not BLIND_INDEX_SECRET_KEY."""
-
-        class DeclaredIndexRecord(BaseModel, blind_index_key="sample-model-index-key"):
-            lookup_index: Annotated[str | bytes, BlindIndex(BlindIndexMethod.HMAC_SHA256)]
 
         assert DeclaredIndexRecord(
             lookup_index=sample.name
