@@ -6,7 +6,13 @@ from sqlalchemy import CHAR, DateTime, Numeric, select
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.engine import Dialect
 from sqlalchemy.exc import StatementError
-from sqlalchemy.orm import DeclarativeBase, Mapped, Session, make_transient_to_detached, mapped_column
+from sqlalchemy.orm import (
+    DeclarativeBase,
+    Mapped,
+    Session,
+    make_transient_to_detached,
+    mapped_column,
+)
 from sqlalchemy.types import TypeEngine
 
 from pydantic_encryption.context import derive_row_context
@@ -20,7 +26,9 @@ from pydantic_encryption.types import EncryptedValue
 from tests.unit.test_sqlalchemy.tables import (
     ContextKeyedRow,
     ExpressionKeyedRow,
+    InstanceKeyedRow,
     Organization,
+    PartialKeyedRow,
     PayloadRow,
     PlainSecretRow,
     RenamedColumnRow,
@@ -183,6 +191,22 @@ class TestDeferredDecryptMixin:
 
         assert reloaded is not None
         assert reloaded.secret == "secret data"
+
+    @pytest.mark.parametrize(
+        "row_class",
+        [RowBoundRecord, PartialKeyedRow, InstanceKeyedRow],
+        ids=["function", "partial", "instance"],
+    )
+    def test_zero_argument_key_default_applied(
+        self, sqlite_session: Session, row_class: type[RowBoundRecord]
+    ):
+        """Test that a primary key's zero-argument default names the row its cells bind to."""
+
+        sqlite_session.add(row_class(secret="secret data"))
+        sqlite_session.commit()
+        sqlite_session.expunge_all()
+
+        assert sqlite_session.execute(select(row_class)).scalar_one().secret == "secret data"
 
     @pytest.mark.parametrize("read_first", [False, True], ids=["sealed", "read"])
     def test_cell_untouched_when_key_kept(self, sqlite_session: Session, read_first: bool):

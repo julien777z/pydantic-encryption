@@ -1,4 +1,5 @@
 import uuid
+from functools import partial
 from typing import Self
 
 from sqlalchemy import ForeignKey, Integer, String, Uuid, func
@@ -144,6 +145,39 @@ class TextUuidKeyedRow(RecordBase, DeferredDecryptMixin):
     __table_args__ = {"schema": "main"}
 
     id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True)
+    secret: Mapped[str | None] = mapped_column(
+        SQLAlchemyEncryptedValue(row_bound=True), nullable=True, default=None
+    )
+
+
+class PartialKeyedRow(RecordBase, DeferredDecryptMixin):
+    """Row-bound row whose primary key defaults to a zero-argument partial."""
+
+    __tablename__ = "partial_keyed_rows"
+    __table_args__ = {"schema": "main"}
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=partial(uuid.uuid4))
+    secret: Mapped[str | None] = mapped_column(
+        SQLAlchemyEncryptedValue(row_bound=True), nullable=True, default=None
+    )
+
+
+class KeyMaker:
+    """Callable instance that makes a fresh row key each time it is called."""
+
+    def __call__(self) -> uuid.UUID:
+        """Return a fresh random row key."""
+
+        return uuid.uuid4()
+
+
+class InstanceKeyedRow(RecordBase, DeferredDecryptMixin):
+    """Row-bound row whose primary key defaults to a callable instance."""
+
+    __tablename__ = "instance_keyed_rows"
+    __table_args__ = {"schema": "main"}
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=KeyMaker())
     secret: Mapped[str | None] = mapped_column(
         SQLAlchemyEncryptedValue(row_bound=True), nullable=True, default=None
     )

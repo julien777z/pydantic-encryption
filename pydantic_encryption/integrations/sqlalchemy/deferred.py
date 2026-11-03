@@ -1,13 +1,15 @@
 from collections import defaultdict
 from collections.abc import Iterable
-from typing import Self
+from functools import partial
+from types import FunctionType
+from typing import Final, Self, cast
 from weakref import WeakSet
 
 from pydantic_encryption.lazy import require_optional_dependency
 
 require_optional_dependency("sqlalchemy", "sqlalchemy")
 
-from sqlalchemy import Connection, event
+from sqlalchemy import ColumnDefault, Connection, event
 from sqlalchemy.orm import Mapper, QueryContext
 from sqlalchemy.orm.attributes import get_history
 
@@ -23,6 +25,11 @@ from pydantic_encryption.integrations.sqlalchemy.state import (
 )
 from pydantic_encryption.serialization import decode_value, require_encryptable
 from pydantic_encryption.types import EncryptedValue
+
+ZERO_ARGUMENT_DEFAULT_CODES: Final = frozenset(
+    cast(FunctionType, ColumnDefault(default).arg).__code__
+    for default in (lambda: None, partial(lambda: None))
+)
 
 
 def install_descriptors(mapper: Mapper[MappedT], class_: type[MappedT]) -> None:
@@ -72,9 +79,8 @@ def assign_client_side_primary_key(mapper: Mapper[MappedT], target: MappedT) -> 
 
             continue
 
-        zero_argument_default = getattr(default.arg, "__wrapped__", None)
-        if callable(zero_argument_default):
-            setattr(target, attribute, zero_argument_default())
+        if getattr(default.arg, "__code__", None) in ZERO_ARGUMENT_DEFAULT_CODES:
+            setattr(target, attribute, default.arg(None))
 
 
 def replaced_row_key(mapper: Mapper[MappedT], target: MappedT) -> list[str] | None:

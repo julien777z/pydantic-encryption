@@ -349,7 +349,7 @@ Each cell then binds to `schema.table.column.<primary key>`, which `derive_row_c
 
 - **A table that names a schema**, directly or through its `MetaData`. Without one, a row's context could read the same as a column's or another row's in a table that names one.
 - **`DeferredDecryptMixin` on the mapped class.** A column type sees only the value it is handed, never the row, so row-bound cells seal as the row is inserted or updated and open through the deferred read path, which has the instance.
-- **A primary key that exists before the insert** — one the application assigns, or one with a zero-argument client-side default such as `default=uuid.uuid4`. A server-generated key, or a default that reads the insert's context, does not exist until the insert it would have to be written into.
+- **A primary key that exists before the insert** — one the application assigns, or one with a zero-argument client-side default such as `default=uuid.uuid4`, a `functools.partial` or a callable instance. A server-generated key, or a default that reads the insert's context, does not exist until the insert it would have to be written into.
 - **A primary key of an integer, UUID, `String` or `Text` type**, checked as the mapping is configured. The row key is the key's canonical form: an integer's digits, a UUID's lower-case hyphenated form however it was assigned, or the text as given. A key of any other type, such as `Numeric`, `DateTime` or fixed-width `CHAR`, can read back in another form than the one written, so the mapping refuses it.
 
 Changing a row's primary key re-seals its row-bound cells under the key it moves to, so the row keeps reading.
