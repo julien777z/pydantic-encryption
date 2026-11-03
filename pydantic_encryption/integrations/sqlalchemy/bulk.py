@@ -10,8 +10,9 @@ from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 
-from pydantic_encryption.adapters.base import EncryptionAdapter, encode_text
+from pydantic_encryption.adapters.base import EncryptionAdapter
 from pydantic_encryption.adapters.registry import configured_encryption_backend
+from pydantic_encryption.context import derive_declared_context
 from pydantic_encryption.integrations.sqlalchemy.encryption import (
     SQLAlchemyEncryptedValue,
     encrypted_column_type,
@@ -92,18 +93,22 @@ def decrypt_rows_sync(rows: Iterable[object], *columns: InstrumentedAttribute[ob
 
 
 def resolve_context(context: InstrumentedAttribute[object] | str | bytes) -> bytes:
-    """Return the context a column binds to, derived from the column itself where one is given."""
+    """Return the context a column binds to, or the one a name binds to as the column type's declared name."""
 
     if isinstance(context, InstrumentedAttribute):
         return encrypted_column_type(context.property.columns[0]).bound_context()
 
-    return encode_text(context)
+    return derive_declared_context(context)
 
 
 async def decrypt_values(
     values: Iterable[ValueT], *, context: InstrumentedAttribute[object] | str | bytes
 ) -> list[ValueT | EncryptableValue]:
-    """Decrypt a flat iterable of ciphertexts from one column, preserving other positions as-is."""
+    """Decrypt a flat iterable of ciphertexts from one column, preserving other positions as-is.
+
+    ``context`` is the column's attribute, or the name the column type was declared with, which binds
+    here as ``SQLAlchemyEncryptedValue(name)`` binds it.
+    """
 
     values_list: list[ValueT | EncryptableValue] = list(values)
     if not values_list:

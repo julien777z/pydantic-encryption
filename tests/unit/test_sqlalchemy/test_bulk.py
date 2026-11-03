@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
 from pydantic_encryption.integrations.sqlalchemy import decrypt_pending_fields, decrypt_rows, decrypt_values
 from pydantic_encryption.integrations.sqlalchemy.bulk import decrypt_rows_sync
+from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue
 from pydantic_encryption.integrations.sqlalchemy.state import PENDING_DECRYPT_KEY
 from pydantic_encryption.types import EncryptedValue
 from tests.factories import SampleRecord
@@ -85,8 +86,7 @@ class TestBulk:
 
         assert isinstance(sa_inspect(row).dict["secret"], EncryptedValue)
 
-    @pytest.mark.parametrize("context", [Member.label, "members.label"], ids=["column", "written-out"])
-    async def test_values_decrypt_in_place(self, context: object):
+    async def test_values_decrypt_in_place(self):
         """Test that ciphertexts decrypt in place while other values keep their positions."""
 
         values = [
@@ -97,7 +97,15 @@ class TestBulk:
             encrypt_through_column(Member.__table__.c.label, "second"),
         ]
 
-        assert await decrypt_values(values, context=context) == ["first", None, 42, "plain", "second"]
+        assert await decrypt_values(values, context=Member.label) == ["first", None, 42, "plain", "second"]
+
+    @pytest.mark.parametrize("name", ["draft-payloads", b"draft-payloads"], ids=["text", "bytes"])
+    async def test_values_decrypt_under_declared_name(self, name: str | bytes):
+        """Test that a declared column type's ciphertexts open under the name it was declared with."""
+
+        values = [SQLAlchemyEncryptedValue("draft-payloads").encrypt_cell("draft")]
+
+        assert await decrypt_values(values, context=name) == ["draft"]
 
     @pytest.mark.parametrize("values", [[], [None, "plain", 42]], ids=["empty", "no-ciphertext"])
     async def test_values_without_ciphertext_returned(self, values: list[object]):

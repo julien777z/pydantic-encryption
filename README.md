@@ -337,6 +337,8 @@ Pass a context explicitly only where nothing can be derived, such as a value tha
 draft = SQLAlchemyEncryptedValue("draft-payloads").encrypt_cell(payload)  # binds to b"\\declared.draft-payloads"
 ```
 
+`decrypt_values([draft], context="draft-payloads")` opens it under the same name.
+
 ### Binding a Cell to Its Row
 
 A column context stops a ciphertext moving between columns. `row_bound=True` also stops one moving between rows of the same column:
