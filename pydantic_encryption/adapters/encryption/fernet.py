@@ -14,7 +14,15 @@ FERNET_KEY_LENGTH: Final[int] = 32
 
 
 def derive_context_key(root_key: str, associated_data: bytes) -> bytes:
-    """Derive the Fernet key one context is sealed under, from the configured root key."""
+    """Derive the Fernet key one context is sealed under, from a root key that is itself a Fernet key."""
+
+    try:
+        Fernet(root_key)
+    except ValueError as exc:
+        raise ValueError(
+            "The Fernet root key, ENCRYPTION_KEY or a model's encryption_key, must be 32 url-safe "
+            "base64-encoded bytes, as Fernet.generate_key() returns."
+        ) from exc
 
     derived = HKDF(
         algorithm=SHA256(),
