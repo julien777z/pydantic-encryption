@@ -13,7 +13,14 @@ from pydantic_encryption.config import settings
 from pydantic_encryption.context import derive_field_context
 from pydantic_encryption.normalization import normalize_value
 from pydantic_encryption.serialization import EncryptableValue, decode_value, encode_value
-from pydantic_encryption.types import BlindIndex, BlindIndexValue, Encrypted, EncryptionMethod, Hashed
+from pydantic_encryption.types import (
+    BlindIndex,
+    BlindIndexValue,
+    Encrypted,
+    EncryptedValue,
+    EncryptionMethod,
+    Hashed,
+)
 
 __all__ = ["BaseModel", "SecureModel"]
 
@@ -194,6 +201,9 @@ class SecureModel(SuperModelMixin):
 
         backend, key, fields = collected
         for field_name, value in fields.items():
+            if isinstance(value, EncryptedValue):
+                continue
+
             setattr(
                 self,
                 field_name,
@@ -251,6 +261,7 @@ class SecureModel(SuperModelMixin):
                     ),
                 )
                 for name, val in fields.items()
+                if not isinstance(val, EncryptedValue)
             ]
         )
 
