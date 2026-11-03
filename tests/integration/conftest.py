@@ -70,10 +70,11 @@ def db_session(
 
     Base.metadata.create_all(engine)
 
-    session = sessionmaker(bind=engine)
+    session = sessionmaker(bind=engine)()
 
-    yield session()
+    yield session
 
+    session.close()
     engine.dispose()
 
 

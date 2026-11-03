@@ -1,9 +1,12 @@
 import textwrap
 from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Final
+from typing import Final, TypeVar
 
+from pydantic_encryption import BaseModel
 from pydantic_encryption.models.base import defer_crypto_to_async
+
+ModelT = TypeVar("ModelT", bound=BaseModel)
 
 NO_SQLALCHEMY_SCRIPT: Final[str] = textwrap.dedent("""
     import sys
@@ -47,3 +50,21 @@ def deferred_crypto() -> Iterator[None]:
         yield
     finally:
         defer_crypto_to_async.reset(token)
+
+
+async def build(model: type[ModelT], asynchronous: bool, **data: object) -> ModelT:
+    """Construct a model through sync validation or ``async_init``."""
+
+    if asynchronous:
+        return await model.async_init(**data)
+
+    return model(**data)
+
+
+async def decrypt(model: ModelT, asynchronous: bool) -> ModelT:
+    """Decrypt a model in place through the sync or async path, returning what that path returns."""
+
+    if asynchronous:
+        return await model.async_decrypt_data()
+
+    return model.decrypt_data()

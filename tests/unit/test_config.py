@@ -2,11 +2,12 @@ import pytest
 from pydantic import ValidationError
 
 from pydantic_encryption.config import Settings
+from pydantic_encryption.types import EncryptionMethod
 
 
 @pytest.mark.usefixtures("isolated_settings_environment")
-class TestAWSKMSKeyValidation:
-    """Test which combinations of AWS KMS key ARNs the settings accept."""
+class TestSettings:
+    """Test which settings combinations are accepted, and the reason each refused one gives."""
 
     @pytest.mark.parametrize(
         ("global_key", "encrypt_key", "decrypt_key"),
@@ -18,7 +19,7 @@ class TestAWSKMSKeyValidation:
         ],
         ids=["global-only", "separate-pair", "decrypt-only", "none"],
     )
-    def test_valid_combination(
+    def test_valid_key_combination(
         self, global_key: str | None, encrypt_key: str | None, decrypt_key: str | None
     ):
         """Test that an accepted combination of key ARNs is kept as given."""
@@ -70,7 +71,7 @@ class TestAWSKMSKeyValidation:
         ],
         ids=["encrypt-only", "global-with-encrypt", "global-with-decrypt", "all-three"],
     )
-    def test_invalid_combination(
+    def test_invalid_key_combination(
         self, global_key: str | None, encrypt_key: str | None, decrypt_key: str | None, message: str
     ):
         """Test that a contradictory combination of key ARNs is refused with its reason."""
@@ -82,3 +83,37 @@ class TestAWSKMSKeyValidation:
                 AWS_KMS_DECRYPT_KEY_ARN=decrypt_key,
                 AWS_KMS_REGION="us-east-1",
             )
+
+    def test_aws_without_credentials_refused(self):
+        """Test that the AWS method without region and credentials is refused."""
+
+        with pytest.raises(ValidationError, match="AWS KMS requires"):
+            Settings(
+                ENCRYPTION_METHOD=EncryptionMethod.AWS, AWS_KMS_KEY_ARN="arn:aws:kms:us-east-1:000:key/test"
+            )
+
+    def test_aws_with_credentials_accepted(self):
+        """Test that the AWS method with a key, region and credentials is accepted."""
+
+        settings = Settings(
+            ENCRYPTION_METHOD=EncryptionMethod.AWS,
+            AWS_KMS_KEY_ARN="arn:aws:kms:us-east-1:000:key/test",
+            AWS_KMS_REGION="us-east-1",
+            AWS_KMS_ACCESS_KEY_ID="test-access",
+            AWS_KMS_SECRET_ACCESS_KEY="test-secret",
+        )
+
+        assert settings.ENCRYPTION_METHOD is EncryptionMethod.AWS
+
+    def test_fernet_without_key_refused(self):
+        """Test that the Fernet method without an encryption key is refused."""
+
+        with pytest.raises(ValidationError, match="ENCRYPTION_KEY"):
+            Settings(ENCRYPTION_METHOD=EncryptionMethod.FERNET)
+
+    def test_fernet_with_key_accepted(self):
+        """Test that the Fernet method with an encryption key is accepted."""
+
+        settings = Settings(ENCRYPTION_METHOD=EncryptionMethod.FERNET, ENCRYPTION_KEY="test-key")
+
+        assert settings.ENCRYPTION_METHOD is EncryptionMethod.FERNET

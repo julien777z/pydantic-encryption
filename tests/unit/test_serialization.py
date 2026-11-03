@@ -1,17 +1,17 @@
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from uuid import UUID
 
 import pytest
 
-from pydantic_encryption.serialization import TypePrefix, encode_value
+from pydantic_encryption.serialization import EncryptableValue, TypePrefix, decode_value, encode_value
 
 
-class TestEncodeValue:
-    """Test the ``version:type:data`` string each supported value encodes to."""
+class TestSerialization:
+    """Test the ``version:type:data`` strings values encode to and decode from."""
 
     @pytest.mark.parametrize(
-        ("value", "expected"),
+        ("value", "encoded"),
         [
             ("hello world", f"v1:{TypePrefix.STR}:hello world"),
             ("hello:world", f"v1:{TypePrefix.STR}:hello:world"),
@@ -27,12 +27,12 @@ class TestEncodeValue:
             (date(2025, 1, 21), f"v1:{TypePrefix.DATE}:2025-01-21"),
             (datetime(2025, 1, 21, 14, 30, 45), f"v1:{TypePrefix.DATETIME}:2025-01-21T14:30:45"),
             (
-                datetime(2025, 1, 21, 14, 30, 45, tzinfo=timezone.utc),
+                datetime(2025, 1, 21, 14, 30, 45, tzinfo=UTC),
                 f"v1:{TypePrefix.DATETIME}:2025-01-21T14:30:45+00:00",
             ),
             (time(14, 30, 45), f"v1:{TypePrefix.TIME}:14:30:45"),
             (time(14, 30, 45, 123456), f"v1:{TypePrefix.TIME}:14:30:45.123456"),
-            (time(14, 30, 45, tzinfo=timezone.utc), f"v1:{TypePrefix.TIME}:14:30:45+00:00"),
+            (time(14, 30, 45, tzinfo=UTC), f"v1:{TypePrefix.TIME}:14:30:45+00:00"),
             (timedelta(days=1, hours=2, minutes=30, seconds=45), f"v1:{TypePrefix.TIMEDELTA}:1,9045,0"),
             (timedelta(days=-1, hours=-2), f"v1:{TypePrefix.TIMEDELTA}:-2,79200,0"),
             (timedelta(seconds=1.5), f"v1:{TypePrefix.TIMEDELTA}:0,1,500000"),
@@ -77,7 +77,42 @@ class TestEncodeValue:
             "uuid",
         ],
     )
-    def test_wire_format(self, value: object, expected: str):
-        """Test that a supported value encodes to its versioned, type-prefixed string."""
+    def test_value_encodes_and_decodes(self, value: EncryptableValue, encoded: str):
+        """Test that a value encodes to its versioned string and decodes back to the same type."""
 
-        assert encode_value(value) == expected
+        decoded = decode_value(encoded)
+
+        assert encode_value(value) == encoded
+        assert decoded == value
+        assert type(decoded) is type(value)
+
+    @pytest.mark.parametrize(
+        "value", [None, ["secret data"], {"secret": "data"}], ids=["none", "list", "dict"]
+    )
+    def test_unsupported_type_refused(self, value: object):
+        """Test that encoding a value of a type no encrypted cell can hold raises with its type name."""
+
+        with pytest.raises(TypeError, match=repr(type(value).__name__)):
+            encode_value(value)
+
+    @pytest.mark.parametrize("encoded", ["", ":secret data"], ids=["empty", "empty-version"])
+    def test_versionless_string_decodes_to_itself(self, encoded: str):
+        """Test that a string with nothing before its first separator is returned unchanged."""
+
+        assert decode_value(encoded) == encoded
+
+    @pytest.mark.parametrize(
+        "encoded",
+        ["v99:str:secret data", "v2:str:hello world", "str:hello world", "no_colon_here"],
+        ids=["future-version", "next-version", "unversioned-type-prefix", "no-separator"],
+    )
+    def test_unknown_version_refused(self, encoded: str):
+        """Test that a version this build does not write raises rather than guessing."""
+
+        with pytest.raises(RuntimeError, match="Unknown version"):
+            decode_value(encoded)
+
+    def test_unknown_type_decodes_as_written(self):
+        """Test that a type prefix this build does not write comes back as the data it carried."""
+
+        assert decode_value("v1:mystery:secret data") == "secret data"
