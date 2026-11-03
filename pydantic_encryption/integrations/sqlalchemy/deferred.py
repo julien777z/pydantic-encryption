@@ -108,10 +108,33 @@ def read_stored_cells(
     return dict(zip(attributes, stored))
 
 
+def require_opens_under_row(
+    mapper: Mapper[MappedT],
+    target: MappedT,
+    attribute: str,
+    column_type: SQLAlchemyEncryptedValue,
+    value: EncryptedValue,
+) -> None:
+    """Refuse ciphertext written into a row-bound cell unless it opens under the row it is written to."""
+
+    try:
+        column_type.decrypt_cell(value, context=column_type.cell_context(*row_key(mapper, target)))
+    except Exception as exc:
+        raise ValueError(
+            f"Row of {mapper.class_.__name__} is being written with ciphertext in {attribute} that does not "
+            "open under the row it is written to, so nothing could read the stored cell. Assign the "
+            "plaintext instead, which the flush seals under this row."
+        ) from exc
+
+
 def seal_row_bound_cells(
     mapper: Mapper[MappedT], connection: Connection, target: MappedT, *, updating: bool
 ) -> None:
-    """Seal row-bound cells under the context naming their row, or only those an update changes."""
+    """Seal row-bound cells under the context naming their row, or only those an update changes.
+
+    Ciphertext written into a cell as it stands, as an insert of a row copied from another one carries it,
+    must already open under the row it is written to.
+    """
 
     columns = row_bound_columns(mapper)
 
@@ -143,6 +166,9 @@ def seal_row_bound_cells(
 
         if isinstance(value, EncryptedValue):
             if not moved:
+                if not updating or get_history(target, attribute).added:
+                    require_opens_under_row(mapper, target, attribute, column_type, value)
+
                 continue
 
             plaintext = decode_value(column_type.decrypt_cell(value, context=column_type.context_for(target)))

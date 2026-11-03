@@ -14,6 +14,7 @@ from sqlalchemy.orm import (
     Session,
     defer,
     load_only,
+    make_transient,
     make_transient_to_detached,
     mapped_column,
 )
@@ -294,6 +295,52 @@ class TestDeferredDecryptMixin:
 
         assert stored_pair["second"].secret == "second secret"
         assert pending_siblings(sqlite_session, RowBoundRecord) == [stored_pair["second"]]
+
+    def test_copied_row_ciphertext_refused(
+        self, sqlite_session: Session, stored_pair: dict[str, RowBoundRecord]
+    ):
+        """Test that inserting a row copied under a new key, its cell still sealed for the original, raises."""
+
+        copied = stored_pair["first"]
+
+        sqlite_session.expunge(copied)
+        make_transient(copied)
+        copied.id = uuid.uuid4()
+        sqlite_session.add(copied)
+
+        with pytest.raises(ValueError, match="ciphertext in secret that does not open under the row"):
+            sqlite_session.flush()
+
+    def test_assigned_ciphertext_refused(
+        self, sqlite_session: Session, stored_pair: dict[str, RowBoundRecord]
+    ):
+        """Test that updating a cell to another row's ciphertext raises instead of storing it."""
+
+        stored_pair["first"].secret = read_raw_cell(stored_pair["second"], "secret")
+
+        with pytest.raises(ValueError, match="ciphertext in secret that does not open under the row"):
+            sqlite_session.flush()
+
+    def test_cell_sealed_for_its_row_inserted_again(self, sqlite_session: Session):
+        """Test that a row inserted again after a rollback keeps the cell its first flush sealed for it."""
+
+        record = RowBoundRecord(secret="secret data")
+
+        sqlite_session.add(record)
+        sqlite_session.flush()
+        sqlite_session.rollback()
+
+        assert isinstance(read_raw_cell(record, "secret"), EncryptedValue)
+
+        sqlite_session.add(record)
+        sqlite_session.commit()
+        record_id = record.id
+        sqlite_session.expunge_all()
+
+        reloaded = sqlite_session.get(RowBoundRecord, record_id)
+
+        assert reloaded is not None
+        assert reloaded.secret == "secret data"
 
     def test_expunged_row_left_out_of_batch(
         self, sqlite_session: Session, stored_pair: dict[str, RowBoundRecord]

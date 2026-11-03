@@ -358,6 +358,8 @@ Each cell then binds to `schema.table.column.<primary key>`, which `derive_row_c
 
 Changing a row's primary key through the ORM keeps its row-bound cells reading: until the flush, they open under the key the row was stored with, and the flush re-seals them under the key it moves to, loaded or not. A Core or ORM bulk `update()` statement that changes the key fires no mapper events, so it re-seals nothing, and the row's cells no longer open.
 
+A row-bound cell written as ciphertext rather than plaintext must already open under the row it is written to. A row copied to a new key with `make_transient` still holds cells sealed for the row it came from, and nothing records that row once its identity is cleared, so the flush cannot re-seal them: it raises `ValueError` naming the column instead of storing a cell nothing could read. Read the cells before copying the row, or assign their plaintext, and the flush seals them under the new key. A row inserted again after a rollback keeps the cells its first flush sealed for it.
+
 Encrypted arrays decrypt on the read path, where no row is in scope, so they bind their column and take no `row_bound` argument.
 
 ### Backends
