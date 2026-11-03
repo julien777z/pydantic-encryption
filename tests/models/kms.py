@@ -1,5 +1,4 @@
 import secrets
-import time
 from concurrent.futures import Future
 from contextvars import ContextVar
 from threading import Condition, Event, Lock
@@ -48,24 +47,6 @@ class FakeSyncKMSClient(BaseModel):
         self.decrypt_calls.append(dict(kwargs))
 
         return DecryptedDataKey(Plaintext=self.plaintext_keys[kwargs["CiphertextBlob"]])
-
-
-class SlowFakeKMS(FakeSyncKMSClient):
-    """Fake KMS whose calls take long enough for racing threads to pile up behind one."""
-
-    def generate_data_key(self, **kwargs: Unpack[DataKeyGenerateRequest]) -> GeneratedDataKey:
-        """Mint a data key after a delay long enough for racing callers to queue."""
-
-        time.sleep(0.05)
-
-        return super().generate_data_key(**kwargs)
-
-    def decrypt(self, **kwargs: Unpack[DataKeyDecryptRequest]) -> DecryptedDataKey:
-        """Unwrap a data key after a delay long enough for racing callers to queue."""
-
-        time.sleep(0.05)
-
-        return super().decrypt(**kwargs)
 
 
 class ControlledKMSClient(FakeSyncKMSClient):

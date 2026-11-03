@@ -1,5 +1,6 @@
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 
 import pytest
 from botocore.exceptions import ClientError
@@ -12,43 +13,61 @@ from pydantic_encryption.config import settings
 from pydantic_encryption.types import EncryptedValue
 from tests.cases import CALLER_CONTEXT, FOREIGN_CONTEXT, SEALED_CONTEXT
 from tests.factories import User
-from tests.models.kms import ControlledKMSClient, SlowFakeKMS
+from tests.models.kms import ControlledKMSClient
 from tests.unit.utils import ASYNC_PATHS
 
 
 class TestSingleFlight:
     """Test that threads racing a cold cache share one KMS call between them."""
 
-    def test_racing_threads_mint_one_key(self, slow_kms: SlowFakeKMS) -> None:
+    @pytest.mark.asyncio
+    async def test_racing_threads_mint_one_key(self, controlled_kms: ControlledKMSClient) -> None:
         """Test that concurrent sync encrypts on a cold cache generate one key, not one each."""
 
-        with ThreadPoolExecutor(max_workers=8) as pool:
-            list(
-                pool.map(
-                    lambda index: AWSAdapter.encrypt(f"value-{index}", associated_data=SEALED_CONTEXT),
-                    range(8),
+        controlled_kms.hold_generation = True
+        loop = asyncio.get_running_loop()
+
+        with ThreadPoolExecutor(max_workers=8) as racers:
+            tasks = [
+                loop.run_in_executor(
+                    racers, partial(AWSAdapter.encrypt, f"value-{index}", associated_data=SEALED_CONTEXT)
                 )
-            )
+                for index in range(8)
+            ]
 
-        assert len(slow_kms.generate_calls) == 1
+            try:
+                assert await asyncio.to_thread(controlled_kms.wait_for_waiters, len(tasks) - 1)
+            finally:
+                controlled_kms.release.set()
+                await asyncio.gather(*tasks)
 
-    def test_racing_threads_unwrap_cold_key_once(self, slow_kms: SlowFakeKMS) -> None:
+        assert len(controlled_kms.generate_calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_racing_threads_unwrap_cold_key_once(self, controlled_kms: ControlledKMSClient) -> None:
         """Test that concurrent sync decrypts of one cold data key unwrap it once, not once each."""
 
         ciphertexts = [
             AWSAdapter.encrypt(f"value-{index}", associated_data=SEALED_CONTEXT) for index in range(8)
         ]
+        loop = asyncio.get_running_loop()
 
-        with ThreadPoolExecutor(max_workers=8) as pool:
-            decrypted = list(
-                pool.map(
-                    lambda ciphertext: AWSAdapter.decrypt(ciphertext, associated_data=SEALED_CONTEXT),
-                    ciphertexts,
+        with ThreadPoolExecutor(max_workers=len(ciphertexts)) as racers:
+            tasks = [
+                loop.run_in_executor(
+                    racers, partial(AWSAdapter.decrypt, ciphertext, associated_data=SEALED_CONTEXT)
                 )
-            )
+                for ciphertext in ciphertexts
+            ]
+
+            try:
+                assert await asyncio.to_thread(controlled_kms.wait_for_waiters, len(tasks) - 1)
+            finally:
+                controlled_kms.release.set()
+                decrypted = await asyncio.gather(*tasks)
 
         assert decrypted == [f"value-{index}" for index in range(8)]
-        assert len(slow_kms.decrypt_calls) == 1
+        assert len(controlled_kms.decrypt_calls) == 1
 
     @pytest.mark.asyncio
     async def test_failed_generation_reaches_every_waiter(

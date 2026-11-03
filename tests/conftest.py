@@ -19,7 +19,6 @@ from tests.models.kms import (
     ObservedCondition,
     ObservedFuture,
     ObservedLock,
-    SlowFakeKMS,
 )
 
 
@@ -81,17 +80,6 @@ def fake_sync_kms(aws_adapter_state: None, monkeypatch: pytest.MonkeyPatch) -> F
     """Install a fake KMS client as the adapter's client."""
 
     client = FakeSyncKMSClient()
-
-    monkeypatch.setattr(AWSAdapter, "kms_client", client)
-
-    return client
-
-
-@pytest.fixture
-def slow_kms(aws_adapter_state: None, monkeypatch: pytest.MonkeyPatch) -> SlowFakeKMS:
-    """Install a fake KMS client slow enough for racing callers to queue behind one call."""
-
-    client = SlowFakeKMS()
 
     monkeypatch.setattr(AWSAdapter, "kms_client", client)
 
