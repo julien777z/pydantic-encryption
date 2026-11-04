@@ -1,5 +1,6 @@
 import uuid
 from collections.abc import Callable
+from unittest.mock import patch
 
 import pytest
 from cryptography.fernet import InvalidToken
@@ -21,6 +22,7 @@ from sqlalchemy.orm import (
 from sqlalchemy.orm.interfaces import ORMOption
 from sqlalchemy.types import TypeEngine
 
+from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
 from pydantic_encryption.context import derive_row_context
 from pydantic_encryption.integrations.sqlalchemy import DeferredDecryptMixin
 from pydantic_encryption.integrations.sqlalchemy.deferred import install_descriptors
@@ -48,7 +50,7 @@ from tests.unit.test_sqlalchemy.tables import (
     TextUuidKeyedRow,
     UndeferredRow,
 )
-from tests.unit.test_sqlalchemy.utils import column_type_of, encrypt_unknown_format
+from tests.unit.test_sqlalchemy.utils import column_type_of, encrypt_for_row, encrypt_unknown_format
 
 
 class TestDeferredDecryptMixin:
@@ -300,15 +302,78 @@ class TestDeferredDecryptMixin:
         with pytest.raises(ValueError, match="ciphertext in secret that does not open under the row"):
             sqlite_session.flush()
 
+    @pytest.mark.parametrize("moved", [False, True], ids=["kept-key", "moved-key"])
     def test_assigned_ciphertext_refused(
-        self, sqlite_session: Session, stored_pair: dict[str, RowBoundRecord]
+        self, sqlite_session: Session, stored_pair: dict[str, RowBoundRecord], moved: bool
     ):
-        """Test that updating a cell to another row's ciphertext raises instead of storing it."""
+        """Test that updating a cell to another row's ciphertext raises, whether or not the row's key moves."""
 
         stored_pair["first"].secret = read_raw_cell(stored_pair["second"], "secret")
 
+        if moved:
+            stored_pair["first"].id = uuid.uuid4()
+
         with pytest.raises(ValueError, match="ciphertext in secret that does not open under the row"):
             sqlite_session.flush()
+
+    @pytest.mark.parametrize("moved", [False, True], ids=["kept-key", "moved-key"])
+    def test_backend_failure_on_assigned_ciphertext_raised(
+        self, sqlite_session: Session, stored_pair: dict[str, RowBoundRecord], moved: bool
+    ):
+        """Test that a backend failure opening an assigned ciphertext is raised as the backend raised it."""
+
+        stored_pair["first"].secret = read_raw_cell(stored_pair["second"], "secret")
+
+        if moved:
+            stored_pair["first"].id = uuid.uuid4()
+
+        with (
+            patch.object(FernetAdapter, "decrypt", side_effect=ConnectionError("backend unreachable")),
+            pytest.raises(ConnectionError, match="backend unreachable"),
+        ):
+            sqlite_session.flush()
+
+    @pytest.mark.parametrize(
+        ("change", "expected", "decrypts"),
+        [
+            (lambda row: None, "secret data", 0),
+            (lambda row: setattr(row, "secret", "updated secret"), "updated secret", 0),
+            (lambda row: setattr(row, "label", "updated label"), "secret data", 0),
+            (
+                lambda row: setattr(
+                    row, "secret", encrypt_for_row(row, RowBoundRecord.__table__.c.secret, "updated secret")
+                ),
+                "updated secret",
+                1,
+            ),
+        ],
+        ids=["plaintext-insert", "plaintext-update", "other-column-update", "own-row-ciphertext-update"],
+    )
+    def test_written_cell_decrypts(
+        self,
+        sqlite_session: Session,
+        change: Callable[[RowBoundRecord], object],
+        expected: str,
+        decrypts: int,
+    ):
+        """Test that a flush decrypts only ciphertext assigned to a row-bound cell and stores it when it opens."""
+
+        record = RowBoundRecord(secret="secret data")
+
+        with patch.object(FernetAdapter, "decrypt", side_effect=FernetAdapter.decrypt) as counted:
+            sqlite_session.add(record)
+            sqlite_session.flush()
+            change(record)
+            sqlite_session.flush()
+
+        record_id = record.id
+        sqlite_session.expunge_all()
+
+        reloaded = sqlite_session.get(RowBoundRecord, record_id)
+
+        assert counted.call_count == decrypts
+        assert reloaded is not None
+        assert reloaded.secret == expected
 
     def test_cell_sealed_for_its_row_inserted_again(self, sqlite_session: Session):
         """Test that a row inserted again after a rollback keeps the cell its first flush sealed for it."""

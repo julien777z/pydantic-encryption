@@ -9,6 +9,8 @@ from pydantic_encryption.lazy import require_optional_dependency
 
 require_optional_dependency("sqlalchemy", "sqlalchemy")
 
+from cryptography.exceptions import InvalidTag
+from cryptography.fernet import InvalidToken
 from sqlalchemy import ColumnDefault, Connection, event, select
 from sqlalchemy.orm import Mapper, QueryContext
 from sqlalchemy.orm.attributes import get_history, instance_state
@@ -24,7 +26,7 @@ from pydantic_encryption.integrations.sqlalchemy.state import (
     row_key,
     sealed_row_key,
 )
-from pydantic_encryption.serialization import decode_value, require_encryptable
+from pydantic_encryption.serialization import EncryptableValue, decode_value, require_encryptable
 from pydantic_encryption.types import EncryptedValue
 
 ZERO_ARGUMENT_DEFAULT_CODES: Final = frozenset(
@@ -108,33 +110,31 @@ def read_stored_cells(
     return dict(zip(attributes, stored))
 
 
-def require_opens_under_row(
+def open_written_cell(
     mapper: Mapper[MappedT],
-    target: MappedT,
     attribute: str,
     column_type: SQLAlchemyEncryptedValue,
     value: EncryptedValue,
-) -> None:
-    """Refuse ciphertext written into a row-bound cell unless it opens under the row it is written to."""
+    context: bytes,
+) -> EncryptableValue:
+    """Open ciphertext written into a row-bound cell under ``context``, refusing it when it does not open."""
 
     try:
-        column_type.decrypt_cell(value, context=column_type.cell_context(*row_key(mapper, target)))
-    except Exception as exc:
+        plaintext = column_type.decrypt_cell(value, context=context)
+    except (InvalidToken, InvalidTag) as exc:
         raise ValueError(
             f"Row of {mapper.class_.__name__} is being written with ciphertext in {attribute} that does not "
             "open under the row it is written to, so nothing could read the stored cell. Assign the "
             "plaintext instead, which the flush seals under this row."
         ) from exc
 
+    return decode_value(plaintext)
+
 
 def seal_row_bound_cells(
     mapper: Mapper[MappedT], connection: Connection, target: MappedT, *, updating: bool
 ) -> None:
-    """Seal row-bound cells under the context naming their row, or only those an update changes.
-
-    Ciphertext written into a cell as it stands, as an insert of a row copied from another one carries it,
-    must already open under the row it is written to.
-    """
+    """Seal the row-bound cells a write stores under their row, refusing ciphertext that cannot open there."""
 
     columns = row_bound_columns(mapper)
 
@@ -167,11 +167,19 @@ def seal_row_bound_cells(
         if isinstance(value, EncryptedValue):
             if not moved:
                 if not updating or get_history(target, attribute).added:
-                    require_opens_under_row(mapper, target, attribute, column_type, value)
+                    open_written_cell(
+                        mapper,
+                        attribute,
+                        column_type,
+                        value,
+                        column_type.cell_context(*row_key(mapper, target)),
+                    )
 
                 continue
 
-            plaintext = decode_value(column_type.decrypt_cell(value, context=column_type.context_for(target)))
+            plaintext = open_written_cell(
+                mapper, attribute, column_type, value, column_type.context_for(target)
+            )
         elif updating and not moved and not get_history(target, attribute).added:
             continue
         else:

@@ -66,6 +66,16 @@ def encrypt_through_column(column: KeyedColumnElement[object], value: Encryptabl
     return column_type_of(column, SQLAlchemyEncryptedValue).encrypt_cell(value)
 
 
+def encrypt_for_row(
+    row: object, column: KeyedColumnElement[object], value: EncryptableValue
+) -> EncryptedValue:
+    """Encrypt a value through a mapped column's own type under the context the row's cell is sealed under."""
+
+    column_type = column_type_of(column, SQLAlchemyEncryptedValue)
+
+    return column_type.encrypt_cell(value, context=column_type.context_for(row))
+
+
 def encrypt_unknown_format(context: bytes) -> EncryptedValue:
     """Encrypt a plaintext written in a format version no reader knows, under the given context."""
 
