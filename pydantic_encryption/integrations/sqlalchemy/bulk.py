@@ -22,7 +22,7 @@ from pydantic_encryption.integrations.sqlalchemy.state import (
     read_raw_cell,
     set_decrypted,
 )
-from pydantic_encryption.serialization import EncryptableValue, decode_value
+from pydantic_encryption.serialization import EncryptableValue, async_decode_value, decode_value
 from pydantic_encryption.types import EncryptedValue
 
 ValueT = TypeVar("ValueT")
@@ -53,19 +53,16 @@ def collect_row_assignments(
     return assignments
 
 
-async def open_cell(backend: type[EncryptionAdapter], ciphertext: bytes, context: bytes) -> EncryptableValue:
-    """Decrypt one ciphertext under its context and decode the value it holds."""
-
-    return decode_value(await backend.async_decrypt(ciphertext, associated_data=context))
-
-
 async def open_cells(
     backend: type[EncryptionAdapter], cells: Iterable[tuple[bytes, bytes]]
 ) -> list[EncryptableValue | BaseException]:
     """Open every ``(ciphertext, context)`` pair concurrently, each to its value or the exception it raised."""
 
     return await asyncio.gather(
-        *(open_cell(backend, ciphertext, context) for ciphertext, context in cells),
+        *(
+            async_decode_value(backend.async_decrypt(ciphertext, associated_data=context))
+            for ciphertext, context in cells
+        ),
         return_exceptions=True,
     )
 

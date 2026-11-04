@@ -1,7 +1,7 @@
 import asyncio
 import contextvars
 import sys
-from collections.abc import Awaitable, Coroutine, Iterable, Mapping
+from collections.abc import Coroutine, Iterable, Mapping
 from typing import ClassVar, Never, Self
 
 from pydantic_super_model import AnnotatedFieldInfo, SuperModelMixin, SuperModelPydanticMixin
@@ -13,7 +13,7 @@ from pydantic_encryption.adapters.registry import configured_encryption_backend,
 from pydantic_encryption.config import settings
 from pydantic_encryption.context import derive_field_context
 from pydantic_encryption.normalization import normalize_value
-from pydantic_encryption.serialization import EncryptableValue, decode_value, encode_value
+from pydantic_encryption.serialization import async_decode_value, decode_value, encode_value
 from pydantic_encryption.types import (
     BlindIndex,
     BlindIndexValue,
@@ -207,12 +207,6 @@ class SecureModel(SuperModelMixin):
         for name, task in tasks:
             setattr(self, name, task.result())
 
-    @staticmethod
-    async def decode_awaited(plaintext: Awaitable[str]) -> EncryptableValue:
-        """Await a decryption and deserialize its plaintext back to the value that was encrypted."""
-
-        return decode_value(await plaintext)
-
     @classmethod
     def declaring_class(cls, field_name: str) -> type:
         """Return the class that declares a field, which its subclasses and parametrizations share."""
@@ -348,7 +342,7 @@ class SecureModel(SuperModelMixin):
             [
                 (
                     name,
-                    self.decode_awaited(
+                    async_decode_value(
                         backend.async_decrypt(val, key=key, associated_data=self.field_context(name))
                     ),
                 )
@@ -397,6 +391,7 @@ class SecureModel(SuperModelMixin):
 
                 if value is not None:
                     tg.create_task(self.async_post_init_nested(value))
+
             tg.create_task(self.async_encrypt_data())
             tg.create_task(self.async_hash_data())
             tg.create_task(self.async_blind_index_data())

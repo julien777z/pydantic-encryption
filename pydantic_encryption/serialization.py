@@ -1,4 +1,5 @@
 import base64
+from collections.abc import Awaitable
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from enum import StrEnum
@@ -107,3 +108,9 @@ def decode_value(value: str) -> EncryptableValue:
             return data
         case _:
             return data
+
+
+async def async_decode_value(value: Awaitable[str]) -> EncryptableValue:
+    """Await a decryption and deserialize its ``version:type:data`` plaintext back to its Python value."""
+
+    return decode_value(await value)
