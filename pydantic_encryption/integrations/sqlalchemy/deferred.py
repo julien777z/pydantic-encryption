@@ -172,7 +172,7 @@ def seal_row_bound_cells(
                         attribute,
                         column_type,
                         value,
-                        column_type.cell_context(*row_key(mapper, target)),
+                        column_type.context_for(target),
                     )
 
                 continue
