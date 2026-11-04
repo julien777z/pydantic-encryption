@@ -1,0 +1,259 @@
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
+
+import pytest
+from botocore.exceptions import ClientError
+from cryptography.exceptions import InvalidTag
+
+pytest.importorskip("boto3")
+
+from pydantic_encryption.adapters.encryption.aws import AWSAdapter
+from pydantic_encryption.config import settings
+from pydantic_encryption.types import EncryptedValue
+from tests.cases import CALLER_CONTEXT, FOREIGN_CONTEXT, SEALED_CONTEXT
+from tests.models.kms import ControlledKMSClient
+from tests.models.records import SampleRecord
+from tests.unit.utils import ASYNC_PATHS
+
+
+class TestSingleFlight:
+    """Test that threads racing a cold cache share one KMS call between them."""
+
+    @pytest.mark.asyncio
+    async def test_racing_threads_mint_one_key(self, controlled_kms: ControlledKMSClient) -> None:
+        """Test that concurrent sync encrypts on a cold cache generate one key, not one each."""
+
+        controlled_kms.hold_generation = True
+        loop = asyncio.get_running_loop()
+
+        with ThreadPoolExecutor(max_workers=8) as racers:
+            tasks = [
+                loop.run_in_executor(
+                    racers, partial(AWSAdapter.encrypt, f"value-{index}", associated_data=SEALED_CONTEXT)
+                )
+                for index in range(8)
+            ]
+
+            try:
+                assert await asyncio.to_thread(controlled_kms.wait_for_waiters, len(tasks) - 1)
+            finally:
+                controlled_kms.release.set()
+                await asyncio.gather(*tasks)
+
+        assert len(controlled_kms.generate_calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_racing_threads_unwrap_cold_key_once(self, controlled_kms: ControlledKMSClient) -> None:
+        """Test that concurrent sync decrypts of one cold data key unwrap it once, not once each."""
+
+        ciphertexts = [
+            AWSAdapter.encrypt(f"value-{index}", associated_data=SEALED_CONTEXT) for index in range(8)
+        ]
+        loop = asyncio.get_running_loop()
+
+        with ThreadPoolExecutor(max_workers=len(ciphertexts)) as racers:
+            tasks = [
+                loop.run_in_executor(
+                    racers, partial(AWSAdapter.decrypt, ciphertext, associated_data=SEALED_CONTEXT)
+                )
+                for ciphertext in ciphertexts
+            ]
+
+            try:
+                assert await asyncio.to_thread(controlled_kms.wait_for_waiters, len(tasks) - 1)
+            finally:
+                controlled_kms.release.set()
+                decrypted = await asyncio.gather(*tasks)
+
+        assert decrypted == [f"value-{index}" for index in range(8)]
+        assert len(controlled_kms.decrypt_calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_failed_generation_reaches_every_waiter(
+        self, controlled_kms: ControlledKMSClient, kms_failure: ClientError
+    ) -> None:
+        """Test that one failed data key generation fails its waiters too, and a later call retries."""
+
+        controlled_kms.hold_generation = True
+        controlled_kms.error = kms_failure
+        tasks = [
+            asyncio.create_task(
+                asyncio.to_thread(AWSAdapter.encrypt, "secret data", associated_data=SEALED_CONTEXT)
+            )
+            for _ in range(3)
+        ]
+
+        try:
+            assert await asyncio.to_thread(controlled_kms.wait_for_waiters, len(tasks) - 1)
+        finally:
+            controlled_kms.release.set()
+            failures = await asyncio.gather(*tasks, return_exceptions=True)
+
+        assert all(failure is kms_failure for failure in failures)
+        assert controlled_kms.calls == 1
+        assert AWSAdapter.generating is None
+
+        controlled_kms.error = None
+
+        assert isinstance(AWSAdapter.encrypt("secret data", associated_data=SEALED_CONTEXT), EncryptedValue)
+        assert controlled_kms.calls == 2
+
+    @pytest.mark.asyncio
+    async def test_distinct_cold_keys_overlap(
+        self,
+        controlled_kms: ControlledKMSClient,
+        samples: list[SampleRecord],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test that unrelated cold keys reach KMS concurrently and all decrypt correctly."""
+
+        monkeypatch.setattr(settings, "AWS_KMS_DATA_KEY_MAX_USES", 1)
+        values = [sample.name for sample in samples[:3]]
+        ciphertexts = [
+            await AWSAdapter.async_encrypt(value, associated_data=SEALED_CONTEXT) for value in values
+        ]
+        tasks = [
+            asyncio.create_task(AWSAdapter.async_decrypt(ciphertext, associated_data=SEALED_CONTEXT))
+            for ciphertext in ciphertexts
+        ]
+
+        try:
+            assert await asyncio.to_thread(controlled_kms.wait_for_calls, len(tasks))
+        finally:
+            controlled_kms.release.set()
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        assert results == values
+        assert controlled_kms.calls == len(values)
+        assert AWSAdapter.unwrapping == {}
+
+    @pytest.mark.asyncio
+    async def test_failed_unwrap_reaches_every_waiter(
+        self, controlled_kms: ControlledKMSClient, kms_failure: ClientError, sample: SampleRecord
+    ) -> None:
+        """Test that one failed KMS reply reaches all waiters and a later call retries."""
+
+        ciphertext = await AWSAdapter.async_encrypt(sample.name, associated_data=SEALED_CONTEXT)
+        controlled_kms.error = kms_failure
+        tasks = [
+            asyncio.create_task(AWSAdapter.async_decrypt(ciphertext, associated_data=SEALED_CONTEXT))
+            for _ in range(3)
+        ]
+
+        try:
+            assert await asyncio.to_thread(controlled_kms.wait_for_waiters, len(tasks) - 1)
+        finally:
+            controlled_kms.release.set()
+            failures = await asyncio.gather(*tasks, return_exceptions=True)
+
+        assert all(failure is kms_failure for failure in failures)
+        assert controlled_kms.calls == 1
+        assert AWSAdapter.unwrapping == {}
+
+        controlled_kms.error = None
+
+        assert await AWSAdapter.async_decrypt(ciphertext, associated_data=SEALED_CONTEXT) == sample.name
+        assert controlled_kms.calls == 2
+
+    @pytest.mark.asyncio
+    async def test_concurrent_misses_respect_capacity(
+        self,
+        controlled_kms: ControlledKMSClient,
+        samples: list[SampleRecord],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test that distinct unwraps wait for capacity independently of cached-key retention."""
+
+        monkeypatch.setattr(settings, "AWS_KMS_DATA_KEY_MAX_USES", 1)
+        monkeypatch.setattr(settings, "AWS_KMS_MAX_IN_FLIGHT_UNWRAPS", 2)
+        monkeypatch.setattr(settings, "AWS_KMS_UNWRAPPED_KEY_CACHE_SIZE", 1)
+        values = [sample.name for sample in samples[:3]]
+        ciphertexts = [
+            await AWSAdapter.async_encrypt(value, associated_data=SEALED_CONTEXT) for value in values
+        ]
+        tasks = [
+            asyncio.create_task(AWSAdapter.async_decrypt(ciphertext, associated_data=SEALED_CONTEXT))
+            for ciphertext in ciphertexts
+        ]
+
+        try:
+            assert await asyncio.to_thread(controlled_kms.wait_for_calls, 2)
+            assert await asyncio.to_thread(controlled_kms.wait_for_admission_waiter)
+
+            assert controlled_kms.calls == 2
+            assert len(AWSAdapter.unwrapping) == 2
+        finally:
+            controlled_kms.release.set()
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        assert results == values
+        assert controlled_kms.calls == len(values)
+        assert len(AWSAdapter.unwrapped_keys) == 1
+        assert AWSAdapter.unwrapping == {}
+
+    @pytest.mark.asyncio
+    async def test_cancelling_owner_keeps_shared_unwrap_alive(
+        self, controlled_kms: ControlledKMSClient, sample: SampleRecord
+    ) -> None:
+        """Test that cancelling one caller preserves its KMS context and another caller's reply."""
+
+        ciphertext = await AWSAdapter.async_encrypt(sample.name, associated_data=SEALED_CONTEXT)
+        context_token = controlled_kms.invocation_context.set(CALLER_CONTEXT)
+        owner = asyncio.create_task(AWSAdapter.async_decrypt(ciphertext, associated_data=SEALED_CONTEXT))
+        tasks = [owner]
+
+        try:
+            assert await asyncio.to_thread(controlled_kms.wait_for_calls, 1)
+
+            follower = asyncio.create_task(
+                AWSAdapter.async_decrypt(ciphertext, associated_data=SEALED_CONTEXT)
+            )
+            tasks.append(follower)
+
+            assert await asyncio.to_thread(controlled_kms.wait_for_waiters, 1)
+            owner.cancel()
+
+            with pytest.raises(asyncio.CancelledError):
+                await owner
+
+            assert not follower.done()
+            assert controlled_kms.calls == 1
+        finally:
+            controlled_kms.release.set()
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            controlled_kms.invocation_context.reset(context_token)
+
+        assert isinstance(results[0], asyncio.CancelledError)
+        assert results[1] == sample.name
+        assert controlled_kms.observed_contexts == [CALLER_CONTEXT]
+        assert AWSAdapter.unwrapping == {}
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("source", [b"", SEALED_CONTEXT], ids=["unbound", "bound"])
+    @ASYNC_PATHS
+    async def test_shared_unwrap_authenticates_each_callers_context(
+        self, controlled_kms: ControlledKMSClient, sample: SampleRecord, source: bytes, asynchronous: bool
+    ) -> None:
+        """Test that a shared KMS reply never authenticates a caller using the wrong context."""
+
+        ciphertext = await AWSAdapter.async_encrypt(sample.name, associated_data=source)
+        tasks = [
+            asyncio.create_task(
+                AWSAdapter.async_decrypt(ciphertext, associated_data=context)
+                if asynchronous
+                else asyncio.to_thread(AWSAdapter.decrypt, ciphertext, associated_data=context)
+            )
+            for context in (source, FOREIGN_CONTEXT)
+        ]
+
+        try:
+            assert await asyncio.to_thread(controlled_kms.wait_for_waiters, 1)
+        finally:
+            controlled_kms.release.set()
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        assert results[0] == sample.name
+        assert isinstance(results[1], InvalidTag)
+        assert controlled_kms.calls == 1
+        assert AWSAdapter.unwrapping == {}

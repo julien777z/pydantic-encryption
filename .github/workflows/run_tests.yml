@@ -3,11 +3,30 @@ name: Run Tests via Pytest
 on:
   push:
     branches:
-      - "**"
+      - main
+    paths:
+      - "pydantic_encryption/**"
+      - "tests/**"
+      - "scripts/**"
+      - "pyproject.toml"
+      - "poetry.lock"
+      - ".github/workflows/run_tests.yml"
+      - ".github/actions/setup-python-poetry/**"
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "pydantic_encryption/**"
+      - "tests/**"
+      - "scripts/**"
+      - "pyproject.toml"
+      - "poetry.lock"
+      - ".github/workflows/run_tests.yml"
+      - ".github/actions/setup-python-poetry/**"
 
 jobs:
   build:
     name: Build and Run Tests
+    if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

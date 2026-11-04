@@ -1,157 +1,143 @@
+import threading
+
 import pytest
 from pydantic import ValidationError
 
-from pydantic_encryption.config import Settings
+from pydantic_encryption.config import AES_GCM_RANDOM_NONCE_LIMIT, Settings
+from pydantic_encryption.types import EncryptionMethod
 
 
-class TestAWSKMSKeyValidation:
-    """Test AWS KMS key ARN validation rules."""
+@pytest.mark.usefixtures("isolated_settings_environment")
+class TestSettings:
+    """Test which settings combinations are accepted, and the reason each refused one gives."""
 
-    def test_global_key_only_valid(self):
-        """Test that using only AWS_KMS_KEY_ARN is valid."""
+    @pytest.mark.parametrize(
+        ("global_key", "encrypt_key", "decrypt_key"),
+        [
+            ("arn:aws:kms:us-east-1:000:key/global", None, None),
+            (None, "arn:aws:kms:us-east-1:000:key/encrypt", "arn:aws:kms:us-east-1:000:key/decrypt"),
+            (None, None, "arn:aws:kms:us-east-1:000:key/decrypt"),
+            (None, None, None),
+        ],
+        ids=["global-only", "separate-pair", "decrypt-only", "none"],
+    )
+    def test_valid_key_combination(
+        self, global_key: str | None, encrypt_key: str | None, decrypt_key: str | None
+    ):
+        """Test that an accepted combination of key ARNs is kept as given."""
 
         settings = Settings(
-            _env_file=None,
-            AWS_KMS_KEY_ARN="arn:aws:kms:us-east-1:123456789:key/test-key",
+            AWS_KMS_KEY_ARN=global_key,
+            AWS_KMS_ENCRYPT_KEY_ARN=encrypt_key,
+            AWS_KMS_DECRYPT_KEY_ARN=decrypt_key,
             AWS_KMS_REGION="us-east-1",
         )
 
-        assert settings.AWS_KMS_KEY_ARN == "arn:aws:kms:us-east-1:123456789:key/test-key"
-        assert settings.AWS_KMS_ENCRYPT_KEY_ARN is None
-        assert settings.AWS_KMS_DECRYPT_KEY_ARN is None
-
-    def test_separate_keys_valid(self):
-        """Test that using both separate encrypt and decrypt keys is valid."""
-
-        settings = Settings(
-            _env_file=None,
-            AWS_KMS_ENCRYPT_KEY_ARN="arn:aws:kms:us-east-1:123456789:key/encrypt-key",
-            AWS_KMS_DECRYPT_KEY_ARN="arn:aws:kms:us-east-1:123456789:key/decrypt-key",
-            AWS_KMS_REGION="us-east-1",
+        assert (
+            settings.AWS_KMS_KEY_ARN,
+            settings.AWS_KMS_ENCRYPT_KEY_ARN,
+            settings.AWS_KMS_DECRYPT_KEY_ARN,
+        ) == (
+            global_key,
+            encrypt_key,
+            decrypt_key,
         )
 
-        assert settings.AWS_KMS_KEY_ARN is None
-        assert settings.AWS_KMS_ENCRYPT_KEY_ARN == "arn:aws:kms:us-east-1:123456789:key/encrypt-key"
-        assert settings.AWS_KMS_DECRYPT_KEY_ARN == "arn:aws:kms:us-east-1:123456789:key/decrypt-key"
+    @pytest.mark.parametrize(
+        ("global_key", "encrypt_key", "decrypt_key", "message"),
+        [
+            (
+                None,
+                "arn:aws:kms:us-east-1:000:key/encrypt",
+                None,
+                "AWS_KMS_ENCRYPT_KEY_ARN requires AWS_KMS_DECRYPT_KEY_ARN",
+            ),
+            (
+                "arn:aws:kms:us-east-1:000:key/global",
+                "arn:aws:kms:us-east-1:000:key/encrypt",
+                None,
+                "Cannot specify AWS_KMS_KEY_ARN together with",
+            ),
+            (
+                "arn:aws:kms:us-east-1:000:key/global",
+                None,
+                "arn:aws:kms:us-east-1:000:key/decrypt",
+                "Cannot specify AWS_KMS_KEY_ARN together with",
+            ),
+            (
+                "arn:aws:kms:us-east-1:000:key/global",
+                "arn:aws:kms:us-east-1:000:key/encrypt",
+                "arn:aws:kms:us-east-1:000:key/decrypt",
+                "Cannot specify AWS_KMS_KEY_ARN together with",
+            ),
+        ],
+        ids=["encrypt-only", "global-with-encrypt", "global-with-decrypt", "all-three"],
+    )
+    def test_invalid_key_combination(
+        self, global_key: str | None, encrypt_key: str | None, decrypt_key: str | None, message: str
+    ):
+        """Test that a contradictory combination of key ARNs is refused with its reason."""
 
-    def test_decrypt_key_only_valid(self):
-        """Test that using only decrypt key is valid (read-only scenario)."""
+        with pytest.raises(ValidationError, match=message):
+            Settings(
+                AWS_KMS_KEY_ARN=global_key,
+                AWS_KMS_ENCRYPT_KEY_ARN=encrypt_key,
+                AWS_KMS_DECRYPT_KEY_ARN=decrypt_key,
+                AWS_KMS_REGION="us-east-1",
+            )
+
+    def test_aws_without_credentials_refused(self):
+        """Test that the AWS method without region and credentials is refused."""
+
+        with pytest.raises(ValidationError, match="AWS KMS requires"):
+            Settings(
+                ENCRYPTION_METHOD=EncryptionMethod.AWS, AWS_KMS_KEY_ARN="arn:aws:kms:us-east-1:000:key/test"
+            )
+
+    def test_aws_with_credentials_accepted(self):
+        """Test that the AWS method with a key, region and credentials is accepted."""
 
         settings = Settings(
-            _env_file=None,
-            AWS_KMS_DECRYPT_KEY_ARN="arn:aws:kms:us-east-1:123456789:key/decrypt-key",
-            AWS_KMS_REGION="us-east-1",
-        )
-
-        assert settings.AWS_KMS_KEY_ARN is None
-        assert settings.AWS_KMS_ENCRYPT_KEY_ARN is None
-        assert settings.AWS_KMS_DECRYPT_KEY_ARN == "arn:aws:kms:us-east-1:123456789:key/decrypt-key"
-
-    def test_encrypt_key_only_invalid(self):
-        """Test that using only encrypt key without decrypt key is invalid."""
-
-        with pytest.raises(ValidationError) as exc_info:
-            Settings(
-                _env_file=None,
-                AWS_KMS_ENCRYPT_KEY_ARN="arn:aws:kms:us-east-1:123456789:key/encrypt-key",
-                AWS_KMS_REGION="us-east-1",
-            )
-
-        assert "AWS_KMS_ENCRYPT_KEY_ARN requires AWS_KMS_DECRYPT_KEY_ARN" in str(exc_info.value)
-
-    def test_global_with_encrypt_key_invalid(self):
-        """Test that using global key with encrypt key is invalid."""
-
-        with pytest.raises(ValidationError) as exc_info:
-            Settings(
-                _env_file=None,
-                AWS_KMS_KEY_ARN="arn:aws:kms:us-east-1:123456789:key/global-key",
-                AWS_KMS_ENCRYPT_KEY_ARN="arn:aws:kms:us-east-1:123456789:key/encrypt-key",
-                AWS_KMS_REGION="us-east-1",
-            )
-        assert "Cannot specify AWS_KMS_KEY_ARN together with" in str(exc_info.value)
-
-    def test_global_with_decrypt_key_invalid(self):
-        """Test that using global key with decrypt key is invalid."""
-
-        with pytest.raises(ValidationError) as exc_info:
-            Settings(
-                _env_file=None,
-                AWS_KMS_KEY_ARN="arn:aws:kms:us-east-1:123456789:key/global-key",
-                AWS_KMS_DECRYPT_KEY_ARN="arn:aws:kms:us-east-1:123456789:key/decrypt-key",
-                AWS_KMS_REGION="us-east-1",
-            )
-        assert "Cannot specify AWS_KMS_KEY_ARN together with" in str(exc_info.value)
-
-    def test_all_three_keys_invalid(self):
-        """Test that using all three keys is invalid."""
-
-        with pytest.raises(ValidationError) as exc_info:
-            Settings(
-                _env_file=None,
-                AWS_KMS_KEY_ARN="arn:aws:kms:us-east-1:123456789:key/global-key",
-                AWS_KMS_ENCRYPT_KEY_ARN="arn:aws:kms:us-east-1:123456789:key/encrypt-key",
-                AWS_KMS_DECRYPT_KEY_ARN="arn:aws:kms:us-east-1:123456789:key/decrypt-key",
-                AWS_KMS_REGION="us-east-1",
-            )
-        assert "Cannot specify AWS_KMS_KEY_ARN together with" in str(exc_info.value)
-
-    def test_no_keys_valid(self):
-        """Test that having no AWS keys is valid (might use different encryption method)."""
-
-        settings = Settings(_env_file=None)
-
-        assert settings.AWS_KMS_KEY_ARN is None
-        assert settings.AWS_KMS_ENCRYPT_KEY_ARN is None
-        assert settings.AWS_KMS_DECRYPT_KEY_ARN is None
-
-
-class TestEncryptionMethodValidation:
-    """Test that the validator gates encryption-method-specific env requirements."""
-
-    def test_aws_method_requires_full_aws_settings(self):
-        """Test that selecting ENCRYPTION_METHOD=aws without creds raises a validation error."""
-
-        with pytest.raises(ValidationError) as exc_info:
-            Settings(
-                _env_file=None,
-                ENCRYPTION_METHOD="aws",
-                AWS_KMS_KEY_ARN="arn:aws:kms:us-east-1:123456789:key/test",
-            )
-
-        assert "AWS KMS requires" in str(exc_info.value)
-
-    def test_aws_method_with_full_aws_settings_valid(self):
-        """Test that ENCRYPTION_METHOD=aws with all required env values constructs cleanly."""
-
-        settings = Settings(
-            _env_file=None,
-            ENCRYPTION_METHOD="aws",
-            AWS_KMS_KEY_ARN="arn:aws:kms:us-east-1:123456789:key/test",
+            ENCRYPTION_METHOD=EncryptionMethod.AWS,
+            AWS_KMS_KEY_ARN="arn:aws:kms:us-east-1:000:key/test",
             AWS_KMS_REGION="us-east-1",
             AWS_KMS_ACCESS_KEY_ID="test-access",
             AWS_KMS_SECRET_ACCESS_KEY="test-secret",
         )
 
-        assert settings.ENCRYPTION_METHOD.value == "aws"
+        assert settings.ENCRYPTION_METHOD is EncryptionMethod.AWS
 
-    def test_fernet_method_requires_encryption_key(self, monkeypatch):
-        """Test that selecting ENCRYPTION_METHOD=fernet without ENCRYPTION_KEY raises a validation error."""
+    def test_fernet_without_key_refused(self):
+        """Test that the Fernet method without an encryption key is refused."""
 
-        monkeypatch.delenv("ENCRYPTION_KEY", raising=False)
+        with pytest.raises(ValidationError, match="ENCRYPTION_KEY"):
+            Settings(ENCRYPTION_METHOD=EncryptionMethod.FERNET)
 
-        with pytest.raises(ValidationError) as exc_info:
-            Settings(_env_file=None, ENCRYPTION_METHOD="fernet")
+    def test_fernet_with_key_accepted(self):
+        """Test that the Fernet method with an encryption key is accepted."""
 
-        assert "ENCRYPTION_KEY" in str(exc_info.value)
+        settings = Settings(ENCRYPTION_METHOD=EncryptionMethod.FERNET, ENCRYPTION_KEY="test-key")
 
-    def test_fernet_method_with_encryption_key_valid(self):
-        """Test that ENCRYPTION_METHOD=fernet with ENCRYPTION_KEY constructs cleanly."""
+        assert settings.ENCRYPTION_METHOD is EncryptionMethod.FERNET
 
-        settings = Settings(
-            _env_file=None,
-            ENCRYPTION_METHOD="fernet",
-            ENCRYPTION_KEY="test-key",
-        )
+    def test_data_key_uses_at_nonce_limit_accepted(self):
+        """Test that a data key may seal as many values as random AES-GCM nonces safely allow."""
 
-        assert settings.ENCRYPTION_METHOD.value == "fernet"
+        settings = Settings(AWS_KMS_DATA_KEY_MAX_USES=AES_GCM_RANDOM_NONCE_LIMIT)
+
+        assert settings.AWS_KMS_DATA_KEY_MAX_USES == AES_GCM_RANDOM_NONCE_LIMIT
+
+    def test_data_key_uses_past_nonce_limit_refused(self):
+        """Test that a data key sealing more values than random AES-GCM nonces safely allow is refused."""
+
+        with pytest.raises(ValidationError, match="AWS_KMS_DATA_KEY_MAX_USES"):
+            Settings(AWS_KMS_DATA_KEY_MAX_USES=AES_GCM_RANDOM_NONCE_LIMIT + 1)
+
+    @pytest.mark.parametrize(
+        "setting", ["AWS_KMS_DATA_KEY_MAX_AGE_SECONDS", "AWS_KMS_UNWRAPPED_KEY_MAX_AGE_SECONDS"]
+    )
+    def test_key_lifetime_past_timer_limit_refused(self, setting: str):
+        """Test that a key lifetime longer than a timer can wait is refused rather than stopping expiry."""
+
+        with pytest.raises(ValidationError, match=setting):
+            Settings.model_validate({setting: threading.TIMEOUT_MAX * 2})

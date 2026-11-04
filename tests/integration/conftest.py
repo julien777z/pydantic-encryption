@@ -1,34 +1,27 @@
-import asyncio
 import time
+from collections.abc import AsyncIterator, Callable, Iterator
 from typing import Final
+
 import pytest
 import pytest_asyncio
-from sqlalchemy_utils import database_exists, create_database
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy import Engine
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy import Engine, select
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import NullPool
-from tests.integration.database.tables import Base
+from sqlalchemy_utils import create_database, database_exists
+
+from tests.integration.database.tables import Base, Record
 
 DATABASE_CONNECTION_MAX_TRIES: Final[int] = 10
 
 
-@pytest_asyncio.fixture(scope="session")
-def event_loop(request):
-    """Create an instance of the default event loop for each test case."""
-
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
-
-
-@pytest_asyncio.fixture(scope="session")
-def start_docker_services(docker_services):
+@pytest.fixture(scope="session")
+def start_docker_services(docker_services: object) -> None:
     """Start the Docker services."""
 
 
 @pytest.fixture(scope="session")
-def docker_setup():
+def docker_setup() -> list[str]:
     """Stop the stack before starting a new one."""
 
     return ["down -v", "up --build -d"]
@@ -38,14 +31,14 @@ def docker_setup():
 def sqlalchemy_connect_url() -> str:
     """Return the SQLAlchemy connection URL."""
 
-    return "postgresql://admin:admin123@localhost:5432/pydantic_encryption"
+    return "postgresql+psycopg2://admin:admin123@localhost:5432/pydantic_encryption"
 
 
 @pytest.fixture(scope="session")
 def async_sqlalchemy_connect_url(sqlalchemy_connect_url: str) -> str:
     """Return the asyncpg-flavoured connection URL for the same Postgres instance."""
 
-    return sqlalchemy_connect_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    return sqlalchemy_connect_url.replace("postgresql+psycopg2://", "postgresql+asyncpg://", 1)
 
 
 @pytest.fixture(scope="session")
@@ -65,49 +58,57 @@ def wait_for_database(sqlalchemy_connect_url: str) -> None:
 
 @pytest.fixture(scope="session")
 def db_session(
-    start_docker_services,
+    start_docker_services: None,
     sqlalchemy_connect_url: str,
     engine: Engine,
-    wait_for_database,
-):
-    """Create a SQLAlchemy engine."""
+    wait_for_database: None,
+) -> Iterator[Session]:
+    """Open a session against the docker-managed Postgres holding the integration tables."""
 
     if not database_exists(sqlalchemy_connect_url):
         create_database(sqlalchemy_connect_url)
 
     Base.metadata.create_all(engine)
 
-    session = sessionmaker(bind=engine)
+    session = sessionmaker(bind=engine)()
 
-    yield session()
+    yield session
 
+    session.close()
     engine.dispose()
 
 
 @pytest_asyncio.fixture
-async def async_engine(
-    db_session,
-    async_sqlalchemy_connect_url: str,
-):
-    """Create an AsyncEngine against the docker-managed Postgres.
-
-    Scoped per test with ``NullPool`` so asyncpg connections never outlive
-    the test's event loop - pytest-asyncio creates a fresh loop per test
-    under the default function scope, and a pooled connection opened on a
-    previous loop would otherwise raise "attached to a different loop" on
-    reuse. Depends on ``db_session`` so the docker stack is up and the sync
-    side has already created the schema before any async query runs.
-    """
+async def async_engine(db_session: Session, async_sqlalchemy_connect_url: str) -> AsyncIterator[AsyncEngine]:
+    """Create a per-test AsyncEngine against the docker-managed Postgres."""
 
     engine = create_async_engine(async_sqlalchemy_connect_url, poolclass=NullPool)
+
     yield engine
+
     await engine.dispose()
 
 
 @pytest_asyncio.fixture
-async def async_session(async_engine):
+async def async_session(async_engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
     """Yield a fresh AsyncSession bound to the per-test AsyncEngine."""
 
     factory = async_sessionmaker(async_engine, expire_on_commit=False)
+
     async with factory() as session:
         yield session
+
+
+@pytest.fixture
+def store_record(db_session: Session) -> Callable[[Record], Record]:
+    """Store records and return each as read back from the database."""
+
+    def _build(sample: Record) -> Record:
+        """Store one sample and read it back."""
+
+        db_session.add(sample)
+        db_session.commit()
+
+        return db_session.scalars(select(Record).where(Record.id == sample.id)).one()
+
+    return _build

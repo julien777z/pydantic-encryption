@@ -1,3 +1,4 @@
+import importlib
 from typing import TYPE_CHECKING
 
 from pydantic_encryption.adapters.base import BlindIndexAdapter, EncryptionAdapter, HashingAdapter
@@ -5,6 +6,12 @@ from pydantic_encryption.adapters.blind_index import make_blind_index
 from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
 from pydantic_encryption.adapters.hashing.argon2 import Argon2Adapter
 from pydantic_encryption.config import settings
+from pydantic_encryption.context import (
+    derive_column_context,
+    derive_declared_context,
+    derive_field_context,
+    derive_row_context,
+)
 from pydantic_encryption.models import BaseModel, SecureModel
 from pydantic_encryption.types import (
     BlindIndex,
@@ -54,7 +61,7 @@ LAZY_EXPORTS: dict[str, tuple[str, str]] = {
 }
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> object:
     """Lazy-load optional symbols (SQLAlchemy / AWS) so the package imports without those extras."""
 
     target = LAZY_EXPORTS.get(name)
@@ -62,13 +69,16 @@ def __getattr__(name: str):
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
     module_name, attr = target
-    import importlib
 
     return getattr(importlib.import_module(module_name), attr)
 
 
 __all__ = [
     "settings",
+    "derive_column_context",
+    "derive_declared_context",
+    "derive_field_context",
+    "derive_row_context",
     "BaseModel",
     "SecureModel",
     "BlindIndex",

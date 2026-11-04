@@ -1,4 +1,5 @@
 import base64
+from collections.abc import Awaitable
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from enum import StrEnum
@@ -26,32 +27,45 @@ class TypePrefix(StrEnum):
     TIMEDELTA = "timedelta"
 
 
-def encode_value(value: EncryptableValue) -> str:
+def require_encryptable(value: object) -> EncryptableValue:
+    """Return the value as one an encrypted cell can hold, refusing any other type."""
+
+    if not isinstance(value, EncryptableValue):
+        raise TypeError(f"An encrypted value cannot hold type {type(value).__name__!r}.")
+
+    return value
+
+
+def encode_value(value: object) -> str:
     """Serialize a Python value to a ``version:type:data`` string for encryption."""
 
-    match value:
+    encryptable = require_encryptable(value)
+
+    match encryptable:
         case datetime():
-            type_data = f"{TypePrefix.DATETIME}:{value.isoformat()}"
+            type_data = f"{TypePrefix.DATETIME}:{encryptable.isoformat()}"
         case date():
-            type_data = f"{TypePrefix.DATE}:{value.isoformat()}"
+            type_data = f"{TypePrefix.DATE}:{encryptable.isoformat()}"
         case time():
-            type_data = f"{TypePrefix.TIME}:{value.isoformat()}"
+            type_data = f"{TypePrefix.TIME}:{encryptable.isoformat()}"
         case timedelta():
-            type_data = f"{TypePrefix.TIMEDELTA}:{value.days},{value.seconds},{value.microseconds}"
+            type_data = (
+                f"{TypePrefix.TIMEDELTA}:{encryptable.days},{encryptable.seconds},{encryptable.microseconds}"
+            )
         case bytes():
-            type_data = f"{TypePrefix.BYTES}:{base64.b64encode(value).decode('ascii')}"
+            type_data = f"{TypePrefix.BYTES}:{base64.b64encode(encryptable).decode('ascii')}"
         case bool():
-            type_data = f"{TypePrefix.BOOL}:{str(value).lower()}"
+            type_data = f"{TypePrefix.BOOL}:{str(encryptable).lower()}"
         case int():
-            type_data = f"{TypePrefix.INT}:{value}"
+            type_data = f"{TypePrefix.INT}:{encryptable}"
         case float():
-            type_data = f"{TypePrefix.FLOAT}:{value!r}"
+            type_data = f"{TypePrefix.FLOAT}:{encryptable!r}"
         case Decimal():
-            type_data = f"{TypePrefix.DECIMAL}:{value}"
+            type_data = f"{TypePrefix.DECIMAL}:{encryptable}"
         case UUID():
-            type_data = f"{TypePrefix.UUID}:{value}"
-        case _:
-            type_data = f"{TypePrefix.STR}:{value}"
+            type_data = f"{TypePrefix.UUID}:{encryptable}"
+        case str():
+            type_data = f"{TypePrefix.STR}:{encryptable}"
 
     return f"{VERSION_PREFIX}:{type_data}"
 
@@ -94,3 +108,9 @@ def decode_value(value: str) -> EncryptableValue:
             return data
         case _:
             return data
+
+
+async def async_decode_value(value: Awaitable[str]) -> EncryptableValue:
+    """Await a decryption and deserialize its ``version:type:data`` plaintext back to its Python value."""
+
+    return decode_value(await value)

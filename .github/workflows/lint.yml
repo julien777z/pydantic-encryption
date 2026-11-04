@@ -1,0 +1,34 @@
+name: Lint
+
+on:
+  push:
+    branches:
+      - "**"
+    paths:
+      - "pydantic_encryption/**"
+      - "tests/**"
+      - "scripts/**"
+      - "pyproject.toml"
+      - "poetry.lock"
+      - ".github/workflows/lint.yml"
+      - ".github/actions/setup-python-poetry/**"
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python and Poetry
+        uses: ./.github/actions/setup-python-poetry
+        with:
+          post_setup_command: "poetry install --all-extras"
+
+      - name: Check Formatting with Black
+        run: poetry run black --check .
+
+      - name: Check Types with Pyright
+        run: poetry run pyright
