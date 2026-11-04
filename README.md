@@ -298,7 +298,7 @@ async with AsyncSession(engine) as session:
 
 ### Catching Accidental Ciphertext Access
 
-Reads go through the on-access descriptor. When the underlying cell is still an `EncryptedValue`, the descriptor prefers an async batch decrypt over the session's pending siblings (via SQLAlchemy's greenlet bridge), and transparently falls back to a synchronous decrypt either when the read happens outside a greenlet or when the instance is detached from any session. Each cell in the batch opens or fails on its own: a sibling whose cell fails stays sealed, leaves the session's batch so later reads do not retry it, and raises only when it is read itself.
+Reads go through the on-access descriptor. When the underlying cell is still an `EncryptedValue`, the descriptor prefers an async batch decrypt over the session's pending siblings (via SQLAlchemy's greenlet bridge), and transparently falls back to a synchronous decrypt either when the read happens outside a greenlet or when the instance is detached from any session. Each cell in the batch opens or fails on its own: a sibling whose cell fails stays sealed and raises only when it is read itself.
 
 An `EncryptedValue` only reaches user code if something bypasses the descriptor entirely (raw `state.dict[col]`, a logged row). Coercing it via `str(value)` / `f"{value}"` / `"%s" % value` raises `EncryptedValueAccessError`. `repr(value)` is a safe `<EncryptedValue: N bytes>` marker, and `bytes(value)` returns the raw ciphertext. Use `is_encrypted(value)` to guard at a boundary.
 

@@ -6,7 +6,7 @@ from sqlalchemy.orm import InstrumentedAttribute, object_session
 
 from pydantic_encryption.integrations.sqlalchemy.async_bridge import run_async_or_sync
 from pydantic_encryption.integrations.sqlalchemy.bulk import open_rows, open_rows_sync
-from pydantic_encryption.integrations.sqlalchemy.state import drop_pending, pending_siblings
+from pydantic_encryption.integrations.sqlalchemy.state import pending_siblings
 from pydantic_encryption.types import EncryptedValue
 
 
@@ -29,8 +29,7 @@ class DecryptOnAccessDescriptor:
     def __get__(self, instance: object | None, owner: type[object] | None = None) -> object:
         """Return the column's value, batch-decrypting it across session siblings on first read.
 
-        A row whose cell fails to open stays sealed, leaves the session's batch, and raises only when it
-        is read itself.
+        A sibling whose cell fails to open stays sealed and raises only when it is read itself.
         """
 
         if instance is None:
@@ -49,9 +48,6 @@ class DecryptOnAccessDescriptor:
             rows = {instance, *pending_siblings(session, self._cls)}
 
         failures = run_async_or_sync(open_rows, open_rows_sync, rows, self._column_key)
-
-        if session is not None:
-            drop_pending(session, self._cls, (row for row, _ in failures))
 
         for row, error in failures:
             if row is instance:

@@ -28,7 +28,6 @@ from pydantic_encryption.integrations.sqlalchemy.descriptor import DecryptOnAcce
 from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue
 from pydantic_encryption.integrations.sqlalchemy.state import (
     PENDING_DECRYPT_KEY,
-    pending_siblings,
     read_raw_cell,
 )
 from pydantic_encryption.serialization import decode_value
@@ -285,16 +284,6 @@ class TestDeferredDecryptMixin:
 
         with pytest.raises(error):
             stored_pair["first"].secret
-
-    def test_unreadable_row_leaves_batch(
-        self, sqlite_session: Session, stored_pair: dict[str, RowBoundRecord]
-    ):
-        """Test that a row whose cell fails to open in another row's batch is left out of later batches."""
-
-        sa_inspect(stored_pair["first"]).dict["secret"] = read_raw_cell(stored_pair["second"], "secret")
-
-        assert stored_pair["second"].secret == "second secret"
-        assert pending_siblings(sqlite_session, RowBoundRecord) == [stored_pair["second"]]
 
     def test_copied_row_ciphertext_refused(
         self, sqlite_session: Session, stored_pair: dict[str, RowBoundRecord]

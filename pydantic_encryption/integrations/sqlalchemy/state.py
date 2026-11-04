@@ -1,5 +1,4 @@
 import uuid
-from collections.abc import Iterable
 from typing import Any, Final, TypeVar
 from weakref import WeakSet
 
@@ -115,19 +114,8 @@ def pending_siblings(session: Session, cls: type[object]) -> list[object]:
     return [row for row in bucket.get(cls) or () if row in session]
 
 
-def drop_pending(session: Session, cls: type[object], rows: Iterable[object]) -> None:
-    """Remove rows from the pending-decrypt instances of ``cls`` bucketed in ``session``."""
-
-    bucket: dict[type[object], WeakSet[object]] = session.info.get(PENDING_DECRYPT_KEY) or {}
-    pending = bucket.get(cls)
-
-    if pending is not None:
-        pending.difference_update(rows)
-
-
 __all__ = [
     "PENDING_DECRYPT_KEY",
-    "drop_pending",
     "names_row_key",
     "pending_siblings",
     "read_raw_cell",
