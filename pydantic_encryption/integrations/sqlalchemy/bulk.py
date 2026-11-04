@@ -8,7 +8,7 @@ require_optional_dependency("sqlalchemy", "sqlalchemy")
 
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm.attributes import InstrumentedAttribute, instance_state
+from sqlalchemy.orm.attributes import InstrumentedAttribute
 
 from pydantic_encryption.adapters.base import EncryptionAdapter
 from pydantic_encryption.adapters.registry import configured_encryption_backend
@@ -86,15 +86,6 @@ def open_cells_sync(
         yield opened
 
 
-def describe_cell(row: object, key: str) -> str:
-    """Name a row's cell by its class, column and primary key, for a note on the error it raised."""
-
-    state = instance_state(row)
-    identity = state.identity if state.identity is not None else state.mapper.primary_key_from_instance(row)
-
-    return f"Cell {type(row).__name__}.{key} of the row with primary key {tuple(identity)!r}"
-
-
 def write_back(
     assignments: list[tuple[object, str, bytes, bytes]], results: Iterable[EncryptableValue | BaseException]
 ) -> list[tuple[object, Exception]]:
@@ -108,7 +99,6 @@ def write_back(
 
     for (row, key, _, _), result in zip(assignments, results):
         if isinstance(result, Exception):
-            result.add_note(describe_cell(row, key))
             failures.append((row, result))
         elif isinstance(result, BaseException):
             interruption = interruption or result
@@ -206,8 +196,8 @@ async def decrypt_values(
     """Decrypt a flat iterable of ciphertexts from one column, preserving other positions as-is.
 
     ``context`` is the column's attribute, or the name the column type was declared with, which binds
-    here as ``SQLAlchemyEncryptedValue(name)`` binds it. Every value that fails to open is raised in one
-    group, each noted with its position.
+    here as ``SQLAlchemyEncryptedValue(name)`` binds it. When any value fails to open, every failure is
+    raised in one group and nothing is returned.
     """
 
     values_list: list[ValueT | EncryptableValue] = list(values)
@@ -232,7 +222,6 @@ async def decrypt_values(
 
     for index, result in zip(indexes, await open_cells(backend, cells)):
         if isinstance(result, Exception):
-            result.add_note(f"Value at position {index}")
             failures.append(result)
         elif isinstance(result, BaseException):
             raise result

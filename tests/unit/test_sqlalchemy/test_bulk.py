@@ -100,7 +100,7 @@ class TestBulk:
         sample: SampleRecord,
         other_sample: SampleRecord,
     ):
-        """Test that a cell failing to decrypt or decode raises noted with its row, once every other cell opens."""
+        """Test that a cell failing to decrypt or decode raises, once every other cell opens."""
 
         broken = Member(id=other_sample.id, caption=unopenable())
         intact = Member.sealed(None, sample.caption, id=sample.id)
@@ -108,9 +108,7 @@ class TestBulk:
         with pytest.raises(BaseExceptionGroup) as raised:
             await call_path(asynchronous, decrypt_rows_sync, decrypt_rows, [broken, intact], "caption")
 
-        assert [(type(exc), exc.__notes__) for exc in raised.value.exceptions] == [
-            (error, [f"Cell Member.caption of the row with primary key ({other_sample.id},)"])
-        ]
+        assert [type(exc) for exc in raised.value.exceptions] == [error]
         assert isinstance(sa_inspect(broken).dict["caption"], EncryptedValue)
         assert sa_inspect(intact).dict["caption"] == sample.caption
 
@@ -170,7 +168,7 @@ class TestBulk:
         assert await decrypt_values(values, context="draft-payloads") == ["draft"]
 
     async def test_values_raise_every_failure(self):
-        """Test that every value failing to decrypt or decode is raised in one group, noted with its position."""
+        """Test that every value failing to decrypt or decode is raised in one group, in the order given."""
 
         values = [
             encrypt_through_column(Member.__table__.c.label, "first"),
@@ -184,10 +182,7 @@ class TestBulk:
         with pytest.raises(ExceptionGroup) as raised:
             await decrypt_values(values, context=Member.label)
 
-        assert [(type(exc), exc.__notes__) for exc in raised.value.exceptions] == [
-            (InvalidToken, ["Value at position 1"]),
-            (RuntimeError, ["Value at position 3"]),
-        ]
+        assert [type(exc) for exc in raised.value.exceptions] == [InvalidToken, RuntimeError]
 
     @pytest.mark.parametrize("values", [[], [None, "plain", 42]], ids=["empty", "no-ciphertext"])
     async def test_values_without_ciphertext_returned(self, values: list[object]):

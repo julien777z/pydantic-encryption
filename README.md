@@ -294,7 +294,7 @@ async with AsyncSession(engine) as session:
     await decrypt_values(ciphertexts, context=User.email)     # flat ciphertexts; preserves None positions
 ```
 
-Each helper writes back every cell that opens, then raises one `ExceptionGroup` holding every cell that failed to decrypt or decode. Each error carries a note naming its cell: the model, column and primary key for a row, or the position for `decrypt_values`.
+`decrypt_rows`, `decrypt_many` and `.decrypt()` write back every cell that opens, then raise one `ExceptionGroup` holding every cell that failed to decrypt or decode. `decrypt_values` returns nothing when any value fails: it raises the same group instead.
 
 ### Catching Accidental Ciphertext Access
 
