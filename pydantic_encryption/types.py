@@ -1,7 +1,9 @@
 from enum import Enum
-from typing import ClassVar, Self
+from types import MethodType
+from typing import ClassVar, Self, cast
 
-from pydantic import GetCoreSchemaHandler
+from pydantic import GetCoreSchemaHandler, GetJsonSchemaHandler
+from pydantic.json_schema import JsonSchemaValue
 from pydantic_core import core_schema
 
 from pydantic_encryption.normalization import NormalizationFlags, validate_normalization_flags
@@ -54,7 +56,7 @@ class HashedValue(TaggedBytes):
     """Bytes subclass representing a hashed value."""
 
 
-class _ProcessedField:
+class ProcessedField:
     """Serialize processed bytes and delegate unprocessed values to the field's serializer."""
 
     processed_type: ClassVar[type[TaggedBytes]]
@@ -84,14 +86,63 @@ class _ProcessedField:
 
         return schema
 
+    @classmethod
+    def __get_pydantic_json_schema__(
+        cls, schema: core_schema.CoreSchema, handler: GetJsonSchemaHandler
+    ) -> JsonSchemaValue:
+        """Describe the plaintext serializer's declared output."""
 
-class Encrypted(_ProcessedField):
+        if handler.mode == "serialization":
+            schema = cls.plaintext_serialization_schema(schema)
+
+        return handler(schema)
+
+    @staticmethod
+    def plaintext_serialization_schema(schema: core_schema.CoreSchema) -> core_schema.CoreSchema:
+        serialization = schema.get("serialization")
+
+        if serialization is None:
+            if (
+                schema["type"] == "function-before"
+                or schema["type"] == "function-after"
+                or schema["type"] == "function-wrap"
+            ):
+                plaintext_schema = ProcessedField.plaintext_serialization_schema(schema["schema"])
+
+                if plaintext_schema is not schema["schema"]:
+                    schema = schema.copy()
+                    schema["schema"] = plaintext_schema
+
+            return schema
+
+        if serialization["type"] != "function-wrap":
+            return schema
+
+        serializer = serialization["function"]
+        field_schema = serialization.get("schema")
+
+        if (
+            field_schema is None
+            or not isinstance(serializer, MethodType)
+            or serializer.__func__ is not ProcessedField.serialize_value.__func__
+        ):
+            return schema
+
+        field_serialization = field_schema.get("serialization")
+
+        if field_serialization is None:
+            return schema
+
+        return cast(core_schema.CoreSchema, {**schema, "serialization": field_serialization})
+
+
+class Encrypted(ProcessedField):
     """Annotation to mark fields for encryption."""
 
     processed_type = EncryptedValue
 
 
-class Hashed(_ProcessedField):
+class Hashed(ProcessedField):
     """Annotation to mark fields for hashing."""
 
     processed_type = HashedValue

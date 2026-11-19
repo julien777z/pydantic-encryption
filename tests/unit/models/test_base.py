@@ -8,7 +8,7 @@ from uuid import uuid4
 
 import pytest
 from cryptography.fernet import InvalidToken
-from pydantic import ValidationError
+from pydantic import BeforeValidator, PlainSerializer, StringConstraints, ValidationError, WithJsonSchema
 from pydantic_super_model import AnnotatedFieldInfo
 
 from pydantic_encryption import BaseModel, BlindIndex, BlindIndexMethod, Encrypted, Hashed
@@ -220,11 +220,66 @@ class TestSecureModel:
         record = MixedRecord(
             name="sample name", secret="secret data", password="secret data", lookup_index="sample"
         )
-        dumped = record.model_dump()
+        dumped = record.model_dump(warnings="error")
 
         assert dumped["secret"] == record.secret
         assert dumped["password"] == record.password
         assert b"secret data" not in (dumped["secret"], dumped["password"])
+
+    @pytest.mark.parametrize(
+        ("marker", "processed_type"),
+        [(Encrypted, EncryptedValue), (Hashed, HashedValue)],
+        ids=["encrypted", "hashed"],
+    )
+    async def test_plaintext_serializer_schema_and_processed_dumps(
+        self, sample: SampleRecord, marker: type[Encrypted] | type[Hashed], processed_type: type[bytes]
+    ):
+        """Keep the declared serializer schema and defaults alongside protected runtime values."""
+
+        plaintext = sample.caption
+        serialized_plaintext = len(plaintext)
+        serializer = PlainSerializer(len, return_type=int)
+        explicit_schema = WithJsonSchema({"type": "integer", "minimum": 0}, mode="serialization")
+
+        class SerializedRecord(BaseModel):
+            marker_last: Annotated[
+                str, serializer, marker, StringConstraints(min_length=1), BeforeValidator(str.strip)
+            ] = plaintext
+            marker_first: Annotated[str, marker, serializer] = plaintext
+            explicit_schema_field: Annotated[str, explicit_schema, serializer, marker]
+
+        validation_fields = SerializedRecord.model_json_schema(mode="validation")["properties"]
+        serialization_fields = SerializedRecord.model_json_schema(mode="serialization")["properties"]
+
+        for field in ("marker_last", "marker_first"):
+            assert validation_fields[field]["type"] == "string"
+            assert validation_fields[field]["default"] == plaintext
+            assert serialization_fields[field]["type"] == "integer"
+            assert serialization_fields[field]["default"] == serialized_plaintext
+
+        assert validation_fields["marker_last"]["minLength"] == 1
+        assert "minLength" not in serialization_fields["marker_last"]
+        assert serialization_fields["explicit_schema_field"]["minimum"] == 0
+
+        protected = SerializedRecord(explicit_schema_field=plaintext)
+
+        assert isinstance(protected.marker_last, processed_type)
+        assert isinstance(protected.marker_first, processed_type)
+        assert isinstance(protected.explicit_schema_field, processed_type)
+        assert protected.model_dump(warnings="error") == {
+            "marker_last": protected.marker_last,
+            "marker_first": len(protected.marker_first),
+            "explicit_schema_field": protected.explicit_schema_field,
+        }
+
+        with deferred_crypto():
+            unprocessed = SerializedRecord(explicit_schema_field=plaintext)
+
+        assert unprocessed.model_dump(warnings="error") == {
+            "marker_last": serialized_plaintext,
+            "marker_first": serialized_plaintext,
+            "explicit_schema_field": serialized_plaintext,
+        }
 
     @pytest.mark.parametrize(
         ("record", "data", "expected"),
@@ -488,6 +543,7 @@ class TestSecureModel:
             secret: Annotated[str, Encrypted]
 
         monkeypatch.setattr(settings, "ENCRYPTION_METHOD", None)
+
         record = DeclaredRecord(secret="secret data")
         plaintext = FernetAdapter.decrypt(
             record.secret, key=fernet_key, associated_data=record.field_context("secret")
