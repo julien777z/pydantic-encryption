@@ -51,6 +51,12 @@ jobs:
           ENCRYPTION_METHOD: "fernet"
           BLIND_INDEX_SECRET_KEY: "test-blind-index-secret-key"
 
+      - name: Set Up Python for Codecov
+        uses: actions/setup-python@v7
+        with:
+          # Codecov's PyPI parser uses PyO3 0.27.1, which supports Python through 3.14.
+          python-version: "3.14"
+
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v7
         with:
@@ -59,3 +65,4 @@ jobs:
           files: coverage.xml
           disable_search: true
           plugins: noop
+          fail_ci_if_error: true
