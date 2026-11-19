@@ -2,7 +2,7 @@ import asyncio
 import contextvars
 import sys
 from collections.abc import Coroutine, Iterable, Mapping
-from typing import ClassVar, Never, Self, cast
+from typing import ClassVar, Never, Self
 
 from pydantic import GetJsonSchemaHandler
 from pydantic.json_schema import JsonSchemaMode, JsonSchemaValue
@@ -442,28 +442,27 @@ class BaseModel(SuperModelPydanticMixin, SecureModel):
         fields = schema["fields"].copy()
 
         for name, field in fields.items():
-            if field["schema"]["type"] != "default":
-                continue
+            match field["schema"]:
+                case {"type": "default"} as field_schema:
+                    if isinstance(field_schema.get("default"), TaggedBytes):
+                        default_schema = field_schema.copy()
+                        del default_schema["default"]
+                    elif mode == "serialization":
+                        plaintext_schema = ProcessedField.plaintext_serialization_schema(
+                            field_schema["schema"]
+                        )
 
-            field_schema = cast(core_schema.WithDefaultSchema, field["schema"])
+                        if plaintext_schema is field_schema["schema"]:
+                            continue
 
-            if isinstance(field_schema.get("default"), TaggedBytes):
-                default_schema = field_schema.copy()
-                del default_schema["default"]
-            elif mode == "serialization":
-                plaintext_schema = ProcessedField.plaintext_serialization_schema(field_schema["schema"])
+                        default_schema = field_schema.copy()
+                        default_schema["schema"] = plaintext_schema
+                    else:
+                        continue
 
-                if plaintext_schema is field_schema["schema"]:
-                    continue
-
-                default_schema = field_schema.copy()
-                default_schema["schema"] = plaintext_schema
-            else:
-                continue
-
-            updated_field = field.copy()
-            updated_field["schema"] = default_schema
-            fields[name] = updated_field
+                    updated_field = field.copy()
+                    updated_field["schema"] = default_schema
+                    fields[name] = updated_field
 
         model_fields = schema.copy()
         model_fields["fields"] = fields

@@ -56,7 +56,7 @@ class HashedValue(TaggedBytes):
     """Bytes subclass representing a hashed value."""
 
 
-class _SchemaSerialization(TypedDict):
+class SchemaSerialization(TypedDict):
     """Describe the serializer slot of a Pydantic core schema."""
 
     serialization: core_schema.SerSchema | core_schema.IncExDictSerSchema | core_schema.IncExSeqSerSchema
@@ -105,6 +105,8 @@ class ProcessedField:
 
     @staticmethod
     def plaintext_serialization_schema(schema: core_schema.CoreSchema) -> core_schema.CoreSchema:
+        """Project the plaintext serializer without changing the runtime schema."""
+
         serialization = schema.get("serialization")
 
         if serialization is None:
@@ -142,7 +144,7 @@ class ProcessedField:
         schema = schema.copy()
 
         # Pydantic types serializer slots per variant. The captured schema has the same variant.
-        schema_serialization = cast(_SchemaSerialization, schema)
+        schema_serialization = cast(SchemaSerialization, schema)
         schema_serialization["serialization"] = field_serialization
 
         return schema
