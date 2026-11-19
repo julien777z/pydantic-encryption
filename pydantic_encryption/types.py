@@ -105,7 +105,7 @@ class ProcessedField:
 
     @staticmethod
     def plaintext_serialization_schema(schema: core_schema.CoreSchema) -> core_schema.CoreSchema:
-        """Project the plaintext serializer without changing the runtime schema."""
+        """Project the plaintext serializer for JSON schema generation."""
 
         serialization = schema.get("serialization")
 
