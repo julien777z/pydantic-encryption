@@ -45,13 +45,13 @@ class User(BaseModel):
 
 user = User(name="John Doe", address="123 Main St", joined_on=date(2026, 1, 2), password="secret123")
 
-print(user.name)      # "John Doe"
-print(user.address)   # encrypted bytes
-print(user.password)  # argon2 hash bytes
+print(user.name)           # "John Doe"
+print(repr(user.address))  # <EncryptedValue: ... bytes>
+print(repr(user.password))  # <HashedValue: ... bytes>
 
 user.decrypt_data()
 print(user.address)    # "123 Main St"
-print(user.joined_on)  # datetime.date(2026, 1, 2)
+print(user.joined_on)   # 2026-01-02
 ```
 
 `decrypt_data()` decrypts every `Encrypted` field in place and returns `self`, so it can be chained. A field comes back as the type it declares, so `joined_on` decrypts to a `date` rather than to the string it was serialized as.
@@ -462,10 +462,10 @@ To implement a new backend instead of replacing the per-model path, subclass one
 ## Local Development
 
 ```bash
-pip install -e ".[dev,all]"   # install with the development and optional dependencies
-pytest -v                     # run the tests
-black .                       # format
-pyright                       # check types
+poetry install --all-extras
+poetry run pytest -v
+poetry run black .
+poetry run pyright
 ```
 
-Use `poetry run pytest` in a Poetry checkout. The full suite requires Docker for its PostgreSQL integration tests.
+The full suite requires Docker for its PostgreSQL integration tests.
