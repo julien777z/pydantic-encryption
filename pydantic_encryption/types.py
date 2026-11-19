@@ -1,6 +1,6 @@
 from enum import Enum
 from types import MethodType
-from typing import ClassVar, Self, cast
+from typing import ClassVar, Self, TypedDict, cast
 
 from pydantic import GetCoreSchemaHandler, GetJsonSchemaHandler
 from pydantic.json_schema import JsonSchemaValue
@@ -54,6 +54,12 @@ class EncryptedValue(TaggedBytes):
 
 class HashedValue(TaggedBytes):
     """Bytes subclass representing a hashed value."""
+
+
+class _SchemaSerialization(TypedDict):
+    """Describe the serializer slot of a Pydantic core schema."""
+
+    serialization: core_schema.SerSchema | core_schema.IncExDictSerSchema | core_schema.IncExSeqSerSchema
 
 
 class ProcessedField:
@@ -133,7 +139,13 @@ class ProcessedField:
         if field_serialization is None:
             return schema
 
-        return cast(core_schema.CoreSchema, {**schema, "serialization": field_serialization})
+        schema = schema.copy()
+
+        # Pydantic types serializer slots per variant. The captured schema has the same variant.
+        schema_serialization = cast(_SchemaSerialization, schema)
+        schema_serialization["serialization"] = field_serialization
+
+        return schema
 
 
 class Encrypted(ProcessedField):

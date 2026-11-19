@@ -7,7 +7,6 @@ on:
     paths:
       - "pydantic_encryption/**"
       - "tests/**"
-      - "scripts/**"
       - "pyproject.toml"
       - "poetry.lock"
       - ".github/workflows/run_tests.yml"
@@ -17,7 +16,6 @@ on:
     paths:
       - "pydantic_encryption/**"
       - "tests/**"
-      - "scripts/**"
       - "pyproject.toml"
       - "poetry.lock"
       - ".github/workflows/run_tests.yml"

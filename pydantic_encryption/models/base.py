@@ -420,6 +420,8 @@ class BaseModel(SuperModelPydanticMixin, SecureModel):
     def json_schema_defaults(
         cls, schema: core_schema.CoreSchema, mode: JsonSchemaMode
     ) -> core_schema.CoreSchema:
+        """Prepare plaintext field defaults for JSON schema generation."""
+
         if (
             schema["type"] == "model"
             or schema["type"] == "function-before"
@@ -443,26 +445,30 @@ class BaseModel(SuperModelPydanticMixin, SecureModel):
             if field["schema"]["type"] != "default":
                 continue
 
-            default_schema = cast(core_schema.WithDefaultSchema, field["schema"])
+            field_schema = cast(core_schema.WithDefaultSchema, field["schema"])
 
-            if isinstance(default_schema.get("default"), TaggedBytes):
-                # Protected bytes are runtime values outside the published plaintext default contract.
-                default_schema = default_schema.copy()
+            if isinstance(field_schema.get("default"), TaggedBytes):
+                default_schema = field_schema.copy()
                 del default_schema["default"]
             elif mode == "serialization":
-                plaintext_schema = ProcessedField.plaintext_serialization_schema(default_schema["schema"])
+                plaintext_schema = ProcessedField.plaintext_serialization_schema(field_schema["schema"])
 
-                if plaintext_schema is default_schema["schema"]:
+                if plaintext_schema is field_schema["schema"]:
                     continue
 
-                default_schema = default_schema.copy()
+                default_schema = field_schema.copy()
                 default_schema["schema"] = plaintext_schema
             else:
                 continue
 
-            fields[name] = {**field, "schema": default_schema}
+            updated_field = field.copy()
+            updated_field["schema"] = default_schema
+            fields[name] = updated_field
 
-        return {**schema, "fields": fields}
+        model_fields = schema.copy()
+        model_fields["fields"] = fields
+
+        return model_fields
 
     def model_post_init(self, context: object, /) -> None:
         """Encrypt, hash, and blind-index fields once validation completes."""

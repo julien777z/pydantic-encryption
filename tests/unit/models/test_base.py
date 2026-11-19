@@ -44,7 +44,6 @@ from tests.models.records import (
 from tests.unit.utils import ASYNC_PATHS, NO_SQLALCHEMY_SCRIPT, build, decrypt, deferred_crypto
 
 
-@pytest.mark.asyncio
 class TestSecureModel:
     """Test how a model encrypts, hashes, blind-indexes and decrypts its annotated fields."""
 

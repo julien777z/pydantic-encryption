@@ -6,7 +6,6 @@ from tests.cases import INDEX_KEY
 from tests.unit.utils import ASYNC_PATHS, call_path
 
 
-@pytest.mark.asyncio
 @ASYNC_PATHS
 class TestHMACSHA256Adapter:
     """Test HMAC-SHA256 blind indexing."""
