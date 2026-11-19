@@ -468,4 +468,4 @@ black .                       # format
 pyright                       # check types
 ```
 
-The integration tier runs against a Docker-managed PostgreSQL, so Docker must be available to run the full suite.
+Use `poetry run pytest` in a Poetry checkout. The full suite requires Docker for its PostgreSQL integration tests.

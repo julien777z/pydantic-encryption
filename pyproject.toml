@@ -6,7 +6,7 @@ authors = [
     { name = "Julien Kmec", email = "me@julien.dev" },
 ]
 readme = "README.md"
-requires-python = ">=3.11,<3.15"
+requires-python = ">=3.11,<3.16"
 dependencies = [
     "pydantic>=2.13.4",
     "pydantic-settings>=2.14.2",
@@ -49,9 +49,11 @@ dev = [
     "pyright>=1.1.410",
 ]
 
+[tool.pytest.ini_options]
+asyncio_default_fixture_loop_scope = "function"
+
 [tool.black]
 line-length = 110
-target-version = ["py311", "py312", "py313", "py314"]
 
 [tool.pyright]
 include = ["pydantic_encryption"]
@@ -62,14 +64,16 @@ useLibraryCodeForTypes = false
 profile = "black"
 line_length = 110
 
-[project.scripts]
-tests = "scripts.run_tests:main"
-
 [tool.poetry]
 packages = [
     {include = "pydantic_encryption"},
-    {include = "scripts"},
 ]
+
+[tool.poetry.dependencies]
+pydantic-super-model = { git = "https://github.com/julien777z/pydantic-super-model.git", branch = "codex/python-3-15" }
+
+[tool.uv.sources]
+pydantic-super-model = { git = "https://github.com/julien777z/pydantic-super-model.git", branch = "codex/python-3-15" }
 
 [build-system]
 requires = ["poetry-core", "setuptools"]

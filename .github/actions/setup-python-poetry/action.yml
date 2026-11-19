@@ -5,11 +5,11 @@ inputs:
   python-version:
     description: Python version to use (e.g. 3.12)
     required: true
-    default: "3.12"
+    default: "3.15"
   poetry-version:
     description: Poetry version to install (use 'latest' for newest)
     required: false
-    default: "2.3.3"
+    default: "2.5.1"
   post_setup_command:
     description: Command to run after setup (e.g. 'poetry install -E dev')
     required: false

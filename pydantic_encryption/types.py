@@ -1,15 +1,10 @@
 from enum import Enum
-from typing import Self
+from typing import ClassVar, Self
+
+from pydantic import GetCoreSchemaHandler
+from pydantic_core import core_schema
 
 from pydantic_encryption.normalization import NormalizationFlags, validate_normalization_flags
-
-
-class Encrypted:
-    """Annotation to mark fields for encryption."""
-
-
-class Hashed:
-    """Annotation to mark fields for hashing."""
 
 
 class EncryptionMethod(Enum):
@@ -57,6 +52,49 @@ class EncryptedValue(TaggedBytes):
 
 class HashedValue(TaggedBytes):
     """Bytes subclass representing a hashed value."""
+
+
+class _ProcessedField:
+    """Serialize processed bytes and delegate unprocessed values to the field's serializer."""
+
+    processed_type: ClassVar[type[TaggedBytes]]
+
+    @classmethod
+    def serialize_value(
+        cls, value: object, serialize_field: core_schema.SerializerFunctionWrapHandler
+    ) -> object:
+        """Keep the processed value without applying the plaintext schema to it."""
+
+        if isinstance(value, cls.processed_type):
+            return value
+
+        return serialize_field(value)
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls, source_type: object, handler: GetCoreSchemaHandler
+    ) -> core_schema.CoreSchema:
+        """Attach serialization without changing the field's validation schema."""
+
+        field_schema = handler(source_type)
+        schema = field_schema.copy()
+        schema["serialization"] = core_schema.wrap_serializer_function_ser_schema(
+            cls.serialize_value, schema=field_schema
+        )
+
+        return schema
+
+
+class Encrypted(_ProcessedField):
+    """Annotation to mark fields for encryption."""
+
+    processed_type = EncryptedValue
+
+
+class Hashed(_ProcessedField):
+    """Annotation to mark fields for hashing."""
+
+    processed_type = HashedValue
 
 
 class BlindIndexValue(TaggedBytes):

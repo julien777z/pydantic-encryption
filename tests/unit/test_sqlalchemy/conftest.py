@@ -22,10 +22,13 @@ def sqlite_session() -> Iterator[Session]:
 
     engine = create_engine("sqlite://")
 
-    RecordBase.metadata.create_all(engine)
+    try:
+        RecordBase.metadata.create_all(engine)
 
-    with Session(engine) as open_session:
-        yield open_session
+        with Session(engine) as open_session:
+            yield open_session
+    finally:
+        engine.dispose()
 
 
 @pytest.fixture

@@ -1,3 +1,5 @@
+import subprocess
+import sys
 import textwrap
 from collections.abc import Awaitable, Callable, Iterator
 from contextlib import contextmanager
@@ -51,6 +53,21 @@ NO_SQLALCHEMY_SCRIPT: Final[str] = textwrap.dedent("""
     assert draft.dob == date(1990, 5, 4), draft.dob
     assert "sqlalchemy" not in sys.modules
     """)
+
+
+def check_in_fresh_process(check: Callable[[], None]) -> None:
+    """Run a fork check in an interpreter that has no threads from other tests."""
+
+    command = f"from {check.__module__} import {check.__name__}; {check.__name__}()"
+    completed = subprocess.run(
+        [sys.executable, "-W", "error", "-c", command],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
+
+    assert completed.returncode == 0, completed.stderr
 
 
 @contextmanager
