@@ -282,6 +282,30 @@ class TestSecureModel:
         }
 
     @pytest.mark.parametrize(
+        ("marker", "sample_field"),
+        [(Encrypted, "secret"), (Hashed, "password")],
+        ids=["encrypted", "hashed"],
+    )
+    async def test_tagged_default_omitted_from_json_schema(
+        self, sample: SampleRecord, marker: type[Encrypted] | type[Hashed], sample_field: str
+    ):
+        """Keep the runtime default while allowing both schema modes to render."""
+
+        tagged_default = getattr(sample, sample_field)
+
+        class ProtectedRecord(BaseModel):
+            protected: Annotated[str, marker] = tagged_default
+
+        for mode in ("validation", "serialization"):
+            schema = ProtectedRecord.model_json_schema(mode=mode)
+
+            assert schema["properties"]["protected"]["type"] == "string"
+            assert "default" not in schema["properties"]["protected"]
+            assert "protected" not in schema.get("required", ())
+
+        assert ProtectedRecord().model_dump(warnings="error")["protected"] is tagged_default
+
+    @pytest.mark.parametrize(
         ("record", "data", "expected"),
         [
             (EncryptedRecord, {"secret": "secret data"}, ["secret"]),

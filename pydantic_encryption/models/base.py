@@ -5,7 +5,7 @@ from collections.abc import Coroutine, Iterable, Mapping
 from typing import ClassVar, Never, Self, cast
 
 from pydantic import GetJsonSchemaHandler
-from pydantic.json_schema import JsonSchemaValue
+from pydantic.json_schema import JsonSchemaMode, JsonSchemaValue
 from pydantic_core import core_schema
 from pydantic_super_model import AnnotatedFieldInfo, SuperModelMixin, SuperModelPydanticMixin
 
@@ -409,23 +409,24 @@ class BaseModel(SuperModelPydanticMixin, SecureModel):
     def __get_pydantic_json_schema__(
         cls, schema: core_schema.CoreSchema, handler: GetJsonSchemaHandler, /
     ) -> JsonSchemaValue:
-        """Generate defaults from the serializers for plaintext field values."""
+        """Keep plaintext defaults in the generated schema."""
 
-        if handler.mode == "serialization":
-            # Pydantic reads the original field core schema when encoding a declared default.
-            schema = cls.plaintext_default_schema(schema)
+        # Pydantic reads the original field core schema when encoding a declared default.
+        schema = cls.json_schema_defaults(schema, handler.mode)
 
         return super().__get_pydantic_json_schema__(schema, handler)
 
     @classmethod
-    def plaintext_default_schema(cls, schema: core_schema.CoreSchema) -> core_schema.CoreSchema:
+    def json_schema_defaults(
+        cls, schema: core_schema.CoreSchema, mode: JsonSchemaMode
+    ) -> core_schema.CoreSchema:
         if (
             schema["type"] == "model"
             or schema["type"] == "function-before"
             or schema["type"] == "function-after"
             or schema["type"] == "function-wrap"
         ):
-            inner_schema = cls.plaintext_default_schema(schema["schema"])
+            inner_schema = cls.json_schema_defaults(schema["schema"], mode)
 
             if inner_schema is not schema["schema"]:
                 schema = schema.copy()
@@ -445,14 +446,21 @@ class BaseModel(SuperModelPydanticMixin, SecureModel):
             default_schema = cast(core_schema.WithDefaultSchema, field["schema"])
 
             if isinstance(default_schema.get("default"), TaggedBytes):
-                continue
+                # Protected bytes are runtime values outside the published plaintext default contract.
+                default_schema = default_schema.copy()
+                del default_schema["default"]
+            elif mode == "serialization":
+                plaintext_schema = ProcessedField.plaintext_serialization_schema(default_schema["schema"])
 
-            plaintext_schema = ProcessedField.plaintext_serialization_schema(default_schema["schema"])
+                if plaintext_schema is default_schema["schema"]:
+                    continue
 
-            if plaintext_schema is not default_schema["schema"]:
                 default_schema = default_schema.copy()
                 default_schema["schema"] = plaintext_schema
-                fields[name] = {**field, "schema": default_schema}
+            else:
+                continue
+
+            fields[name] = {**field, "schema": default_schema}
 
         return {**schema, "fields": fields}
 
