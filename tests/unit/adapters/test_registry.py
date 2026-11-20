@@ -8,6 +8,21 @@ from pydantic_encryption.adapters.blind_index.hmac_sha256 import HMACSHA256Adapt
 from pydantic_encryption.adapters.encryption.fernet import FernetAdapter
 from pydantic_encryption.config import settings
 from pydantic_encryption.types import BlindIndexMethod, EncryptionMethod
+from tests.unit.utils import check_in_fresh_process
+
+
+def check_registry_fork() -> None:
+    """Fork while the registry lock is held and verify the child can acquire its own lock."""
+
+    with registry.registry_lock:
+        child = os.fork()
+
+        if child == 0:
+            os._exit(0 if registry.registry_lock.acquire(blocking=False) else 1)
+
+    _, status = os.waitpid(child, 0)
+
+    assert os.waitstatus_to_exitcode(status) == 0
 
 
 class TestRegistry:
@@ -125,12 +140,4 @@ class TestRegistry:
     def test_forked_child_gets_free_lock(self):
         """Test that a child forked while the registry lock is held can still load a backend."""
 
-        with registry.registry_lock:
-            child = os.fork()
-
-            if child == 0:
-                os._exit(0 if registry.registry_lock.acquire(blocking=False) else 1)
-
-        _, status = os.waitpid(child, 0)
-
-        assert os.waitstatus_to_exitcode(status) == 0
+        check_in_fresh_process(check_registry_fork)

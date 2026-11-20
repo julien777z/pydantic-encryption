@@ -38,7 +38,6 @@ from tests.unit.test_sqlalchemy.utils import (
 from tests.unit.utils import ASYNC_PATHS, call_path
 
 
-@pytest.mark.asyncio
 class TestBulk:
     """Test the bulk paths that decrypt deferred cells across rows, values and loaded relationships."""
 

@@ -7,7 +7,6 @@ on:
     paths:
       - "pydantic_encryption/**"
       - "tests/**"
-      - "scripts/**"
       - "pyproject.toml"
       - "poetry.lock"
       - ".github/workflows/run_tests.yml"
@@ -17,7 +16,6 @@ on:
     paths:
       - "pydantic_encryption/**"
       - "tests/**"
-      - "scripts/**"
       - "pyproject.toml"
       - "poetry.lock"
       - ".github/workflows/run_tests.yml"
@@ -31,11 +29,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12", "3.13", "3.14"]
+        python-version: ["3.11", "3.12", "3.13", "3.14", "3.15"]
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Python and Poetry
         uses: ./.github/actions/setup-python-poetry
@@ -51,7 +49,18 @@ jobs:
           ENCRYPTION_METHOD: "fernet"
           BLIND_INDEX_SECRET_KEY: "test-blind-index-secret-key"
 
+      - name: Set Up Python for Codecov
+        uses: actions/setup-python@v7
+        with:
+          # Codecov's PyPI parser uses PyO3 0.27.1, which supports Python through 3.14.
+          python-version: "3.14"
+
       - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+          use_pypi: true
+          files: coverage.xml
+          disable_search: true
+          plugins: noop
+          fail_ci_if_error: true

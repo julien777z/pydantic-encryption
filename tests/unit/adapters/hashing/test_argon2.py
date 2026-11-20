@@ -6,7 +6,6 @@ from tests.cases import PLAINTEXT_IDS, PLAINTEXTS
 from tests.unit.utils import ASYNC_PATHS, call_path
 
 
-@pytest.mark.asyncio
 @ASYNC_PATHS
 class TestArgon2Adapter:
     """Test Argon2 password hashing."""

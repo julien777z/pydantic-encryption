@@ -11,7 +11,6 @@ from tests.models.kms import FakeSyncKMSClient
 from tests.unit.utils import ASYNC_PATHS, seal_values
 
 
-@pytest.mark.asyncio
 class TestDataKeyReuse:
     """Test that one KMS data key seals many values, within its use and age bounds."""
 

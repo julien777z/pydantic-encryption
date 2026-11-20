@@ -1,11 +1,8 @@
-import pytest
-
 from pydantic_encryption.adapters.blind_index.argon2 import Argon2BlindIndexAdapter
 from tests.cases import INDEX_KEY
 from tests.unit.utils import ASYNC_PATHS, call_path
 
 
-@pytest.mark.asyncio
 @ASYNC_PATHS
 class TestArgon2BlindIndexAdapter:
     """Test Argon2 blind indexing."""

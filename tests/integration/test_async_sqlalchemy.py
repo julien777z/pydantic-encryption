@@ -1,4 +1,3 @@
-import pytest
 from sqlalchemy import inspect as sa_inspect, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
@@ -13,7 +12,6 @@ from tests.integration.database import Record
 class TestIntegrationAsyncFinalizeSession:
     """Test finalize_sqlalchemy_session against a real Postgres AsyncSession."""
 
-    @pytest.mark.asyncio
     async def test_finalize_decrypts_pending_and_commits(
         self,
         async_session: AsyncSession,
@@ -41,7 +39,6 @@ class TestIntegrationAsyncFinalizeSession:
         assert PENDING_DECRYPT_KEY not in async_session.info
         assert not async_session.in_transaction()
 
-    @pytest.mark.asyncio
     async def test_finalize_is_safe_on_fresh_session(self, async_session: AsyncSession):
         """finalize_sqlalchemy_session on an untouched session commits nothing and raises nothing."""
 
@@ -52,7 +49,6 @@ class TestIntegrationAsyncFinalizeSession:
         assert not async_session.in_transaction()
         assert PENDING_DECRYPT_KEY not in async_session.info
 
-    @pytest.mark.asyncio
     async def test_finalize_descriptor_returns_cached_plaintext_after_drain(
         self,
         async_session: AsyncSession,

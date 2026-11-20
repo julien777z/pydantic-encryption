@@ -8,7 +8,6 @@ from tests.unit.test_sqlalchemy.tables import SecretRow
 from tests.unit.test_sqlalchemy.utils import RecordingAsyncSession
 
 
-@pytest.mark.asyncio
 class TestFinalizeSession:
     """Test that finalizing a session commits any open transaction, then decrypts its pending cells."""
 

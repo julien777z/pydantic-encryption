@@ -11,7 +11,6 @@ from tests.models.kms import FakeSyncKMSClient
 from tests.unit.utils import ASYNC_PATHS, call_path, seal_values
 
 
-@pytest.mark.asyncio
 class TestUnwrappedKeyCache:
     """Test that reading many values does not unwrap their data key once per value."""
 

@@ -4,6 +4,9 @@ import sys
 from collections.abc import Coroutine, Iterable, Mapping
 from typing import ClassVar, Never, Self
 
+from pydantic import GetJsonSchemaHandler
+from pydantic.json_schema import JsonSchemaMode, JsonSchemaValue
+from pydantic_core import core_schema
 from pydantic_super_model import AnnotatedFieldInfo, SuperModelMixin, SuperModelPydanticMixin
 
 from pydantic_encryption.adapters.base import BlindIndexAdapter, EncryptionAdapter
@@ -21,6 +24,8 @@ from pydantic_encryption.types import (
     EncryptedValue,
     EncryptionMethod,
     Hashed,
+    ProcessedField,
+    TaggedBytes,
 )
 
 if sys.version_info >= (3, 14):
@@ -400,10 +405,75 @@ class SecureModel(SuperModelMixin):
 class BaseModel(SuperModelPydanticMixin, SecureModel):
     """Pydantic base model with automatic encryption, hashing, and blind indexing."""
 
+    @classmethod
+    def __get_pydantic_json_schema__(
+        cls, schema: core_schema.CoreSchema, handler: GetJsonSchemaHandler, /
+    ) -> JsonSchemaValue:
+        """Keep plaintext defaults in the generated schema."""
+
+        # Pydantic reads the original field core schema when encoding a declared default.
+        schema = cls.json_schema_defaults(schema, handler.mode)
+
+        return super().__get_pydantic_json_schema__(schema, handler)
+
+    @classmethod
+    def json_schema_defaults(
+        cls, schema: core_schema.CoreSchema, mode: JsonSchemaMode
+    ) -> core_schema.CoreSchema:
+        """Prepare plaintext field defaults for JSON schema generation."""
+
+        if (
+            schema["type"] == "model"
+            or schema["type"] == "function-before"
+            or schema["type"] == "function-after"
+            or schema["type"] == "function-wrap"
+        ):
+            inner_schema = cls.json_schema_defaults(schema["schema"], mode)
+
+            if inner_schema is not schema["schema"]:
+                schema = schema.copy()
+                schema["schema"] = inner_schema
+
+            return schema
+
+        if schema["type"] != "model-fields":
+            return schema
+
+        fields = schema["fields"].copy()
+
+        for name, field in fields.items():
+            match field["schema"]:
+                case {"type": "default"} as field_schema:
+                    if isinstance(field_schema.get("default"), TaggedBytes):
+                        default_schema = field_schema.copy()
+                        del default_schema["default"]
+                    elif mode == "serialization":
+                        plaintext_schema = ProcessedField.plaintext_serialization_schema(
+                            field_schema["schema"]
+                        )
+
+                        if plaintext_schema is field_schema["schema"]:
+                            continue
+
+                        default_schema = field_schema.copy()
+                        default_schema["schema"] = plaintext_schema
+                    else:
+                        continue
+
+                    updated_field = field.copy()
+                    updated_field["schema"] = default_schema
+                    fields[name] = updated_field
+
+        model_fields = schema.copy()
+        model_fields["fields"] = fields
+
+        return model_fields
+
     def model_post_init(self, context: object, /) -> None:
         """Encrypt, hash, and blind-index fields once validation completes."""
 
         self.default_post_init()
+
         super().model_post_init(context)
 
     @classmethod

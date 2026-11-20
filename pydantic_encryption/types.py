@@ -1,15 +1,12 @@
 from enum import Enum
-from typing import Self
+from types import MethodType
+from typing import ClassVar, Self, TypedDict, cast
+
+from pydantic import GetCoreSchemaHandler, GetJsonSchemaHandler
+from pydantic.json_schema import JsonSchemaValue
+from pydantic_core import core_schema
 
 from pydantic_encryption.normalization import NormalizationFlags, validate_normalization_flags
-
-
-class Encrypted:
-    """Annotation to mark fields for encryption."""
-
-
-class Hashed:
-    """Annotation to mark fields for hashing."""
 
 
 class EncryptionMethod(Enum):
@@ -57,6 +54,112 @@ class EncryptedValue(TaggedBytes):
 
 class HashedValue(TaggedBytes):
     """Bytes subclass representing a hashed value."""
+
+
+class SchemaSerialization(TypedDict):
+    """Describe the serializer slot of a Pydantic core schema."""
+
+    serialization: core_schema.SerSchema | core_schema.IncExDictSerSchema | core_schema.IncExSeqSerSchema
+
+
+class ProcessedField:
+    """Serialize processed bytes and delegate unprocessed values to the field's serializer."""
+
+    processed_type: ClassVar[type[TaggedBytes]]
+
+    @classmethod
+    def serialize_value(
+        cls, value: object, serialize_field: core_schema.SerializerFunctionWrapHandler
+    ) -> object:
+        """Keep the processed value without applying the plaintext schema to it."""
+
+        if isinstance(value, cls.processed_type):
+            return value
+
+        return serialize_field(value)
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls, source_type: object, handler: GetCoreSchemaHandler
+    ) -> core_schema.CoreSchema:
+        """Attach serialization without changing the field's validation schema."""
+
+        field_schema = handler(source_type)
+        schema = field_schema.copy()
+        schema["serialization"] = core_schema.wrap_serializer_function_ser_schema(
+            cls.serialize_value, schema=field_schema
+        )
+
+        return schema
+
+    @classmethod
+    def __get_pydantic_json_schema__(
+        cls, schema: core_schema.CoreSchema, handler: GetJsonSchemaHandler
+    ) -> JsonSchemaValue:
+        """Describe the plaintext serializer's declared output."""
+
+        if handler.mode == "serialization":
+            schema = cls.plaintext_serialization_schema(schema)
+
+        return handler(schema)
+
+    @staticmethod
+    def plaintext_serialization_schema(schema: core_schema.CoreSchema) -> core_schema.CoreSchema:
+        """Project the plaintext serializer for JSON schema generation."""
+
+        serialization = schema.get("serialization")
+
+        if serialization is None:
+            if (
+                schema["type"] == "function-before"
+                or schema["type"] == "function-after"
+                or schema["type"] == "function-wrap"
+            ):
+                plaintext_schema = ProcessedField.plaintext_serialization_schema(schema["schema"])
+
+                if plaintext_schema is not schema["schema"]:
+                    schema = schema.copy()
+                    schema["schema"] = plaintext_schema
+
+            return schema
+
+        if serialization["type"] != "function-wrap":
+            return schema
+
+        serializer = serialization["function"]
+        field_schema = serialization.get("schema")
+
+        if (
+            field_schema is None
+            or not isinstance(serializer, MethodType)
+            or serializer.__func__ is not ProcessedField.serialize_value.__func__
+        ):
+            return schema
+
+        field_serialization = field_schema.get("serialization")
+
+        if field_serialization is None:
+            return schema
+
+        schema = schema.copy()
+
+        # Pydantic types serializer slots per variant. The captured schema has the same variant.
+        schema_serialization = cast(SchemaSerialization, schema)
+        schema_serialization["serialization"] = field_serialization
+
+        return schema
+
+
+class Encrypted(ProcessedField):
+    """Annotation to mark fields for encryption."""
+
+    processed_type = EncryptedValue
+
+
+class Hashed(ProcessedField):
+    """Annotation to mark fields for hashing."""
+
+    processed_type = HashedValue
 
 
 class BlindIndexValue(TaggedBytes):

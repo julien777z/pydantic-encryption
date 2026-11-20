@@ -9,7 +9,6 @@ from tests.cases import FOREIGN_CONTEXT, PLAINTEXT_IDS, PLAINTEXTS, SEALED_CONTE
 from tests.unit.utils import ASYNC_PATHS, call_path
 
 
-@pytest.mark.asyncio
 class TestFernetAdapter:
     """Test Fernet encryption under a key derived for each bound context."""
 

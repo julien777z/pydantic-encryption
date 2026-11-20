@@ -20,7 +20,6 @@ from tests.unit.utils import ASYNC_PATHS
 class TestSingleFlight:
     """Test that threads racing a cold cache share one KMS call between them."""
 
-    @pytest.mark.asyncio
     async def test_racing_threads_mint_one_key(self, controlled_kms: ControlledKMSClient) -> None:
         """Test that concurrent sync encrypts on a cold cache generate one key, not one each."""
 
@@ -43,7 +42,6 @@ class TestSingleFlight:
 
         assert len(controlled_kms.generate_calls) == 1
 
-    @pytest.mark.asyncio
     async def test_racing_threads_unwrap_cold_key_once(self, controlled_kms: ControlledKMSClient) -> None:
         """Test that concurrent sync decrypts of one cold data key unwrap it once, not once each."""
 
@@ -69,7 +67,6 @@ class TestSingleFlight:
         assert decrypted == [f"value-{index}" for index in range(8)]
         assert len(controlled_kms.decrypt_calls) == 1
 
-    @pytest.mark.asyncio
     async def test_failed_generation_reaches_every_waiter(
         self, controlled_kms: ControlledKMSClient, kms_failure: ClientError
     ) -> None:
@@ -99,7 +96,6 @@ class TestSingleFlight:
         assert isinstance(AWSAdapter.encrypt("secret data", associated_data=SEALED_CONTEXT), EncryptedValue)
         assert controlled_kms.calls == 2
 
-    @pytest.mark.asyncio
     async def test_distinct_cold_keys_overlap(
         self,
         controlled_kms: ControlledKMSClient,
@@ -128,7 +124,6 @@ class TestSingleFlight:
         assert controlled_kms.calls == len(values)
         assert AWSAdapter.unwrapping == {}
 
-    @pytest.mark.asyncio
     async def test_failed_unwrap_reaches_every_waiter(
         self, controlled_kms: ControlledKMSClient, kms_failure: ClientError, sample: SampleRecord
     ) -> None:
@@ -156,7 +151,6 @@ class TestSingleFlight:
         assert await AWSAdapter.async_decrypt(ciphertext, associated_data=SEALED_CONTEXT) == sample.name
         assert controlled_kms.calls == 2
 
-    @pytest.mark.asyncio
     async def test_concurrent_misses_respect_capacity(
         self,
         controlled_kms: ControlledKMSClient,
@@ -192,7 +186,6 @@ class TestSingleFlight:
         assert len(AWSAdapter.unwrapped_keys) == 1
         assert AWSAdapter.unwrapping == {}
 
-    @pytest.mark.asyncio
     async def test_cancelling_owner_keeps_shared_unwrap_alive(
         self, controlled_kms: ControlledKMSClient, sample: SampleRecord
     ) -> None:
@@ -229,7 +222,6 @@ class TestSingleFlight:
         assert controlled_kms.observed_contexts == [CALLER_CONTEXT]
         assert AWSAdapter.unwrapping == {}
 
-    @pytest.mark.asyncio
     @pytest.mark.parametrize("source", [b"", SEALED_CONTEXT], ids=["unbound", "bound"])
     @ASYNC_PATHS
     async def test_shared_unwrap_authenticates_each_callers_context(

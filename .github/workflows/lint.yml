@@ -7,7 +7,6 @@ on:
     paths:
       - "pydantic_encryption/**"
       - "tests/**"
-      - "scripts/**"
       - "pyproject.toml"
       - "poetry.lock"
       - ".github/workflows/lint.yml"
@@ -20,7 +19,7 @@ jobs:
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Python and Poetry
         uses: ./.github/actions/setup-python-poetry

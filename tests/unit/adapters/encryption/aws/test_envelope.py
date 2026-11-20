@@ -20,7 +20,6 @@ from tests.models.kms import KMS_DECRYPT_KEY_ARN, KMS_KEY_ARN, FakeSyncKMSClient
 from tests.unit.utils import ASYNC_PATHS, call_path
 
 
-@pytest.mark.asyncio
 @ASYNC_PATHS
 class TestEnvelope:
     """Test the AWS KMS envelope: its format, its context binding and the key each half names."""
