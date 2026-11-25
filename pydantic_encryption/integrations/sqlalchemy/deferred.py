@@ -39,7 +39,7 @@ def install_descriptors(mapper: Mapper[MappedT], class_: type[MappedT]) -> None:
     """Mark encrypted columns deferred and wrap their class attrs with the on-access descriptor."""
 
     if row_bound_columns(mapper):
-        require_row_key_columns(mapper)
+        require_row_key_columns(mapper.primary_key, class_.__name__)
 
     for attribute, column in mapper.columns.items():
         if not isinstance(column.type, SQLAlchemyEncryptedValue):

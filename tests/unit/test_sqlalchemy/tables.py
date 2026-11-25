@@ -217,6 +217,20 @@ class ServerKeyedRow(RecordBase, DeferredDecryptMixin):
     )
 
 
+class CompositeKeyedRow(RecordBase, DeferredDecryptMixin):
+    """Row-bound row named by three primary key columns of different types."""
+
+    __tablename__ = "composite_keyed_rows"
+    __table_args__ = {"schema": "main"}
+
+    tenant: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    slug: Mapped[str] = mapped_column(String, primary_key=True)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    secret: Mapped[str | None] = mapped_column(
+        SQLAlchemyEncryptedValue(row_bound=True), nullable=True, default=None
+    )
+
+
 class UndeferredRow(RecordBase):
     """Row-bound row that never mixes in the deferred read path."""
 
