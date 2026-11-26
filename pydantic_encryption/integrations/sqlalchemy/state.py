@@ -1,6 +1,6 @@
 import uuid
 from collections.abc import Iterable, Mapping
-from typing import Any, Final, TypeVar
+from typing import Final, TypeVar
 from weakref import WeakSet
 
 from pydantic_encryption.lazy import require_optional_dependency
@@ -46,7 +46,7 @@ def names_row_key(column_type: TypeEngine[object]) -> bool:
     return isinstance(column_type, String) and not isinstance(column_type, CHAR | NCHAR | Enum)
 
 
-def require_row_key_columns(columns: Iterable[ColumnElement[Any]], name: str) -> None:
+def require_row_key_columns(columns: Iterable[ColumnElement[object]], name: str) -> None:
     """Refuse a primary key whose values could read back in another form than the one written."""
 
     for column in columns:
@@ -59,7 +59,7 @@ def require_row_key_columns(columns: Iterable[ColumnElement[Any]], name: str) ->
             )
 
 
-def row_key_segment(column: ColumnElement[Any], value: object) -> str:
+def row_key_segment(column: ColumnElement[object], value: object) -> str:
     """Return one primary key value in the canonical form its column type reads back as."""
 
     if isinstance(column.type, Integer):
@@ -74,7 +74,7 @@ def row_key_segment(column: ColumnElement[Any], value: object) -> str:
     return value
 
 
-def named_row_key_segment(name: str, column: ColumnElement[Any], value: object) -> str:
+def named_row_key_segment(name: str, column: ColumnElement[object], value: object) -> str:
     """Return one primary key value's segment, refusing a row that has no such value yet."""
 
     if value is None:
@@ -103,7 +103,7 @@ def row_key(mapper: Mapper[MappedT], instance: MappedT) -> list[str]:
 
 
 def table_row_key(table: Table, key_values: Mapping[str, object]) -> list[str]:
-    """Return the key a table row's cells are sealed under, from its primary key values by column key."""
+    """Return a table row's key, one canonical segment per column of the table's own primary key."""
 
     columns = list(table.primary_key.columns)
 

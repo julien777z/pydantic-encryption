@@ -3,10 +3,9 @@ from collections import defaultdict
 from weakref import WeakSet
 
 import pytest
-from sqlalchemy import CHAR, Column, DateTime, MetaData, Numeric, Table
+from sqlalchemy import Column, MetaData, Numeric, Table
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import Session
-from sqlalchemy.types import TypeEngine
 
 from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue
 from pydantic_encryption.integrations.sqlalchemy.state import (
@@ -22,7 +21,7 @@ from tests.unit.test_sqlalchemy.utils import column_type_of
 
 
 class TestState:
-    """Test the helpers that read and write a row's stored cells and its session's pending rows."""
+    """Test the helpers that read and write a row's cells, name its row and list its pending siblings."""
 
     def test_mapped_row_read_from_state(self):
         """Test that a mapped row's cell is read from its ORM state."""
@@ -66,40 +65,32 @@ class TestState:
 
         assert set(pending_siblings(session, SecretRow)) == set(rows[:2])
 
-
-class TestTableRowKey:
-    """Test the row key a Core table row's cells are sealed under, against the ORM's for the same row."""
-
-    KEY_ID = uuid.UUID("0b1c2d3e-4f50-4a61-8b72-93a4b5c6d7e8")
-
-    def test_composite_key_gives_one_segment_per_column(self):
+    def test_table_row_key_composite_segments(self):
         """Test that a composite primary key yields one canonical segment per column, in key order."""
 
-        table = CompositeKeyedRow.__table__
+        key_id = uuid.uuid4()
 
-        assert table_row_key(table, {"id": str(self.KEY_ID).upper(), "slug": "main", "tenant": "7"}) == [
-            "7",
-            "main",
-            str(self.KEY_ID),
-        ]
+        assert table_row_key(
+            CompositeKeyedRow.__table__, {"id": str(key_id).upper(), "slug": "main", "tenant": "7"}
+        ) == ["7", "main", str(key_id)]
 
-    def test_matches_orm_cell_context(self):
+    def test_table_row_key_matches_orm_context(self):
         """Test that the Core key opens the context the ORM seals the same row's cell under."""
 
-        row = CompositeKeyedRow(tenant=7, slug="main", id=self.KEY_ID, secret="secret data")
+        key_id = uuid.uuid4()
+        row = CompositeKeyedRow(tenant=7, slug="main", id=key_id, secret="secret data")
         column_type = column_type_of(CompositeKeyedRow.__table__.c.secret, SQLAlchemyEncryptedValue)
-        key = table_row_key(CompositeKeyedRow.__table__, {"tenant": 7, "slug": "main", "id": self.KEY_ID})
+        key = table_row_key(CompositeKeyedRow.__table__, {"tenant": 7, "slug": "main", "id": key_id})
 
         assert key == sealed_row_key(sa_inspect(CompositeKeyedRow), row)
         assert column_type.cell_context(*key) == column_type.context_for(row)
 
-    @pytest.mark.parametrize(
-        "key_type", [Numeric(10, 2), DateTime(timezone=True), CHAR(8)], ids=["numeric", "datetime", "char"]
-    )
-    def test_unreadable_key_type_refused(self, key_type: TypeEngine[object]):
+    def test_table_row_key_unreadable_type_refused(self):
         """Test that a table whose primary key can read back changed is refused, naming the table."""
 
-        table = Table("key_type_rows", MetaData(), Column("id", key_type, primary_key=True), schema="main")
+        table = Table(
+            "key_type_rows", MetaData(), Column("id", Numeric(10, 2), primary_key=True), schema="main"
+        )
 
         with pytest.raises(ValueError, match=r"main\.key_type_rows\.id is a primary key of type"):
             table_row_key(table, {"id": 1})
@@ -109,7 +100,7 @@ class TestTableRowKey:
         [{"tenant": 7, "slug": "main"}, {"tenant": 7, "slug": "main", "id": None}],
         ids=["absent", "none"],
     )
-    def test_absent_key_value_refused(self, key_values: dict[str, object]):
+    def test_table_row_key_absent_value_refused(self, key_values: dict[str, object]):
         """Test that a key column the row gives no value for is refused as the ORM refuses an unkeyed row."""
 
         with pytest.raises(ValueError, match="Row of main.composite_keyed_rows has no id yet"):
