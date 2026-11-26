@@ -27,6 +27,8 @@ def sqlite_session() -> Iterator[Session]:
     with Session(engine) as open_session:
         yield open_session
 
+    engine.dispose()
+
 
 @pytest.fixture
 def executed_statements(sqlite_session: Session) -> list[str]:
