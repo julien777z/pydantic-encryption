@@ -1,6 +1,7 @@
 import asyncio
 import subprocess
 import sys
+import warnings
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Annotated
@@ -225,6 +226,34 @@ class TestSecureModel:
         assert dumped["secret"] == record.secret
         assert dumped["password"] == record.password
         assert b"secret data" not in (dumped["secret"], dumped["password"])
+
+    @pytest.mark.parametrize(
+        ("record", "data", "mode"),
+        [
+            (
+                ExtendedRecord,
+                {"name": "sample name", "password": "secret data", "secret": "secret data"},
+                "python",
+            ),
+            (
+                ExtendedRecord,
+                {"name": "sample name", "password": "secret data", "secret": "secret data"},
+                "json",
+            ),
+            (OptionalRecord, {"secret": "secret data"}, "python"),
+            (TextIndexedRecord, {"lookup_index": "sample"}, "python"),
+        ],
+        ids=["encrypted-and-hashed", "encrypted-and-hashed-json", "optional", "blind-index"],
+    )
+    async def test_dump_emits_no_warning(self, record: type[BaseModel], data: dict[str, str], mode: str):
+        """Test that dumping a model holding processed values emits no serializer warning."""
+
+        processed = record(**data)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+
+            processed.model_dump(mode=mode)
 
     @pytest.mark.parametrize(
         ("record", "data", "expected"),
