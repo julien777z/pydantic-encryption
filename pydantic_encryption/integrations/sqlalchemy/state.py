@@ -9,6 +9,7 @@ require_optional_dependency("sqlalchemy", "sqlalchemy")
 
 from sqlalchemy import CHAR, NCHAR, ColumnElement, Enum, Integer, String, Uuid
 from sqlalchemy import inspect as sa_inspect
+from sqlalchemy.engine import Dialect
 from sqlalchemy.orm import Mapper, Session
 from sqlalchemy.orm.attributes import instance_state, set_committed_value
 from sqlalchemy.types import TypeEngine
@@ -47,10 +48,27 @@ def names_row_key(column_type: TypeEngine[object]) -> bool:
     return isinstance(column_type, String) and not isinstance(column_type, CHAR | NCHAR | Enum)
 
 
-def require_row_key_columns(mapper: Mapper[MappedT]) -> None:
+def stores_uuid_as_text(column_type: TypeEngine[object], dialect: Dialect | None) -> bool:
+    """Return whether a UUID column of this type is stored as text, on ``dialect`` where one is given."""
+
+    if not isinstance(column_type, Uuid):
+        return False
+
+    return not column_type.native_uuid or (dialect is not None and not dialect.supports_native_uuid)
+
+
+def require_row_key_columns(mapper: Mapper[MappedT], dialect: Dialect | None) -> None:
     """Refuse a primary key whose values could read back in another form than the one written."""
 
     for column in mapper.primary_key:
+        if stores_uuid_as_text(column.type, dialect):
+            raise ValueError(
+                f"Column {column.table.fullname}.{column.name} is a UUID primary key stored as text, "
+                f"which a row-bound cell of {mapper.class_.__name__} cannot name its row by: text in "
+                "more than one spelling reads back as the same UUID. Store the key in a native UUID "
+                "column, or give the table an integer, String or Text primary key."
+            )
+
         if not names_row_key(column.type):
             raise ValueError(
                 f"Column {column.table.fullname}.{column.name} is a primary key of type {column.type!r}, "
