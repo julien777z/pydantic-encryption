@@ -131,6 +131,12 @@ class SQLAlchemyEncryptedValue(ContextBoundType[EncryptableValue]):
     def cell_context(self, *row_key: str) -> bytes:
         """Return the context the named row's cell in this column binds its ciphertext to."""
 
+        if not self.row_bound:
+            raise ValueError(
+                "This column binds every row to one context, so no row names a cell here. "
+                "Declare the column with row_bound=True to bind each row separately."
+            )
+
         return append_row_key(self.column_context(), *row_key)
 
     def context_for(self, row: object) -> bytes:
