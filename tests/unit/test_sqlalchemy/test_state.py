@@ -1,6 +1,7 @@
 from collections import defaultdict
 from weakref import WeakSet
 
+import pytest
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import Session
 
@@ -8,9 +9,10 @@ from pydantic_encryption.integrations.sqlalchemy.state import (
     PENDING_DECRYPT_KEY,
     pending_siblings,
     read_raw_cell,
+    row_key_segment,
     set_decrypted,
 )
-from tests.unit.test_sqlalchemy.tables import Organization, SecretRow, UnmappedRow
+from tests.unit.test_sqlalchemy.tables import Organization, SecretRow, ServerKeyedRow, UnmappedRow
 
 
 class TestState:
@@ -57,3 +59,10 @@ class TestState:
         session.expunge(rows[2])
 
         assert set(pending_siblings(session, SecretRow)) == set(rows[:2])
+
+    @pytest.mark.parametrize("spelling", ["7_0", "07", " 7", "+7", "-0", "7.0", "٧"])
+    def test_integer_key_refuses_other_spellings(self, spelling: str):
+        """Test that an integer key segment refuses text that is not an integer's canonical decimal form."""
+
+        with pytest.raises(ValueError, match="not an integer, nor its canonical decimal form"):
+            row_key_segment(ServerKeyedRow.__table__.c.id, spelling)

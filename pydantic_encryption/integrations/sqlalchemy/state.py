@@ -1,3 +1,4 @@
+import re
 import uuid
 from typing import Any, Final, TypeVar
 from weakref import WeakSet
@@ -15,6 +16,7 @@ from sqlalchemy.types import TypeEngine
 from pydantic_encryption.serialization import EncryptableValue
 
 PENDING_DECRYPT_KEY: Final[str] = "__pydantic_encryption_pending_decrypt__"
+CANONICAL_INTEGER_PATTERN: Final[re.Pattern[str]] = re.compile(r"0|-?[1-9][0-9]*")
 
 MappedT = TypeVar("MappedT")
 
@@ -62,7 +64,16 @@ def row_key_segment(column: ColumnElement[Any], value: object) -> str:
     """Return one primary key value in the canonical form its column type reads back as."""
 
     if isinstance(column.type, Integer):
-        return str(int(str(value)))
+        if isinstance(value, int) and not isinstance(value, bool):
+            return str(value)
+
+        if isinstance(value, str) and CANONICAL_INTEGER_PATTERN.fullmatch(value):
+            return value
+
+        raise ValueError(
+            f"Primary key {column.key} holds a {type(value).__name__} that is not an integer, "
+            "nor its canonical decimal form, so it cannot name a row."
+        )
 
     if isinstance(column.type, Uuid):
         return str(value if isinstance(value, uuid.UUID) else uuid.UUID(str(value)))
