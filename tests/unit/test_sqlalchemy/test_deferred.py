@@ -120,10 +120,17 @@ class TestDeferredDecryptMixin:
         assert len(bucket[SecretRow]) == 2
         assert set(bucket[PayloadRow]) == {payload}
 
-    def test_load_without_query_ignored(self, sqlite_session: Session):
+    @pytest.mark.parametrize(
+        ("row_class", "key"),
+        [(SecretRow, 1), (UuidKeyedRow, uuid.UUID(int=1))],
+        ids=["column-bound", "text-stored-uuid-key"],
+    )
+    def test_load_without_query_ignored(
+        self, sqlite_session: Session, row_class: type[RecordBase], key: object
+    ):
         """Test that an instance loaded outside a query, as a merge without load is, starts no bucket."""
 
-        detached = SecretRow(id=1)
+        detached = row_class(id=key)
         make_transient_to_detached(detached)
 
         sqlite_session.merge(detached, load=False)
@@ -495,6 +502,20 @@ class TestDeferredDecryptMixin:
             ValueError, match=r"main\.uuid_keyed_rows\.id is a UUID primary key stored as text"
         ):
             sqlite_session.execute(select(UuidKeyedRow)).scalars().all()
+
+    def test_text_stored_uuid_key_refused_on_refresh(self, sqlite_session: Session):
+        """Test that refreshing a stored row whose UUID key the database stores as text is refused."""
+
+        stored = UuidKeyedRow(id=uuid.uuid4())
+
+        sqlite_session.execute(insert(UuidKeyedRow.__table__).values(id=stored.id))
+        make_transient_to_detached(stored)
+        sqlite_session.add(stored)
+
+        with pytest.raises(
+            ValueError, match=r"main\.uuid_keyed_rows\.id is a UUID primary key stored as text"
+        ):
+            sqlite_session.refresh(stored)
 
     @pytest.mark.parametrize(
         ("key_type", "message"),
