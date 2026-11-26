@@ -119,7 +119,7 @@ class TestEncryptedColumnTypes:
         with pytest.raises(ValueError, match="binds each row separately"):
             SQLAlchemyEncryptedValue("records.secret", row_bound=True).bound_context()
 
-    def test_column_bound_column_refuses_row_context(self):
+    def test_row_context_needs_row_binding(self):
         """Test that a column binding every row to one context refuses a context naming a row."""
 
         column_type = column_type_of(Organization.__table__.c.secret, SQLAlchemyEncryptedValue)
