@@ -1,4 +1,5 @@
 from collections import defaultdict
+from decimal import Decimal
 from weakref import WeakSet
 
 import pytest
@@ -12,7 +13,7 @@ from pydantic_encryption.integrations.sqlalchemy.state import (
     row_key_segment,
     set_decrypted,
 )
-from tests.unit.test_sqlalchemy.tables import Organization, SecretRow, ServerKeyedRow, UnmappedRow
+from tests.unit.test_sqlalchemy.tables import KeyedTier, Organization, SecretRow, ServerKeyedRow, UnmappedRow
 
 
 class TestState:
@@ -60,9 +61,33 @@ class TestState:
 
         assert set(pending_siblings(session, SecretRow)) == set(rows[:2])
 
-    @pytest.mark.parametrize("spelling", ["7_0", "07", " 7", "+7", "-0", "7.0", "٧"])
-    def test_integer_key_refuses_other_spellings(self, spelling: str):
-        """Test that an integer key segment refuses text that is not an integer's canonical decimal form."""
+    @pytest.mark.parametrize(
+        ("value", "segment"),
+        [(7, "7"), (-7, "-7"), (0, "0"), ("7", "7"), ("-7", "-7"), (KeyedTier.GOLD, "7")],
+        ids=["int", "negative-int", "zero", "text", "negative-text", "named-int"],
+    )
+    def test_integer_key_canonical_form(self, value: int | str, segment: str):
+        """Test that an integer key, as a number or its canonical text, names its row by its decimal digits."""
+
+        assert row_key_segment(ServerKeyedRow.__table__.c.id, value) == segment
+
+    @pytest.mark.parametrize(
+        "value",
+        ["7_0", "07", " 7", "+7", "-0", "7.0", "٧", True, Decimal(7)],
+        ids=[
+            "underscore",
+            "padded",
+            "space",
+            "plus",
+            "negative-zero",
+            "fraction",
+            "other-digits",
+            "bool",
+            "decimal",
+        ],
+    )
+    def test_integer_key_refuses_other_spellings(self, value: object):
+        """Test that an integer key segment refuses whatever is not an integer or its canonical decimal form."""
 
         with pytest.raises(ValueError, match="not an integer, nor its canonical decimal form"):
-            row_key_segment(ServerKeyedRow.__table__.c.id, spelling)
+            row_key_segment(ServerKeyedRow.__table__.c.id, value)

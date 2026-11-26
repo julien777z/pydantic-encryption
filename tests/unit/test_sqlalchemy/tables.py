@@ -1,4 +1,5 @@
 import uuid
+from enum import Enum
 from functools import partial
 from typing import Self
 
@@ -203,6 +204,12 @@ class ContextKeyedRow(RecordBase, DeferredDecryptMixin):
     secret: Mapped[str | None] = mapped_column(
         SQLAlchemyEncryptedValue(row_bound=True), nullable=True, default=None
     )
+
+
+class KeyedTier(int, Enum):
+    """Integer row key whose members print as their names rather than their digits."""
+
+    GOLD = 7
 
 
 class ServerKeyedRow(RecordBase, DeferredDecryptMixin):

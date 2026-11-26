@@ -65,10 +65,10 @@ def row_key_segment(column: ColumnElement[Any], value: object) -> str:
 
     if isinstance(column.type, Integer):
         if isinstance(value, int) and not isinstance(value, bool):
-            return str(value)
+            return int.__repr__(value)
 
-        if isinstance(value, str) and CANONICAL_INTEGER_PATTERN.fullmatch(value):
-            return value
+        if isinstance(value, str) and (canonical := CANONICAL_INTEGER_PATTERN.fullmatch(value)):
+            return canonical.group()
 
         raise ValueError(
             f"Primary key {column.key} holds a {type(value).__name__} that is not an integer, "
