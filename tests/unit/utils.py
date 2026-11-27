@@ -52,6 +52,57 @@ NO_SQLALCHEMY_SCRIPT: Final[str] = textwrap.dedent("""
     assert "sqlalchemy" not in sys.modules
     """)
 
+REGISTRY_FORK_SCRIPT: Final[str] = textwrap.dedent("""
+    import os
+
+    from pydantic_encryption.adapters import registry
+
+    with registry.registry_lock:
+        child = os.fork()
+
+        if child == 0:
+            os._exit(0 if registry.registry_lock.acquire(blocking=False) else 1)
+
+    _, status = os.waitpid(child, 0)
+
+    assert os.waitstatus_to_exitcode(status) == 0
+    """)
+
+AWS_FORK_SCRIPT: Final[str] = textwrap.dedent("""
+    import os
+
+    from pydantic_encryption.adapters.encryption.aws import AWSAdapter
+    from tests.cases import SEALED_CONTEXT
+    from tests.models.kms import FakeSyncKMSClient
+
+    client = FakeSyncKMSClient()
+    AWSAdapter.kms_client = client
+
+    sealed = AWSAdapter.encrypt("secret data", associated_data=SEALED_CONTEXT)
+    AWSAdapter.decrypt(sealed, associated_data=SEALED_CONTEXT)
+
+    AWSAdapter.expiry_timer.cancel()
+    AWSAdapter.expiry_timer.join()
+
+    with AWSAdapter.cache_lock:
+        child = os.fork()
+
+        if child == 0:
+            is_fresh = (
+                AWSAdapter.cache_lock.acquire(blocking=False)
+                and AWSAdapter.kms_client is None
+                and AWSAdapter.encrypt_key is None
+                and not AWSAdapter.unwrapped_keys
+            )
+            os._exit(0 if is_fresh else 1)
+
+    _, status = os.waitpid(child, 0)
+
+    assert os.waitstatus_to_exitcode(status) == 0
+    assert AWSAdapter.kms_client is client
+    assert AWSAdapter.encrypt_key is not None
+    """)
+
 
 @contextmanager
 def deferred_crypto() -> Iterator[None]:

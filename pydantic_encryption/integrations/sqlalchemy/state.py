@@ -1,3 +1,4 @@
+import re
 import uuid
 from collections.abc import Iterable, Mapping
 from typing import Final, TypeVar
@@ -9,6 +10,7 @@ require_optional_dependency("sqlalchemy", "sqlalchemy")
 
 from sqlalchemy import CHAR, NCHAR, ColumnElement, Enum, Integer, String, Table, Uuid
 from sqlalchemy import inspect as sa_inspect
+from sqlalchemy.engine import Dialect
 from sqlalchemy.orm import Mapper, Session
 from sqlalchemy.orm.attributes import instance_state, set_committed_value
 from sqlalchemy.types import TypeEngine
@@ -16,6 +18,7 @@ from sqlalchemy.types import TypeEngine
 from pydantic_encryption.serialization import EncryptableValue
 
 PENDING_DECRYPT_KEY: Final[str] = "__pydantic_encryption_pending_decrypt__"
+CANONICAL_INTEGER_PATTERN: Final[re.Pattern[str]] = re.compile(r"0|-?[1-9][0-9]*")
 
 MappedT = TypeVar("MappedT")
 
@@ -46,10 +49,29 @@ def names_row_key(column_type: TypeEngine[object]) -> bool:
     return isinstance(column_type, String) and not isinstance(column_type, CHAR | NCHAR | Enum)
 
 
-def require_row_key_columns(columns: Iterable[ColumnElement[object]], name: str) -> None:
+def stores_uuid_as_text(column_type: TypeEngine[object], dialect: Dialect | None) -> bool:
+    """Return whether a UUID column of this type is stored as text, on ``dialect`` where one is given."""
+
+    if not isinstance(column_type, Uuid):
+        return False
+
+    return not column_type.native_uuid or (dialect is not None and not dialect.supports_native_uuid)
+
+
+def require_row_key_columns(
+    columns: Iterable[ColumnElement[object]], name: str, dialect: Dialect | None
+) -> None:
     """Refuse a primary key whose values could read back in another form than the one written."""
 
     for column in columns:
+        if stores_uuid_as_text(column.type, dialect):
+            raise ValueError(
+                f"Column {column.table.fullname}.{column.name} is a UUID primary key stored as text, "
+                f"which a row-bound cell of {name} cannot name its row by: text in "
+                "more than one spelling reads back as the same UUID. Store the key in a native UUID "
+                "column, or give the table an integer, String or Text primary key."
+            )
+
         if not names_row_key(column.type):
             raise ValueError(
                 f"Column {column.table.fullname}.{column.name} is a primary key of type {column.type!r}, "
@@ -63,7 +85,16 @@ def row_key_segment(column: ColumnElement[object], value: object) -> str:
     """Return one primary key value in the canonical form its column type reads back as."""
 
     if isinstance(column.type, Integer):
-        return str(int(str(value)))
+        if isinstance(value, int) and not isinstance(value, bool):
+            return int.__repr__(value)
+
+        if isinstance(value, str) and (canonical := CANONICAL_INTEGER_PATTERN.fullmatch(value)):
+            return canonical.group()
+
+        raise ValueError(
+            f"Primary key {column.key} holds a {type(value).__name__} that is not an integer, "
+            "nor its canonical decimal form, so it cannot name a row."
+        )
 
     if isinstance(column.type, Uuid):
         return str(value if isinstance(value, uuid.UUID) else uuid.UUID(str(value)))
@@ -107,7 +138,7 @@ def table_row_key(table: Table, key_values: Mapping[str, object]) -> list[str]:
 
     columns = list(table.primary_key.columns)
 
-    require_row_key_columns(columns, table.fullname)
+    require_row_key_columns(columns, table.fullname, None)
 
     return [named_row_key_segment(table.fullname, column, key_values.get(column.key)) for column in columns]
 

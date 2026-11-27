@@ -2,7 +2,7 @@ import uuid
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 
-from sqlalchemy import String
+from sqlalchemy import String, Uuid
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from pydantic_encryption.integrations.sqlalchemy import (
@@ -14,7 +14,7 @@ from pydantic_encryption.integrations.sqlalchemy import (
 )
 from pydantic_encryption.types import BlindIndexMethod
 
-__all__ = ["Base", "Record"]
+__all__ = ["Base", "KeyedRecord", "Record", "TextKeyedRecord"]
 
 
 class Base(DeclarativeBase):
@@ -47,3 +47,23 @@ class Record(Base, DeferredDecryptMixin):
     blind_index_note_argon2: Mapped[bytes | None] = mapped_column(
         SQLAlchemyBlindIndexValue(BlindIndexMethod.ARGON2), default=None
     )
+
+
+class KeyedRecord(Base, DeferredDecryptMixin):
+    """Record whose encrypted column binds each row to its natively stored UUID key."""
+
+    __tablename__ = "keyed_records"
+    __table_args__ = {"schema": "public"}
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    secret: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(row_bound=True), default=None)
+
+
+class TextKeyedRecord(Base, DeferredDecryptMixin):
+    """Row-bound record whose natively stored UUID key is assigned and read back as text."""
+
+    __tablename__ = "text_keyed_records"
+    __table_args__ = {"schema": "public"}
+
+    id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True)
+    secret: Mapped[str | None] = mapped_column(SQLAlchemyEncryptedValue(row_bound=True), default=None)

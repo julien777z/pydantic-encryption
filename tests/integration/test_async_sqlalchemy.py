@@ -7,7 +7,7 @@ from pydantic_encryption import finalize_sqlalchemy_session
 from pydantic_encryption.integrations.sqlalchemy.state import PENDING_DECRYPT_KEY
 from pydantic_encryption.types import EncryptedValue
 
-from tests.integration.database import Record
+from tests.integration.database import KeyedRecord, Record
 
 
 class TestIntegrationAsyncFinalizeSession:
@@ -75,3 +75,19 @@ class TestIntegrationAsyncFinalizeSession:
 
         # Accessing the descriptor did not re-open a transaction.
         assert not async_session.in_transaction()
+
+    @pytest.mark.asyncio
+    async def test_row_bound_cell_opened(self, async_session: AsyncSession, db_session: Session):
+        """Test that a row-bound cell keyed by a native UUID loads and opens through an async session."""
+
+        written = KeyedRecord(secret="sample row-bound note")
+
+        db_session.add(written)
+        db_session.commit()
+
+        result = await async_session.execute(select(KeyedRecord).where(KeyedRecord.id == written.id))
+        loaded = result.scalar_one()
+
+        await finalize_sqlalchemy_session(async_session)
+
+        assert sa_inspect(loaded).dict["secret"] == "sample row-bound note"

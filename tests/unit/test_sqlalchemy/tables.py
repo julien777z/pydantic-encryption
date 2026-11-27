@@ -1,4 +1,5 @@
 import uuid
+from enum import Enum
 from functools import partial
 from typing import Self
 
@@ -113,13 +114,19 @@ class RenamedColumnRow(RecordBase, DeferredDecryptMixin):
     )
 
 
+def make_row_key() -> str:
+    """Return a fresh random row key."""
+
+    return str(uuid.uuid4())
+
+
 class RowBoundRecord(RecordBase, DeferredDecryptMixin):
     """Row whose two encrypted columns bind each row separately."""
 
     __tablename__ = "row_bound_records"
     __table_args__ = {"schema": "main"}
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=make_row_key)
     label: Mapped[str | None] = mapped_column(String, nullable=True, default=None)
     secret: Mapped[str | None] = mapped_column(
         SQLAlchemyEncryptedValue(row_bound=True), nullable=True, default=None
@@ -135,19 +142,19 @@ class ExpressionKeyedRow(RecordBase, DeferredDecryptMixin):
     __tablename__ = "expression_keyed_rows"
     __table_args__ = {"schema": "main"}
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=func.gen_random_uuid())
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=func.gen_random_uuid())
     secret: Mapped[str | None] = mapped_column(
         SQLAlchemyEncryptedValue(row_bound=True), nullable=True, default=None
     )
 
 
-class TextUuidKeyedRow(RecordBase, DeferredDecryptMixin):
-    """Row-bound row whose UUID primary key is assigned and read back as text."""
+class UuidKeyedRow(RecordBase, DeferredDecryptMixin):
+    """Row-bound row whose UUID primary key SQLite stores as text."""
 
-    __tablename__ = "text_uuid_keyed_rows"
+    __tablename__ = "uuid_keyed_rows"
     __table_args__ = {"schema": "main"}
 
-    id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     secret: Mapped[str | None] = mapped_column(
         SQLAlchemyEncryptedValue(row_bound=True), nullable=True, default=None
     )
@@ -159,7 +166,7 @@ class PartialKeyedRow(RecordBase, DeferredDecryptMixin):
     __tablename__ = "partial_keyed_rows"
     __table_args__ = {"schema": "main"}
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=partial(uuid.uuid4))
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=partial(make_row_key))
     secret: Mapped[str | None] = mapped_column(
         SQLAlchemyEncryptedValue(row_bound=True), nullable=True, default=None
     )
@@ -168,10 +175,10 @@ class PartialKeyedRow(RecordBase, DeferredDecryptMixin):
 class KeyMaker:
     """Callable instance that makes a fresh row key each time it is called."""
 
-    def __call__(self) -> uuid.UUID:
+    def __call__(self) -> str:
         """Return a fresh random row key."""
 
-        return uuid.uuid4()
+        return make_row_key()
 
 
 class InstanceKeyedRow(RecordBase, DeferredDecryptMixin):
@@ -180,16 +187,16 @@ class InstanceKeyedRow(RecordBase, DeferredDecryptMixin):
     __tablename__ = "instance_keyed_rows"
     __table_args__ = {"schema": "main"}
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=KeyMaker())
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=KeyMaker())
     secret: Mapped[str | None] = mapped_column(
         SQLAlchemyEncryptedValue(row_bound=True), nullable=True, default=None
     )
 
 
-def key_from_label(context: DefaultExecutionContext) -> uuid.UUID:
+def key_from_label(context: DefaultExecutionContext) -> str:
     """Derive a row's key from the label its insert carries, as a context-reading default does."""
 
-    return uuid.uuid5(uuid.NAMESPACE_URL, context.get_current_parameters()["label"])
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, context.get_current_parameters()["label"]))
 
 
 class ContextKeyedRow(RecordBase, DeferredDecryptMixin):
@@ -198,11 +205,17 @@ class ContextKeyedRow(RecordBase, DeferredDecryptMixin):
     __tablename__ = "context_keyed_rows"
     __table_args__ = {"schema": "main"}
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=key_from_label)
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=key_from_label)
     label: Mapped[str | None] = mapped_column(String, nullable=True, default=None)
     secret: Mapped[str | None] = mapped_column(
         SQLAlchemyEncryptedValue(row_bound=True), nullable=True, default=None
     )
+
+
+class KeyedTier(int, Enum):
+    """Integer row key whose members print as their names rather than their digits."""
+
+    GOLD = 7
 
 
 class ServerKeyedRow(RecordBase, DeferredDecryptMixin):
@@ -237,7 +250,7 @@ class UndeferredRow(RecordBase):
     __tablename__ = "undeferred_rows"
     __table_args__ = {"schema": "main"}
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=make_row_key)
     secret: Mapped[str | None] = mapped_column(
         SQLAlchemyEncryptedValue(row_bound=True), nullable=True, default=None
     )

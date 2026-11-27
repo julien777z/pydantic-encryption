@@ -1,5 +1,6 @@
 import uuid
 from collections import defaultdict
+from decimal import Decimal
 from weakref import WeakSet
 
 import pytest
@@ -12,11 +13,19 @@ from pydantic_encryption.integrations.sqlalchemy.state import (
     PENDING_DECRYPT_KEY,
     pending_siblings,
     read_raw_cell,
+    row_key_segment,
     sealed_row_key,
     set_decrypted,
     table_row_key,
 )
-from tests.unit.test_sqlalchemy.tables import CompositeKeyedRow, Organization, SecretRow, UnmappedRow
+from tests.unit.test_sqlalchemy.tables import (
+    CompositeKeyedRow,
+    KeyedTier,
+    Organization,
+    SecretRow,
+    ServerKeyedRow,
+    UnmappedRow,
+)
 from tests.unit.test_sqlalchemy.utils import column_type_of
 
 
@@ -105,3 +114,34 @@ class TestState:
 
         with pytest.raises(ValueError, match="Row of main.composite_keyed_rows has no id yet"):
             table_row_key(CompositeKeyedRow.__table__, key_values)
+
+    @pytest.mark.parametrize(
+        ("value", "segment"),
+        [(7, "7"), (-7, "-7"), (0, "0"), ("7", "7"), ("-7", "-7"), (KeyedTier.GOLD, "7")],
+        ids=["int", "negative-int", "zero", "text", "negative-text", "named-int"],
+    )
+    def test_integer_key_canonical_form(self, value: int | str, segment: str):
+        """Test that an integer key, as a number or its canonical text, names its row by its decimal digits."""
+
+        assert row_key_segment(ServerKeyedRow.__table__.c.id, value) == segment
+
+    @pytest.mark.parametrize(
+        "value",
+        ["7_0", "07", " 7", "+7", "-0", "7.0", "٧", True, Decimal(7)],
+        ids=[
+            "underscore",
+            "padded",
+            "space",
+            "plus",
+            "negative-zero",
+            "fraction",
+            "other-digits",
+            "bool",
+            "decimal",
+        ],
+    )
+    def test_integer_key_refuses_other_spellings(self, value: object):
+        """Test that an integer key segment refuses whatever is not an integer or its canonical decimal form."""
+
+        with pytest.raises(ValueError, match="not an integer, nor its canonical decimal form"):
+            row_key_segment(ServerKeyedRow.__table__.c.id, value)
