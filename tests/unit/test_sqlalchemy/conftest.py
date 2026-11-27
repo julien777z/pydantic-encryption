@@ -2,7 +2,7 @@ from collections.abc import Iterator
 
 import pytest
 from sqlalchemy import create_engine, event
-from sqlalchemy.dialects import sqlite
+from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.engine import Dialect
 from sqlalchemy.orm import Session, configure_mappers
 
@@ -51,3 +51,10 @@ def sqlite_dialect() -> Dialect:
     """Return the SQLite dialect a column type processes values for."""
 
     return sqlite.dialect()
+
+
+@pytest.fixture
+def postgresql_dialect() -> Dialect:
+    """Return the PostgreSQL dialect, which stores a UUID natively."""
+
+    return postgresql.dialect()

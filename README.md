@@ -359,13 +359,13 @@ Each cell then binds to `schema.table.column.<primary key>`, which `derive_row_c
 
 Changing a row's primary key through the ORM keeps its row-bound cells reading: until the flush, they open under the key the row was stored with, and the flush re-seals them under the key it moves to, loaded or not. A Core or ORM bulk `update()` statement that changes the key fires no mapper events, so it re-seals nothing, and the row's cells no longer open.
 
-A Core statement, such as a migration backfill, holds a `Table` and a row's values rather than a mapped instance. `table_row_key` gives that row the key the ORM binds it to, from its primary key values by column key, and refuses the same key types and a missing key value:
+A Core statement, such as a migration backfill, holds a `Table` and a row's values rather than a mapped instance. `table_row_key` gives that row the key the ORM binds it to, from its primary key values by column key and the dialect the statement runs on, and refuses what the ORM refuses: the same key types, a UUID key stored as text, and a missing key value:
 
 ```python
 from pydantic_encryption.integrations.sqlalchemy import table_row_key
 
 secret_type = table.c.secret.type
-context = secret_type.cell_context(*table_row_key(table, {"id": row.id}))
+context = secret_type.cell_context(*table_row_key(table, {"id": row.id}, connection.dialect))
 sealed = secret_type.encrypt_cell("secret data", context=context)
 ```
 

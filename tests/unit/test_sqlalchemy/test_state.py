@@ -4,9 +4,12 @@ from decimal import Decimal
 from weakref import WeakSet
 
 import pytest
-from sqlalchemy import Column, MetaData, Numeric, Table
+from sqlalchemy import Column, MetaData, Numeric, Table, Uuid
 from sqlalchemy import inspect as sa_inspect
+from sqlalchemy.dialects import postgresql, sqlite
+from sqlalchemy.engine import Dialect
 from sqlalchemy.orm import Session
+from sqlalchemy.types import TypeEngine
 
 from pydantic_encryption.integrations.sqlalchemy.encryption import SQLAlchemyEncryptedValue
 from pydantic_encryption.integrations.sqlalchemy.state import (
@@ -74,46 +77,61 @@ class TestState:
 
         assert set(pending_siblings(session, SecretRow)) == set(rows[:2])
 
-    def test_table_row_key_composite_segments(self):
+    def test_table_row_key_composite_segments(self, postgresql_dialect: Dialect):
         """Test that a composite primary key yields one canonical segment per column, in key order."""
 
         key_id = uuid.uuid4()
 
         assert table_row_key(
-            CompositeKeyedRow.__table__, {"id": str(key_id).upper(), "slug": "main", "tenant": "7"}
+            CompositeKeyedRow.__table__,
+            {"id": str(key_id).upper(), "slug": "main", "tenant": "7"},
+            postgresql_dialect,
         ) == ["7", "main", str(key_id)]
 
-    def test_table_row_key_matches_orm_context(self):
+    def test_table_row_key_matches_orm_context(self, postgresql_dialect: Dialect):
         """Test that the Core key opens the context the ORM seals the same row's cell under."""
 
         key_id = uuid.uuid4()
         row = CompositeKeyedRow(tenant=7, slug="main", id=key_id, secret="secret data")
         column_type = column_type_of(CompositeKeyedRow.__table__.c.secret, SQLAlchemyEncryptedValue)
-        key = table_row_key(CompositeKeyedRow.__table__, {"tenant": 7, "slug": "main", "id": key_id})
+        key = table_row_key(
+            CompositeKeyedRow.__table__, {"tenant": 7, "slug": "main", "id": key_id}, postgresql_dialect
+        )
 
         assert key == sealed_row_key(sa_inspect(CompositeKeyedRow), row)
         assert column_type.cell_context(*key) == column_type.context_for(row)
 
-    def test_table_row_key_unreadable_type_refused(self):
+    @pytest.mark.parametrize(
+        ("key_type", "dialect", "refusal"),
+        [
+            (Numeric(10, 2), postgresql.dialect(), "is a primary key of type"),
+            (Uuid(native_uuid=False), postgresql.dialect(), "is a UUID primary key stored as text"),
+            (Uuid(), sqlite.dialect(), "is a UUID primary key stored as text"),
+        ],
+        ids=["numeric", "uuid-declared-as-text", "uuid-on-text-dialect"],
+    )
+    def test_table_row_key_unreadable_type_refused(
+        self, key_type: TypeEngine[object], dialect: Dialect, refusal: str
+    ):
         """Test that a table whose primary key can read back changed is refused, naming the table."""
 
-        table = Table(
-            "key_type_rows", MetaData(), Column("id", Numeric(10, 2), primary_key=True), schema="main"
-        )
+        table = Table("key_type_rows", MetaData(), Column("id", key_type, primary_key=True), schema="main")
 
-        with pytest.raises(ValueError, match=r"main\.key_type_rows\.id is a primary key of type"):
-            table_row_key(table, {"id": 1})
+        with pytest.raises(ValueError, match=rf"main\.key_type_rows\.id {refusal}"):
+            table_row_key(table, {"id": 1}, dialect)
 
     @pytest.mark.parametrize(
         "key_values",
         [{"tenant": 7, "slug": "main"}, {"tenant": 7, "slug": "main", "id": None}],
         ids=["absent", "none"],
     )
-    def test_table_row_key_absent_value_refused(self, key_values: dict[str, object]):
+    def test_table_row_key_absent_value_refused(
+        self, postgresql_dialect: Dialect, key_values: dict[str, object]
+    ):
         """Test that a key column the row gives no value for is refused as the ORM refuses an unkeyed row."""
 
         with pytest.raises(ValueError, match="Row of main.composite_keyed_rows has no id yet"):
-            table_row_key(CompositeKeyedRow.__table__, key_values)
+            table_row_key(CompositeKeyedRow.__table__, key_values, postgresql_dialect)
 
     @pytest.mark.parametrize(
         ("value", "segment"),

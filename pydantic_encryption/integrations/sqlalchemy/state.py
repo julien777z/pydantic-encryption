@@ -133,12 +133,12 @@ def row_key(mapper: Mapper[MappedT], instance: MappedT) -> list[str]:
     ]
 
 
-def table_row_key(table: Table, key_values: Mapping[str, object]) -> list[str]:
-    """Return a table row's key, one canonical segment per column of the table's own primary key."""
+def table_row_key(table: Table, key_values: Mapping[str, object], dialect: Dialect) -> list[str]:
+    """Return a table row's key on ``dialect``, one canonical segment per column of the table's own primary key."""
 
     columns = list(table.primary_key.columns)
 
-    require_row_key_columns(columns, table.fullname, None)
+    require_row_key_columns(columns, table.fullname, dialect)
 
     return [named_row_key_segment(table.fullname, column, key_values.get(column.key)) for column in columns]
 
