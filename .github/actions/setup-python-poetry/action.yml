@@ -21,12 +21,7 @@ runs:
 
     - name: Install Poetry
       shell: bash
-      run: |
-        python -m venv "$RUNNER_TEMP/poetry"
-        "$RUNNER_TEMP/poetry/bin/python" -m pip install --disable-pip-version-check poetry
-        mkdir -p "$RUNNER_TEMP/poetry-bin"
-        ln -sf "$RUNNER_TEMP/poetry/bin/poetry" "$RUNNER_TEMP/poetry-bin/poetry"
-        echo "$RUNNER_TEMP/poetry-bin" >> "$GITHUB_PATH"
+      run: python -m pip install poetry
 
     - name: Show tool versions
       shell: bash
