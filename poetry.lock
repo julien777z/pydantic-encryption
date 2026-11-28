@@ -1637,4 +1637,4 @@ sqlalchemy = ["greenlet", "sqlalchemy"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<3.16"
-content-hash = "e5c646a79a65af04ff61321f72087d6410439c0e446a69996f92f6ab966148fa"
+content-hash = "4b759d3f0c53341ff1da5c003a4b262861561b2bfc23f385ec767ebb3120448d"
