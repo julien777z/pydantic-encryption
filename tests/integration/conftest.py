@@ -1,4 +1,5 @@
 from collections.abc import AsyncIterator, Callable, Iterator
+from datetime import timedelta
 from typing import Final
 
 import pytest
@@ -12,8 +13,8 @@ from sqlalchemy_utils import create_database, database_exists
 
 from tests.integration.database.tables import Base, Record
 
-DATABASE_READY_TIMEOUT_SECONDS: Final[float] = 120.0
-DATABASE_READY_PAUSE_SECONDS: Final[float] = 1.0
+DATABASE_READY_TIMEOUT: Final[timedelta] = timedelta(seconds=120)
+DATABASE_READY_PAUSE: Final[timedelta] = timedelta(seconds=1)
 
 
 @pytest.fixture(scope="session")
@@ -43,8 +44,8 @@ def wait_for_database(docker_services: Services, sqlalchemy_connect_url: str) ->
 
     docker_services.wait_until_responsive(
         check=lambda: database_exists(sqlalchemy_connect_url),
-        timeout=DATABASE_READY_TIMEOUT_SECONDS,
-        pause=DATABASE_READY_PAUSE_SECONDS,
+        timeout=DATABASE_READY_TIMEOUT.total_seconds(),
+        pause=DATABASE_READY_PAUSE.total_seconds(),
     )
 
 
