@@ -228,22 +228,24 @@ class TestSecureModel:
         assert b"secret data" not in (dumped["secret"], dumped["password"])
 
     @pytest.mark.parametrize(
-        ("record", "expected"),
+        ("record", "data", "expected"),
         [
-            (EncryptedRecord(secret="secret data"), {"secret": "secret data"}),
-            (JoinedRecord(joined_on=date(1990, 5, 4)), {"joined_on": "1990-05-04"}),
+            (EncryptedRecord, {"secret": "secret data"}, {"secret": "secret data"}),
+            (JoinedRecord, {"joined_on": date(1990, 5, 4)}, {"joined_on": "1990-05-04"}),
         ],
         ids=["text", "date"],
     )
-    async def test_decrypted_dump_carries_plaintext(self, record: BaseModel, expected: dict[str, str]):
+    async def test_decrypted_dump_carries_plaintext(
+        self, record: type[BaseModel], data: dict[str, object], expected: dict[str, str]
+    ):
         """Test that a decrypted model dumps each field's plaintext as its declared type does."""
 
-        record.decrypt_data()
+        decrypted = record(**data).decrypt_data()
 
         with warnings.catch_warnings():
             warnings.simplefilter("error")
 
-            assert record.model_dump(mode="json") == expected
+            assert decrypted.model_dump(mode="json") == expected
 
     @pytest.mark.parametrize(
         ("record", "data", "mode"),
