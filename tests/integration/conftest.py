@@ -1,9 +1,9 @@
-import time
 from collections.abc import AsyncIterator, Callable, Iterator
 from typing import Final
 
 import pytest
 import pytest_asyncio
+from pytest_docker.plugin import Services
 from sqlalchemy import Engine, select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -12,12 +12,8 @@ from sqlalchemy_utils import create_database, database_exists
 
 from tests.integration.database.tables import Base, Record
 
-DATABASE_CONNECTION_MAX_TRIES: Final[int] = 10
-
-
-@pytest.fixture(scope="session")
-def start_docker_services(docker_services: object) -> None:
-    """Start the Docker services."""
+DATABASE_READY_TIMEOUT_SECONDS: Final[float] = 120.0
+DATABASE_READY_PAUSE_SECONDS: Final[float] = 1.0
 
 
 @pytest.fixture(scope="session")
@@ -42,23 +38,18 @@ def async_sqlalchemy_connect_url(sqlalchemy_connect_url: str) -> str:
 
 
 @pytest.fixture(scope="session")
-def wait_for_database(sqlalchemy_connect_url: str) -> None:
-    """Wait for the database to be ready."""
+def wait_for_database(docker_services: Services, sqlalchemy_connect_url: str) -> None:
+    """Start the Docker services and wait until the database accepts connections."""
 
-    tries_remaining = DATABASE_CONNECTION_MAX_TRIES
-
-    while not database_exists(sqlalchemy_connect_url):
-        tries_remaining -= 1
-
-        if not tries_remaining:
-            raise RuntimeError("Failed to connect to the database")
-
-        time.sleep(1)
+    docker_services.wait_until_responsive(
+        check=lambda: database_exists(sqlalchemy_connect_url),
+        timeout=DATABASE_READY_TIMEOUT_SECONDS,
+        pause=DATABASE_READY_PAUSE_SECONDS,
+    )
 
 
 @pytest.fixture(scope="session")
 def db_session(
-    start_docker_services: None,
     sqlalchemy_connect_url: str,
     engine: Engine,
     wait_for_database: None,
