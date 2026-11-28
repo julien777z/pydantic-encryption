@@ -349,14 +349,27 @@ A column context stops a ciphertext moving between columns. `row_bound=True` als
 secret: Mapped[bytes] = mapped_column(SQLAlchemyEncryptedValue(row_bound=True))
 ```
 
-Each cell then binds to `schema.table.column.<primary key>`, which `derive_row_context` names. A row-bound column requires four things, and says so rather than binding something weaker:
+Each cell then binds to `schema.table.column.<primary key>`, which `derive_row_context` names. A row-bound column requires five things, and says so rather than binding something weaker:
 
 - **A table that names a schema**, directly or through its `MetaData`. Without one, a row's context could read the same as a column's or another row's in a table that names one.
 - **`DeferredDecryptMixin` on the mapped class.** A column type sees only the value it is handed, never the row, so row-bound cells seal as the row is inserted or updated and open through the deferred read path, which has the instance.
 - **A primary key that exists before the insert** — one the application assigns, or one with a zero-argument client-side default such as `default=uuid.uuid4`, a `functools.partial` or a callable instance. A server-generated key, or a default that reads the insert's context, does not exist until the insert it would have to be written into.
 - **A primary key of an integer, UUID, `String` or `Text` type**, checked as the mapping is configured. The row key is the key's canonical form: an integer's digits, a UUID's lower-case hyphenated form however it was assigned, or the text as given. A key of any other type, such as `Numeric`, `DateTime` or fixed-width `CHAR`, can read back in another form than the one written, so the mapping refuses it.
+- **A UUID primary key the database stores natively**, as PostgreSQL does. Where a UUID key is stored as text — on a database with no native UUID type, such as SQLite, MySQL or Oracle, or with `native_uuid=False` — text in more than one spelling reads back as the same UUID, so row binding refuses to seal or load such a row. Give those tables an integer, `String` or `Text` key instead.
 
 Changing a row's primary key through the ORM keeps its row-bound cells reading: until the flush, they open under the key the row was stored with, and the flush re-seals them under the key it moves to, loaded or not. A Core or ORM bulk `update()` statement that changes the key fires no mapper events, so it re-seals nothing, and the row's cells no longer open.
+
+A Core statement, such as a migration backfill, holds a `Table` and a row's values rather than a mapped instance. `table_row_key` gives that row the key the ORM binds it to, from its primary key values by column key and the dialect the statement runs on, and refuses what the ORM refuses: the same key types, a UUID key stored as text, and a missing key value:
+
+```python
+from pydantic_encryption.integrations.sqlalchemy import table_row_key
+
+secret_type = table.c.secret.type
+context = secret_type.cell_context(*table_row_key(table, {"id": row.id}, connection.dialect))
+sealed = secret_type.encrypt_cell("secret data", context=context)
+```
+
+It names the row by the table's own primary key, in the table's column order. A mapped class whose mapper declares another primary key than its table's binds its rows by the mapper's key, so a cell sealed under the table's key does not open through that class.
 
 A row-bound cell written as ciphertext rather than plaintext must already open under the row it is written to. A row copied to a new key with `make_transient` still holds cells sealed for the row it came from, and nothing records that row once its identity is cleared, so the flush cannot re-seal them: it raises `ValueError` naming the column instead of storing a cell nothing could read. Read the cells before copying the row, or assign their plaintext, and the flush seals them under the new key. A row inserted again after a rollback keeps the cells its first flush sealed for it.
 

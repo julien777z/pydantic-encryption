@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import pytest
 from cryptography.fernet import InvalidToken
-from sqlalchemy import CHAR, DateTime, Numeric
+from sqlalchemy import CHAR, DateTime, Numeric, String, Uuid, insert, literal
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy import select
 from sqlalchemy.engine import Dialect
@@ -47,8 +47,9 @@ from tests.unit.test_sqlalchemy.tables import (
     RowBoundRecord,
     SecretRow,
     ServerKeyedRow,
-    TextUuidKeyedRow,
     UndeferredRow,
+    UuidKeyedRow,
+    make_row_key,
 )
 from tests.unit.test_sqlalchemy.utils import column_type_of, encrypt_for_row, encrypt_unknown_format
 
@@ -119,10 +120,17 @@ class TestDeferredDecryptMixin:
         assert len(bucket[SecretRow]) == 2
         assert set(bucket[PayloadRow]) == {payload}
 
-    def test_load_without_query_ignored(self, sqlite_session: Session):
+    @pytest.mark.parametrize(
+        ("row_class", "key"),
+        [(SecretRow, 1), (UuidKeyedRow, uuid.UUID(int=1))],
+        ids=["column-bound", "text-stored-uuid-key"],
+    )
+    def test_load_without_query_ignored(
+        self, sqlite_session: Session, row_class: type[RecordBase], key: object
+    ):
         """Test that an instance loaded outside a query, as a merge without load is, starts no bucket."""
 
-        detached = SecretRow(id=1)
+        detached = row_class(id=key)
         make_transient_to_detached(detached)
 
         sqlite_session.merge(detached, load=False)
@@ -138,7 +146,7 @@ class TestDeferredDecryptMixin:
         sqlite_session.refresh(record)
 
         cell = read_raw_cell(record, "secret")
-        context = derive_row_context("row_bound_records", "secret", str(record.id), schema="main")
+        context = derive_row_context("row_bound_records", "secret", record.id, schema="main")
         column_type = column_type_of(RowBoundRecord.__table__.c.secret, SQLAlchemyEncryptedValue)
         sqlite_session.expunge_all()
 
@@ -230,7 +238,7 @@ class TestDeferredDecryptMixin:
         if read_first:
             assert moved.secret == "secret data"
 
-        moved.id = uuid.uuid4()
+        moved.id = make_row_key()
 
         if expire_after_move:
             sqlite_session.expire(moved, ["secret"])
@@ -253,7 +261,7 @@ class TestDeferredDecryptMixin:
     ):
         """Test that a moved row's cell, and another row's, read before the flush re-seals the moved one."""
 
-        stored_pair["first"].id = uuid.uuid4()
+        stored_pair["first"].id = make_row_key()
 
         assert stored_pair[read_label].secret == f"{read_label} secret"
 
@@ -296,7 +304,8 @@ class TestDeferredDecryptMixin:
 
         sqlite_session.expunge(copied)
         make_transient(copied)
-        copied.id = uuid.uuid4()
+        copied.id = make_row_key()
+
         sqlite_session.add(copied)
 
         with pytest.raises(ValueError, match="ciphertext in secret that does not open under the row"):
@@ -311,7 +320,7 @@ class TestDeferredDecryptMixin:
         stored_pair["first"].secret = read_raw_cell(stored_pair["second"], "secret")
 
         if moved:
-            stored_pair["first"].id = uuid.uuid4()
+            stored_pair["first"].id = make_row_key()
 
         with pytest.raises(ValueError, match="ciphertext in secret that does not open under the row"):
             sqlite_session.flush()
@@ -325,7 +334,7 @@ class TestDeferredDecryptMixin:
         stored_pair["first"].secret = read_raw_cell(stored_pair["second"], "secret")
 
         if moved:
-            stored_pair["first"].id = uuid.uuid4()
+            stored_pair["first"].id = make_row_key()
 
         with (
             patch.object(FernetAdapter, "decrypt", side_effect=ConnectionError("backend unreachable")),
@@ -467,25 +476,58 @@ class TestDeferredDecryptMixin:
         with pytest.raises(error, match=message):
             sqlite_session.flush()
 
-    @pytest.mark.parametrize("spelling", [str.upper, lambda key: key.replace("-", "")], ids=["upper", "hex"])
-    def test_uuid_key_spelling_ignored(self, sqlite_session: Session, spelling):
-        """Test that a UUID key assigned in another spelling binds to the form the row reads back with."""
+    def test_text_stored_uuid_key_refused_on_write(self, sqlite_session: Session):
+        """Test that a flush refuses to seal a cell whose UUID key the database stores as text."""
 
-        key = str(uuid.uuid4())
+        sqlite_session.add(UuidKeyedRow(secret="secret data"))
 
-        sqlite_session.add(TextUuidKeyedRow(id=spelling(key), secret="secret data"))
-        sqlite_session.commit()
-        sqlite_session.expunge_all()
+        with pytest.raises(
+            ValueError, match=r"main\.uuid_keyed_rows\.id is a UUID primary key stored as text"
+        ):
+            sqlite_session.flush()
 
-        stored = sqlite_session.execute(select(TextUuidKeyedRow)).scalar_one()
+    def test_text_stored_uuid_key_refused_on_load(self, sqlite_session: Session):
+        """Test that a stored row spelling another row's UUID key, with its ciphertext, is refused on load."""
 
-        assert stored.id == key
-        assert stored.secret == "secret data"
+        table = UuidKeyedRow.__table__
+        sealed_row = UuidKeyedRow(id=uuid.uuid4())
+        copied_cell = encrypt_for_row(sealed_row, table.c.secret, "secret data")
+
+        sqlite_session.execute(insert(table).values(id=sealed_row.id, secret=copied_cell))
+        sqlite_session.execute(
+            insert(table).values(id=literal(sealed_row.id.hex.upper(), String), secret=copied_cell)
+        )
+
+        with pytest.raises(
+            ValueError, match=r"main\.uuid_keyed_rows\.id is a UUID primary key stored as text"
+        ):
+            sqlite_session.execute(select(UuidKeyedRow)).scalars().all()
+
+    def test_text_stored_uuid_key_refused_on_refresh(self, sqlite_session: Session):
+        """Test that refreshing a stored row whose UUID key the database stores as text is refused."""
+
+        stored = UuidKeyedRow(id=uuid.uuid4())
+
+        sqlite_session.execute(insert(UuidKeyedRow.__table__).values(id=stored.id))
+        make_transient_to_detached(stored)
+        sqlite_session.add(stored)
+
+        with pytest.raises(
+            ValueError, match=r"main\.uuid_keyed_rows\.id is a UUID primary key stored as text"
+        ):
+            sqlite_session.refresh(stored)
 
     @pytest.mark.parametrize(
-        "key_type", [Numeric(10, 2), DateTime(timezone=True), CHAR(8)], ids=["numeric", "datetime", "char"]
+        ("key_type", "message"),
+        [
+            (Numeric(10, 2), "is a primary key of type"),
+            (DateTime(timezone=True), "is a primary key of type"),
+            (CHAR(8), "is a primary key of type"),
+            (Uuid(native_uuid=False), "is a UUID primary key stored as text"),
+        ],
+        ids=["numeric", "datetime", "char", "text-uuid"],
     )
-    def test_unreadable_key_type_refused(self, key_type: TypeEngine[object]):
+    def test_unreadable_key_type_refused(self, key_type: TypeEngine[object], message: str):
         """Test that a row-bound mapping refuses a primary key whose values can read back changed."""
 
         class KeyTypeBase(DeclarativeBase):
@@ -503,7 +545,7 @@ class TestDeferredDecryptMixin:
             )
 
         try:
-            with pytest.raises(ValueError, match=r"main\.key_type_rows\.id is a primary key of type"):
+            with pytest.raises(ValueError, match=rf"main\.key_type_rows\.id {message}"):
                 KeyTypeBase.registry.configure()
         finally:
             KeyTypeBase.registry.dispose()

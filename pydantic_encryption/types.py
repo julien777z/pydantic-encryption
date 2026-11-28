@@ -1,15 +1,10 @@
 from enum import Enum
 from typing import Self
 
+from pydantic import GetCoreSchemaHandler, SerializerFunctionWrapHandler
+from pydantic_core.core_schema import CoreSchema, wrap_serializer_function_ser_schema
+
 from pydantic_encryption.normalization import NormalizationFlags, validate_normalization_flags
-
-
-class Encrypted:
-    """Annotation to mark fields for encryption."""
-
-
-class Hashed:
-    """Annotation to mark fields for hashing."""
 
 
 class EncryptionMethod(Enum):
@@ -43,6 +38,36 @@ class TaggedBytes(bytes):
         return f"<{type(self).__name__}: {len(self)} bytes>"
 
 
+def serialize_processed_value(value: object, handler: SerializerFunctionWrapHandler) -> object:
+    """Serialize a processed value as the bytes it holds, and any other value as its field declares."""
+
+    if isinstance(value, TaggedBytes):
+        return value
+
+    return handler(value)
+
+
+class FieldMarker:
+    """Annotation marking a field whose model replaces its value with processed bytes."""
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source_type: object, handler: GetCoreSchemaHandler) -> CoreSchema:
+        """Return the schema of the field's declared type, serializing a processed value as its bytes."""
+
+        schema = handler(source_type)
+        schema["serialization"] = wrap_serializer_function_ser_schema(serialize_processed_value)
+
+        return schema
+
+
+class Encrypted(FieldMarker):
+    """Annotation to mark fields for encryption."""
+
+
+class Hashed(FieldMarker):
+    """Annotation to mark fields for hashing."""
+
+
 class EncryptedValue(TaggedBytes):
     """Bytes subclass representing an encrypted ciphertext; ``str()`` raises to flag accidental coercion."""
 
@@ -63,7 +88,7 @@ class BlindIndexValue(TaggedBytes):
     """Bytes subclass representing a blind index value."""
 
 
-class BlindIndex:
+class BlindIndex(FieldMarker):
     """Annotation to mark fields for blind indexing."""
 
     def __init__(

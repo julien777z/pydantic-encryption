@@ -11,6 +11,7 @@ from pydantic_encryption.integrations.sqlalchemy.encryption import (
     SQLAlchemyPGEncryptedArray,
 )
 from pydantic_encryption.integrations.sqlalchemy.hashing import SQLAlchemyHashedValue
+from pydantic_encryption.integrations.sqlalchemy.state import table_row_key
 
 __all__ = [
     "DeferredDecryptMixin",
@@ -22,4 +23,5 @@ __all__ = [
     "decrypt_rows",
     "decrypt_values",
     "finalize_sqlalchemy_session",
+    "table_row_key",
 ]

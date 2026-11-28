@@ -39,7 +39,10 @@ def install_descriptors(mapper: Mapper[MappedT], class_: type[MappedT]) -> None:
     """Mark encrypted columns deferred and wrap their class attrs with the on-access descriptor."""
 
     if row_bound_columns(mapper):
-        require_row_key_columns(mapper)
+        require_row_key_columns(mapper.primary_key, class_.__name__, None)
+
+        event.listen(class_, "load", require_native_row_key)
+        event.listen(class_, "refresh", require_native_row_key)
 
     for attribute, column in mapper.columns.items():
         if not isinstance(column.type, SQLAlchemyEncryptedValue):
@@ -141,6 +144,8 @@ def seal_row_bound_cells(
     if not columns:
         return
 
+    require_row_key_columns(mapper.primary_key, mapper.class_.__name__, connection.dialect)
+
     assign_client_side_primary_key(mapper, target)
 
     state = instance_state(target)
@@ -204,6 +209,23 @@ def reencrypt_changed_row_bound_cells(
     """Seal the row-bound cells an update assigns, or every one where the row's primary key moves."""
 
     seal_row_bound_cells(mapper, connection, target, updating=True)
+
+
+def require_native_row_key(
+    instance: object, context: QueryContext | None, attrs: Iterable[str] | None = None
+) -> None:
+    """Refuse a row-bound row loaded or refreshed from a database that stores its UUID primary key as text."""
+
+    if context is None:
+        return
+
+    mapper = instance_state(instance).mapper
+
+    require_row_key_columns(
+        mapper.primary_key,
+        mapper.class_.__name__,
+        context.session.get_bind(**context.bind_arguments).dialect,
+    )
 
 
 def on_orm_load(instance: object, context: QueryContext | None) -> None:

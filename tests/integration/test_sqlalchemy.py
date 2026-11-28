@@ -4,11 +4,14 @@ from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 
 import pytest
+from cryptography.fernet import InvalidToken
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from pydantic_encryption.integrations.sqlalchemy.state import read_raw_cell
 from pydantic_encryption.types import BlindIndexValue, HashedValue
-from tests.integration.database import Record
+from tests.integration.database import KeyedRecord, Record, TextKeyedRecord
 from tests.models.records import SampleRecord
 
 
@@ -138,3 +141,47 @@ class TestIntegrationSQLAlchemy:
 
         assert first.blind_index_note == same.blind_index_note
         assert first.blind_index_note != different.blind_index_note
+
+    def test_row_bound_cell_follows_native_uuid_key(self, db_session: Session, sample: SampleRecord):
+        """Test that a cell bound to a native UUID key reads from its own row and is refused from another."""
+
+        first = KeyedRecord(secret=sample.label)
+        second = KeyedRecord(secret=sample.caption)
+
+        db_session.add_all([first, second])
+        db_session.commit()
+
+        first_id, second_id = first.id, second.id
+
+        db_session.expunge(first)
+        db_session.expunge(second)
+
+        stored_first = db_session.get_one(KeyedRecord, first_id)
+        stored_second = db_session.get_one(KeyedRecord, second_id)
+        moved_cell = read_raw_cell(stored_second, "secret")
+
+        assert stored_first.secret == sample.label
+
+        sa_inspect(stored_first).dict["secret"] = moved_cell
+
+        with pytest.raises(InvalidToken):
+            stored_first.secret
+
+    @pytest.mark.parametrize("spelling", [str.upper, lambda key: key.replace("-", "")], ids=["upper", "hex"])
+    def test_uuid_key_spelling_ignored(
+        self, db_session: Session, sample: SampleRecord, spelling: Callable[[str], str]
+    ):
+        """Test that a UUID key assigned in another spelling binds to the form the row reads back with."""
+
+        key = str(uuid.uuid4())
+        written = TextKeyedRecord(id=spelling(key), secret=sample.label)
+
+        db_session.add(written)
+        db_session.commit()
+
+        db_session.expunge(written)
+
+        stored = db_session.get_one(TextKeyedRecord, key)
+
+        assert stored.id == key
+        assert stored.secret == sample.label

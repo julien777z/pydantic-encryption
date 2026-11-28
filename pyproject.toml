@@ -6,11 +6,11 @@ authors = [
     { name = "Julien Kmec", email = "me@julien.dev" },
 ]
 readme = "README.md"
-requires-python = ">=3.11,<3.15"
+requires-python = ">=3.11,<3.16"
 dependencies = [
-    "pydantic>=2.13.4",
+    "pydantic>=2.14.0",
     "pydantic-settings>=2.14.2",
-    "pydantic-super-model>=2.0.0",
+    "pydantic-super-model>=2.2.0",
     "cryptography>=44.0.0",
     "argon2-cffi>=25.1.0",
 ]
@@ -24,17 +24,17 @@ aws = [
 ]
 sqlalchemy = [
     "sqlalchemy>=2.0.51",
-    "greenlet>=3.0.0",
+    "greenlet>=3.5.6",
 ]
 all = [
     "boto3>=1.40.46",
     "sqlalchemy>=2.0.51",
-    "greenlet>=3.0.0",
+    "greenlet>=3.5.6",
 ]
 dev = [
     "black>=26.5.1,<27",
     "sqlalchemy>=2.0.51",
-    "greenlet>=3.0.0",
+    "greenlet>=3.5.6",
     "pytest>=9.1.1",
     "coverage>=7.15.0",
     "pytest-env>=1.1.5",
@@ -43,15 +43,14 @@ dev = [
     "pytest-cov>=7.1.0",
     "pytest-sqlalchemy>=0.3.0",
     "sqlalchemy-utils>=0.42.1",
-    "psycopg2-binary>=2.9.12",
-    "asyncpg>=0.31.0",
+    "psycopg2-binary>=2.9.13",
+    "asyncpg>=0.32.0",
     "polyfactory>=3.3.0",
     "pyright>=1.1.410",
 ]
 
 [tool.black]
 line-length = 110
-target-version = ["py311", "py312", "py313", "py314"]
 
 [tool.pyright]
 include = ["pydantic_encryption"]
