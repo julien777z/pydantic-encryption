@@ -236,7 +236,7 @@ class TestSecureModel:
         ids=["text", "date"],
     )
     async def test_decrypted_dump_carries_plaintext(
-        self, record: type[BaseModel], data: dict[str, object], expected: dict[str, str]
+        self, record: type[BaseModel], data: dict[str, str | date], expected: dict[str, str]
     ):
         """Test that a decrypted model dumps each field's plaintext as its declared type does."""
 
